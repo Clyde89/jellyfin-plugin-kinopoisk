@@ -83,10 +83,13 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          find src \
-            -type f \
-            -path '*/bin/Release/*' \
-            -name '*.dll' \
-            -print0 \
-          | sort -z \
-          | xargs -0 --no-run-if-empty sha256sum
+          output_dir="src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0"
+          plugin_dll="${output_dir}/Jellyfin.Plugin.Kinopoisk.dll"
+          api_client_dll="${output_dir}/KinopoiskUnofficialInfo.ApiClient.dll"
+
+          test -f "$plugin_dll"
+          test -f "$api_client_dll"
+
+          sha256sum \
+            "$plugin_dll" \
+            "$api_client_dll"
