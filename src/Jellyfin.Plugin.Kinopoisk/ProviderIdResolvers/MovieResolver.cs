@@ -61,23 +61,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             if (possibleResult.IsSuccess)
                 return possibleResult;
 
-            // TODO: Maybe check type?
-
-            if (0 < candidates_by_year.Count)
-            {
-                var kinopoiskId = candidates_by_year.First().FilmId;
-                _logger.LogDebug($"All other checks failed, use first result by year, setting KinopoiskProviderId to {kinopoiskId} ({info.Name})");
-                return (true, kinopoiskId);
-            }
-
-            if (0 < candidates.Length)
-            {
-                var kinopoiskId = candidates.First().FilmId;
-                _logger.LogDebug($"All other checks failed, use first result, setting KinopoiskProviderId to {kinopoiskId} ({info.Name})");
-                return (true, kinopoiskId);
-            }
-
-            _logger.LogDebug($"Suitable result not found");
+            _logger.LogDebug($"Однозначное совпадение не найдено, автоматическое сопоставление отклонено ({info.Name})");
             return (false, 0);
         }
 
