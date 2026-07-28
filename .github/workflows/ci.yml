@@ -1,0 +1,81 @@
+name: Проверка сборки
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Сборка и тесты
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Проверена версия .NET SDK
+        run: dotnet --info
+
+      - name: Восстановлены зависимости плагина
+        run: >-
+          dotnet restore
+          src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+
+      - name: Восстановлены зависимости тестов
+        run: >-
+          dotnet restore
+          src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+
+      - name: Собран плагин
+        run: >-
+          dotnet build
+          src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Выполнены тесты
+        run: >-
+          dotnet test
+          src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Рассчитаны контрольные суммы
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          find src \
+            -type f \
+            -path '*/bin/Release/*' \
+            -name '*.dll' \
+            -print0 \
+          | sort -z \
+          | xargs -0 --no-run-if-empty sha256sum
