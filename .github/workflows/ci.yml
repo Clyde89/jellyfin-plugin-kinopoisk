@@ -39,7 +39,18 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Проверена версия .NET SDK
-        run: dotnet --info
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          dotnet --info
+
+          sdk_version="$(dotnet --version)"
+
+          if [[ "$sdk_version" != 9.0.* ]]; then
+            echo "Ожидался .NET SDK 9.0.x, получен ${sdk_version}." >&2
+            exit 1
+          fi
 
       - name: Восстановлены зависимости плагина
         run: >-
