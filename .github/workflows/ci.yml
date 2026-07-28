@@ -95,3 +95,16 @@ jobs:
           sha256sum \
             "$plugin_dll" \
             "$api_client_dll"
+
+      - name: Опубликована тестовая сборка
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kinopoisk-plugin-${{ github.sha }}
+          path: |
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.pdb
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.pdb
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
