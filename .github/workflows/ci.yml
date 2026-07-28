@@ -59,10 +59,15 @@ jobs:
           dotnet restore
           src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
 
-      - name: Восстановлены зависимости тестов
+      - name: Восстановлены зависимости тестов API
         run: >-
           dotnet restore
           src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+
+      - name: Восстановлены зависимости тестов плагина
+        run: >-
+          dotnet restore
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
 
       - name: Собран плагин
         run: >-
@@ -72,10 +77,18 @@ jobs:
           --no-restore
           --verbosity normal
 
-      - name: Выполнены тесты
+      - name: Выполнены тесты API
         run: >-
           dotnet test
           src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Выполнены тесты плагина
+        run: >-
+          dotnet test
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
           --configuration Release
           --no-restore
           --verbosity normal
