@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         public async Task ShouldResolveStoredKinopoiskIdWithoutSearch()
         {
             var apiClient = new FakeKinopoiskApiClient();
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo();
             info.SetProviderId(Constants.ProviderId, "430");
 
@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         public async Task ShouldResolveKinopoiskIdFromPathWithoutSearch()
         {
             var apiClient = new FakeKinopoiskApiClient();
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
             {
                 Name = "Шрэк",
@@ -56,7 +56,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     CreateCandidate(430, "Шрэк", "Shrek", "2001"),
                     CreateCandidate(5273, "Шрэк 2", "Shrek 2", "2004"))
             };
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
             {
                 Name = "Шрэк",
@@ -82,7 +82,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             apiClient.Films[100] = CreateFilm(100, "tt0000100", "Тест");
             apiClient.Films[430] = CreateFilm(430, "tt0126029", "Шрэк");
 
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
             {
                 Name = "Шрэк",
@@ -107,7 +107,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     CreateCandidate(100, "Тест", "Test", "2001"),
                     CreateCandidate(430, "Шрэк", "Shrek", "2001"))
             };
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
             {
                 Name = "Шрэк",
@@ -129,7 +129,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     CreateCandidate(430, "Шрэк", "Shrek", "2001"),
                     CreateCandidate(5273, "Шрэк 2", "Shrek 2", "2004"))
             };
-            var resolver = CreateResolver(apiClient);
+            var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
             {
                 Name = "Шрэк"
@@ -141,11 +141,104 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(0, result.ProviderId);
         }
 
-        private static VideoResolver<MovieInfo> CreateResolver(IKinopoiskApiClient apiClient)
+        [Fact]
+        public async Task ShouldResolveMovieCandidateByType()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(100, "Шрэк", "Shrek", "2001", FilmSearchResponse_filmsType.TV_SHOW),
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001", FilmSearchResponse_filmsType.FILM))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "Шрэк",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(430, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldResolveSeriesCandidateByType()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(100, "Тест", "Test", "2001", FilmSearchResponse_filmsType.FILM),
+                    CreateCandidate(430, "Тест", "Test", "2001", FilmSearchResponse_filmsType.TV_SHOW))
+            };
+            var resolver = CreateSeriesResolver(apiClient);
+            var info = new SeriesInfo
+            {
+                Name = "Тест",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(430, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldRejectUnknownMovieCandidateType()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001", FilmSearchResponse_filmsType.UNKNOWN))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "Шрэк",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(0, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldRejectUnknownSeriesCandidateType()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(430, "Тест", "Test", "2001", FilmSearchResponse_filmsType.UNKNOWN))
+            };
+            var resolver = CreateSeriesResolver(apiClient);
+            var info = new SeriesInfo
+            {
+                Name = "Тест",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(0, result.ProviderId);
+        }
+
+        private static VideoResolver<MovieInfo> CreateMovieResolver(IKinopoiskApiClient apiClient)
         {
             return new VideoResolver<MovieInfo>(
                 apiClient,
                 NullLogger<VideoResolver<MovieInfo>>.Instance);
+        }
+
+        private static VideoResolver<SeriesInfo> CreateSeriesResolver(IKinopoiskApiClient apiClient)
+        {
+            return new VideoResolver<SeriesInfo>(
+                apiClient,
+                NullLogger<VideoResolver<SeriesInfo>>.Instance);
         }
 
         private static FilmSearchResponse CreateSearchResult(params FilmSearchResponse_films[] films)
@@ -163,14 +256,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             int filmId,
             string nameRu,
             string nameEn,
-            string year)
+            string year,
+            FilmSearchResponse_filmsType type = FilmSearchResponse_filmsType.FILM)
         {
             return new FilmSearchResponse_films
             {
                 FilmId = filmId,
                 NameRu = nameRu,
                 NameEn = nameEn,
-                Type = FilmSearchResponse_filmsType.FILM,
+                Type = type,
                 Year = year
             };
         }
