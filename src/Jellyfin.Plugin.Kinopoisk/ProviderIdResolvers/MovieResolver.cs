@@ -34,7 +34,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
 
             _logger.LogDebug("Выполнен поиск кандидатов КиноПоиска для '{Name}'", info.Name);
             var searchResult = await _kinopoiskApiClient.SearchByKeyword(info.Name, 1, ct ?? CancellationToken.None);
-            if (searchResult.SearchFilmsCountResult < 1 || searchResult?.Films.Count < 1)
+            if (searchResult?.Films == null || searchResult.SearchFilmsCountResult < 1 || searchResult.Films.Count < 1)
             {
                 _logger.LogDebug("Поиск КиноПоиска не вернул кандидатов");
                 return (false, 0);
