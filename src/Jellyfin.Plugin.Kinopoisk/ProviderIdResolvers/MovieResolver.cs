@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using KinopoiskUnofficialInfo.ApiClient;
@@ -13,6 +15,10 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
     public class VideoResolver<T> : CommonLookupInfoResolver<T>
         where T : ItemLookupInfo
     {
+        private static readonly Regex ProviderTagRegex = new(
+            @"\s*[\[\{](?:tmdbid|tmdb|imdbid|imdb|tvdbid|tvdb|kp|kinopoiskid|kinopoisk)[-_:\s]?[^\]\}]+[\]\}]\s*$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         private readonly IKinopoiskApiClient _kinopoiskApiClient;
 
         public VideoResolver(IKinopoiskApiClient kinopoiskApiClient, ILogger<VideoResolver<T>> logger) : base(logger)
@@ -26,14 +32,23 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             if (possibleResult.IsSuccess)
                 return possibleResult;
 
-            if (string.IsNullOrWhiteSpace(info.Name))
+            var searchTitle = GetSearchTitle(info);
+            if (string.IsNullOrWhiteSpace(searchTitle))
             {
                 _logger.LogDebug("Название отсутствует, поиск идентификатора КиноПоиска пропущен");
                 return (false, 0);
             }
 
-            _logger.LogDebug("Выполнен поиск кандидатов КиноПоиска для '{Name}'", info.Name);
-            var searchResult = await _kinopoiskApiClient.SearchByKeyword(info.Name, 1, ct ?? CancellationToken.None);
+            if (!string.Equals(searchTitle, info.Name?.Trim(), StringComparison.Ordinal))
+            {
+                _logger.LogDebug(
+                    "Название для поиска очищено: '{OriginalName}' -> '{SearchTitle}'",
+                    info.Name,
+                    searchTitle);
+            }
+
+            _logger.LogDebug("Выполнен поиск кандидатов КиноПоиска для '{Name}'", searchTitle);
+            var searchResult = await _kinopoiskApiClient.SearchByKeyword(searchTitle, 1, ct ?? CancellationToken.None);
             if (searchResult?.Films == null || searchResult.SearchFilmsCountResult < 1 || searchResult.Films.Count < 1)
             {
                 _logger.LogDebug("Поиск КиноПоиска не вернул кандидатов");
@@ -64,7 +79,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
                 ? candidatesByYear
                 : candidatesByType;
 
-            possibleResult = await TryResolveByExactTitle(info, candidatesForTitle, ct);
+            possibleResult = await TryResolveByExactTitle(info, searchTitle, candidatesForTitle, ct);
             if (possibleResult.IsSuccess)
                 return possibleResult;
 
@@ -109,18 +124,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
 
         public Task<(bool IsSuccess, int ProviderId)> TryResolveByExactTitle(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
         {
-            var targetTitle = info.Name?.Trim();
-            if (string.IsNullOrWhiteSpace(targetTitle))
-                return Task.FromResult((false, 0));
-
-            var exactMatches = candidates
-                .Where(candidate =>
-                    IsExactTitle(targetTitle, candidate.NameRu)
-                    || IsExactTitle(targetTitle, candidate.NameEn))
-                .ToArray();
-
-            _logger.LogDebug("После точного сравнения названия осталось кандидатов: {Count}", exactMatches.Length);
-            return TryResolveBySingleCandidateLeft(info, exactMatches, ct);
+            return TryResolveByExactTitle(info, GetSearchTitle(info), candidates, ct);
         }
 
         public Task<(bool IsSuccess, int ProviderId)> TryResolveBySingleCandidateLeft(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
@@ -166,10 +170,64 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
                 return Array.Empty<FilmSearchResponse_films>();
             }
 
-            var targetYear = info.Year.Value.ToString();
+            var targetYear = info.Year.Value.ToString(CultureInfo.InvariantCulture);
             var result = candidates.Where(candidate => candidate.Year == targetYear).ToArray();
             _logger.LogDebug("После фильтрации по году {Year} осталось кандидатов: {Count}", targetYear, result.Length);
             return result;
+        }
+
+        private Task<(bool IsSuccess, int ProviderId)> TryResolveByExactTitle(
+            T info,
+            string targetTitle,
+            ICollection<FilmSearchResponse_films> candidates,
+            CancellationToken? ct = null)
+        {
+            if (string.IsNullOrWhiteSpace(targetTitle))
+                return Task.FromResult((false, 0));
+
+            var exactMatches = candidates
+                .Where(candidate =>
+                    IsExactTitle(targetTitle, candidate.NameRu)
+                    || IsExactTitle(targetTitle, candidate.NameEn))
+                .ToArray();
+
+            _logger.LogDebug("После точного сравнения названия осталось кандидатов: {Count}", exactMatches.Length);
+            return TryResolveBySingleCandidateLeft(info, exactMatches, ct);
+        }
+
+        private static string GetSearchTitle(T info)
+        {
+            var title = info.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(title))
+                return title;
+
+            title = RemoveTrailingProviderTags(title);
+
+            if (info.Year.HasValue)
+            {
+                var year = Regex.Escape(info.Year.Value.ToString(CultureInfo.InvariantCulture));
+                title = Regex.Replace(
+                    title,
+                    $@"\s*[\(\[]\s*{year}\s*[\)\]]\s*$",
+                    string.Empty,
+                    RegexOptions.CultureInvariant).Trim();
+            }
+
+            return RemoveTrailingProviderTags(title);
+        }
+
+        private static string RemoveTrailingProviderTags(string title)
+        {
+            var result = title;
+
+            while (true)
+            {
+                var cleaned = ProviderTagRegex.Replace(result, string.Empty).Trim();
+                if (string.Equals(cleaned, result, StringComparison.Ordinal))
+                    return result;
+
+                result = cleaned;
+            }
         }
 
         private static bool IsExactTitle(string targetTitle, string candidateTitle)
