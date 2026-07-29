@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -24,9 +25,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         public BaseVideoMetadataProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
-            _logger = logger ?? throw new System.ArgumentNullException(nameof(logger));
-            _apiClient = kinopoiskApiClient ?? throw new System.ArgumentNullException(nameof(kinopoiskApiClient));
-            _providerIdResolver = providerIdResolver ?? throw new System.ArgumentNullException(nameof(providerIdResolver));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _apiClient = kinopoiskApiClient ?? throw new ArgumentNullException(nameof(kinopoiskApiClient));
+            _providerIdResolver = providerIdResolver ?? throw new ArgumentNullException(nameof(providerIdResolver));
         }
 
         protected abstract TItemType ConvertResponseToItem(Film apiResponse);
@@ -40,31 +41,49 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ResultLanguage = Constants.ProviderMetadataLanguage
             };
 
+            var hadKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
             var (resolveResult, kinopoiskId) = await _providerIdResolver.TryResolve(info, cancellationToken);
             if (!resolveResult)
                 return result;
+
+            info.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
+
+            if (hadKinopoiskId)
+            {
+                _logger.LogDebug(
+                    "Использован сохранённый Kinopoisk ID {KinopoiskId} для '{Name}'",
+                    kinopoiskId,
+                    info.Name);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Автоматически сопоставлен Kinopoisk ID {KinopoiskId} для '{Name}'",
+                    kinopoiskId,
+                    info.Name);
+            }
 
             var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
 
             result.Item = ConvertResponseToItem(film);
-            if (result.Item != null)
-                result.HasMetadata = true;
+            if (result.Item is null)
+            {
+                _logger.LogWarning(
+                    "Основные метаданные не преобразованы для Kinopoisk ID {KinopoiskId}",
+                    kinopoiskId);
+                return result;
+            }
 
-            var staff = await _apiClient.GetStaff(kinopoiskId, cancellationToken);
+            foreach (var providerId in info.ProviderIds)
+                result.Item.ProviderIds.TryAdd(providerId.Key, providerId.Value);
 
-            cancellationToken.ThrowIfCancellationRequested();
+            result.Item.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
+            result.HasMetadata = true;
 
-            var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos());
-            foreach (var item in sanitizedPersons)
-                result.AddPerson(item);
-
-            var trailers = await _apiClient.GetTrailers(kinopoiskId, cancellationToken);
-
-            var remoteTrailers = trailers.ToMediaUrls();
-            if (remoteTrailers is not null)
-                result.Item.RemoteTrailers = remoteTrailers;
+            await AddStaff(result, kinopoiskId, cancellationToken);
+            await AddTrailers(result, kinopoiskId, cancellationToken);
 
             return result;
         }
@@ -93,6 +112,57 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             }));
 
             return res.Where(i => i != null).ToArray();
+        }
+
+        private async Task AddStaff(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var staff = await _apiClient.GetStaff(kinopoiskId, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (staff is null)
+                    return;
+
+                var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos());
+                foreach (var item in sanitizedPersons)
+                    result.AddPerson(item);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Дополнительные данные об участниках не загружены для Kinopoisk ID {KinopoiskId}",
+                    kinopoiskId);
+            }
+        }
+
+        private async Task AddTrailers(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var trailers = await _apiClient.GetTrailers(kinopoiskId, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var remoteTrailers = trailers.ToMediaUrls();
+                if (remoteTrailers is not null)
+                    result.Item.RemoteTrailers = remoteTrailers;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Дополнительные данные о трейлерах не загружены для Kinopoisk ID {KinopoiskId}",
+                    kinopoiskId);
+            }
         }
     }
 }
