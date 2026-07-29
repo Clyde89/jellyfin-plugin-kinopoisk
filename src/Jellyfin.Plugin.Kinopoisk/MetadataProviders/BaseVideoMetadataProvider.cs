@@ -110,18 +110,15 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             return result;
         }
 
-        public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(TLookupInfoType searchInfo, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteSearchResult>> GetSearchResults(
+            TLookupInfoType searchInfo,
+            CancellationToken cancellationToken)
         {
-            if (searchInfo.TryGetProviderId(Constants.ProviderId, out var kinopoiskIdStr)
-                && int.TryParse(kinopoiskIdStr, out var kinopoiskId))
-            {
-                var singleResult = (await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken)).ToRemoteSearchResult();
-                return Enumerable.Repeat(singleResult, 1);
-            }
-            else
-            {
-                return (await _apiClient.SearchByKeyword(searchInfo.Name, cancellationToken: cancellationToken)).ToRemoteSearchResults(_logger);
-            }
+            return VideoRemoteSearchService.Search(
+                _apiClient,
+                _logger,
+                searchInfo,
+                cancellationToken);
         }
 
         protected async Task<IEnumerable<PersonInfo>> SanitizeEmptyImagePersonInfos(IEnumerable<PersonInfo> images)
