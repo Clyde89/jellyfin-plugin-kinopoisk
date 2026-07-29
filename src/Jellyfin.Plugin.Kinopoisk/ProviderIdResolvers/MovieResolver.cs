@@ -52,15 +52,23 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
 
             var candidatesByYear = FilterByYear(info, candidatesByType);
 
-            possibleResult = await TryResolveBySingleCandidateLeft(info, candidatesByYear, ct);
-            if (possibleResult.IsSuccess)
-                return possibleResult;
-
             possibleResult = await TryResolveByImdbMatch(info, candidatesByYear, ct);
             if (possibleResult.IsSuccess)
                 return possibleResult;
 
             possibleResult = await TryResolveByImdbMatch(info, candidatesByType, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            var candidatesForTitle = info.Year.HasValue
+                ? candidatesByYear
+                : candidatesByType;
+
+            possibleResult = await TryResolveByExactTitle(info, candidatesForTitle, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            possibleResult = await TryResolveBySingleCandidateLeft(info, candidatesByYear, ct);
             if (possibleResult.IsSuccess)
                 return possibleResult;
 
@@ -97,6 +105,22 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             }
 
             return (false, 0);
+        }
+
+        public Task<(bool IsSuccess, int ProviderId)> TryResolveByExactTitle(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
+        {
+            var targetTitle = info.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(targetTitle))
+                return Task.FromResult((false, 0));
+
+            var exactMatches = candidates
+                .Where(candidate =>
+                    IsExactTitle(targetTitle, candidate.NameRu)
+                    || IsExactTitle(targetTitle, candidate.NameEn))
+                .ToArray();
+
+            _logger.LogDebug("После точного сравнения названия осталось кандидатов: {Count}", exactMatches.Length);
+            return TryResolveBySingleCandidateLeft(info, exactMatches, ct);
         }
 
         public Task<(bool IsSuccess, int ProviderId)> TryResolveBySingleCandidateLeft(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
@@ -146,6 +170,12 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             var result = candidates.Where(candidate => candidate.Year == targetYear).ToArray();
             _logger.LogDebug("После фильтрации по году {Year} осталось кандидатов: {Count}", targetYear, result.Length);
             return result;
+        }
+
+        private static bool IsExactTitle(string targetTitle, string candidateTitle)
+        {
+            return !string.IsNullOrWhiteSpace(candidateTitle)
+                && string.Equals(targetTitle, candidateTitle.Trim(), StringComparison.OrdinalIgnoreCase);
         }
     }
 }
