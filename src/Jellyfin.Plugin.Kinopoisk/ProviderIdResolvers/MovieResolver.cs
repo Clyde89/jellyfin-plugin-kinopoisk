@@ -33,6 +33,18 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
                 return possibleResult;
 
             var searchTitle = GetSearchTitle(info);
+
+            if (_kinopoiskApiClient is IFilteredKinopoiskApiClient filteredApiClient)
+            {
+                possibleResult = await TryResolveByFilteredImdb(info, filteredApiClient, ct);
+                if (possibleResult.IsSuccess)
+                    return possibleResult;
+
+                possibleResult = await TryResolveByFilteredTitle(info, searchTitle, filteredApiClient, ct);
+                if (possibleResult.IsSuccess)
+                    return possibleResult;
+            }
+
             if (string.IsNullOrWhiteSpace(searchTitle))
             {
                 _logger.LogDebug("Название отсутствует, поиск идентификатора КиноПоиска пропущен");
@@ -47,48 +59,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
                     searchTitle);
             }
 
-            _logger.LogDebug("Выполнен поиск кандидатов КиноПоиска для '{Name}'", searchTitle);
-            var searchResult = await _kinopoiskApiClient.SearchByKeyword(searchTitle, 1, ct ?? CancellationToken.None);
-            if (searchResult?.Films == null || searchResult.SearchFilmsCountResult < 1 || searchResult.Films.Count < 1)
-            {
-                _logger.LogDebug("Поиск КиноПоиска не вернул кандидатов");
-                return (false, 0);
-            }
-
-            var candidates = searchResult.Films.ToArray();
-            _logger.LogDebug("Получено кандидатов: {Count}", candidates.Length);
-
-            var candidatesByType = FilterByContentType(candidates);
-            if (candidatesByType.Count < 1)
-            {
-                _logger.LogDebug("Совместимые кандидаты по типу контента не найдены ({Name})", info.Name);
-                return (false, 0);
-            }
-
-            var candidatesByYear = FilterByYear(info, candidatesByType);
-
-            possibleResult = await TryResolveByImdbMatch(info, candidatesByYear, ct);
-            if (possibleResult.IsSuccess)
-                return possibleResult;
-
-            possibleResult = await TryResolveByImdbMatch(info, candidatesByType, ct);
-            if (possibleResult.IsSuccess)
-                return possibleResult;
-
-            var candidatesForTitle = info.Year.HasValue
-                ? candidatesByYear
-                : candidatesByType;
-
-            possibleResult = await TryResolveByExactTitle(info, searchTitle, candidatesForTitle, ct);
-            if (possibleResult.IsSuccess)
-                return possibleResult;
-
-            possibleResult = await TryResolveBySingleCandidateLeft(info, candidatesByYear, ct);
-            if (possibleResult.IsSuccess)
-                return possibleResult;
-
-            _logger.LogDebug("Однозначное совпадение не найдено, автоматическое сопоставление отклонено ({Name})", info.Name);
-            return (false, 0);
+            return await TryResolveByKeywordFallback(info, searchTitle, ct);
         }
 
         public async Task<(bool IsSuccess, int ProviderId)> TryResolveByImdbMatch(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
@@ -176,6 +147,206 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             return result;
         }
 
+        private async Task<(bool IsSuccess, int ProviderId)> TryResolveByFilteredImdb(
+            T info,
+            IFilteredKinopoiskApiClient apiClient,
+            CancellationToken? ct)
+        {
+            if (!info.TryGetProviderId(MetadataProvider.Imdb, out var imdbId)
+                || string.IsNullOrWhiteSpace(imdbId))
+            {
+                return (false, 0);
+            }
+
+            var queryType = GetFilteredQueryType();
+            if (queryType is null)
+                return (false, 0);
+
+            _logger.LogDebug(
+                "Выполнен фильтрованный поиск КиноПоиска по IMDb ID '{ImdbId}' и типу {ContentType}",
+                imdbId,
+                queryType);
+
+            var response = await SearchFilmsSafely(
+                apiClient,
+                new FilmSearchQuery
+                {
+                    ImdbId = imdbId.Trim(),
+                    Type = queryType,
+                    Page = 1
+                },
+                ct);
+
+            var matches = DistinctFilteredCandidates(response)
+                .Where(IsCompatibleFilteredType)
+                .Where(candidate => string.Equals(
+                    candidate.ImdbId?.Trim(),
+                    imdbId.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            _logger.LogDebug(
+                "После фильтрованного поиска по IMDb осталось кандидатов: {Count}",
+                matches.Length);
+
+            if (matches.Length == 1)
+            {
+                _logger.LogDebug(
+                    "Выбран кандидат {KinopoiskId} по точному IMDb ID '{ImdbId}'",
+                    matches[0].KinopoiskId,
+                    imdbId);
+                return (true, matches[0].KinopoiskId);
+            }
+
+            if (matches.Length > 1)
+            {
+                _logger.LogWarning(
+                    "Найдено несколько кандидатов КиноПоиска с IMDb ID '{ImdbId}', автоматическое сопоставление отклонено",
+                    imdbId);
+            }
+
+            return (false, 0);
+        }
+
+        private async Task<(bool IsSuccess, int ProviderId)> TryResolveByFilteredTitle(
+            T info,
+            string searchTitle,
+            IFilteredKinopoiskApiClient apiClient,
+            CancellationToken? ct)
+        {
+            if (string.IsNullOrWhiteSpace(searchTitle))
+                return (false, 0);
+
+            var queryType = GetFilteredQueryType();
+            if (queryType is null)
+                return (false, 0);
+
+            _logger.LogDebug(
+                "Выполнен фильтрованный поиск КиноПоиска для '{Name}', год {Year}, тип {ContentType}",
+                searchTitle,
+                info.Year,
+                queryType);
+
+            var response = await SearchFilmsSafely(
+                apiClient,
+                new FilmSearchQuery
+                {
+                    Keyword = searchTitle,
+                    YearFrom = info.Year,
+                    YearTo = info.Year,
+                    Type = queryType,
+                    Page = 1
+                },
+                ct);
+
+            var candidates = DistinctFilteredCandidates(response)
+                .Where(IsCompatibleFilteredType);
+
+            if (info.Year.HasValue)
+                candidates = candidates.Where(candidate => candidate.Year == info.Year.Value);
+
+            var exactMatches = candidates
+                .Where(candidate =>
+                    IsExactTitle(searchTitle, candidate.NameRu)
+                    || IsExactTitle(searchTitle, candidate.NameEn)
+                    || IsExactTitle(searchTitle, candidate.NameOriginal))
+                .ToArray();
+
+            _logger.LogDebug(
+                "После фильтрованного сравнения названия, года и типа осталось кандидатов: {Count}",
+                exactMatches.Length);
+
+            if (exactMatches.Length == 1)
+            {
+                _logger.LogDebug(
+                    "Выбран кандидат {KinopoiskId} по названию '{Name}' и году {Year}",
+                    exactMatches[0].KinopoiskId,
+                    searchTitle,
+                    info.Year);
+                return (true, exactMatches[0].KinopoiskId);
+            }
+
+            if (exactMatches.Length > 1)
+            {
+                _logger.LogWarning(
+                    "Найдено несколько точных кандидатов КиноПоиска для '{Name}', автоматическое сопоставление отклонено",
+                    searchTitle);
+            }
+
+            return (false, 0);
+        }
+
+        private async Task<FilteredFilmSearchResponse> SearchFilmsSafely(
+            IFilteredKinopoiskApiClient apiClient,
+            FilmSearchQuery query,
+            CancellationToken? ct)
+        {
+            try
+            {
+                return await apiClient.SearchFilms(query, ct ?? CancellationToken.None);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Фильтрованный поиск КиноПоиска не выполнен, использован резервный поиск");
+                return null;
+            }
+        }
+
+        private async Task<(bool IsSuccess, int ProviderId)> TryResolveByKeywordFallback(
+            T info,
+            string searchTitle,
+            CancellationToken? ct)
+        {
+            _logger.LogDebug("Выполнен резервный поиск кандидатов КиноПоиска для '{Name}'", searchTitle);
+            var searchResult = await _kinopoiskApiClient.SearchByKeyword(searchTitle, 1, ct ?? CancellationToken.None);
+            if (searchResult?.Films == null || searchResult.SearchFilmsCountResult < 1 || searchResult.Films.Count < 1)
+            {
+                _logger.LogDebug("Резервный поиск КиноПоиска не вернул кандидатов");
+                return (false, 0);
+            }
+
+            var candidates = searchResult.Films.ToArray();
+            _logger.LogDebug("Получено кандидатов резервного поиска: {Count}", candidates.Length);
+
+            var candidatesByType = FilterByContentType(candidates);
+            if (candidatesByType.Count < 1)
+            {
+                _logger.LogDebug("Совместимые кандидаты по типу контента не найдены ({Name})", info.Name);
+                return (false, 0);
+            }
+
+            var candidatesByYear = FilterByYear(info, candidatesByType);
+
+            var possibleResult = await TryResolveByImdbMatch(info, candidatesByYear, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            possibleResult = await TryResolveByImdbMatch(info, candidatesByType, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            var candidatesForTitle = info.Year.HasValue
+                ? candidatesByYear
+                : candidatesByType;
+
+            possibleResult = await TryResolveByExactTitle(info, searchTitle, candidatesForTitle, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            possibleResult = await TryResolveBySingleCandidateLeft(info, candidatesByYear, ct);
+            if (possibleResult.IsSuccess)
+                return possibleResult;
+
+            _logger.LogDebug("Однозначное совпадение не найдено, автоматическое сопоставление отклонено ({Name})", info.Name);
+            return (false, 0);
+        }
+
         private Task<(bool IsSuccess, int ProviderId)> TryResolveByExactTitle(
             T info,
             string targetTitle,
@@ -193,6 +364,51 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
 
             _logger.LogDebug("После точного сравнения названия осталось кандидатов: {Count}", exactMatches.Length);
             return TryResolveBySingleCandidateLeft(info, exactMatches, ct);
+        }
+
+        private string GetFilteredQueryType()
+        {
+            if (typeof(T) == typeof(MovieInfo))
+                return "FILM";
+
+            if (typeof(T) == typeof(SeriesInfo))
+                return "ALL";
+
+            _logger.LogDebug(
+                "Тип объекта {ItemType} не поддерживает фильтрованный поиск",
+                typeof(T).Name);
+            return null;
+        }
+
+        private bool IsCompatibleFilteredType(FilteredFilmSearchItem candidate)
+        {
+            if (candidate is null || string.IsNullOrWhiteSpace(candidate.Type))
+                return false;
+
+            if (typeof(T) == typeof(MovieInfo))
+            {
+                return string.Equals(candidate.Type, "FILM", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(candidate.Type, "VIDEO", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (typeof(T) == typeof(SeriesInfo))
+            {
+                return string.Equals(candidate.Type, "TV_SHOW", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(candidate.Type, "TV_SERIES", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(candidate.Type, "MINI_SERIES", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<FilteredFilmSearchItem> DistinctFilteredCandidates(
+            FilteredFilmSearchResponse response)
+        {
+            return response?.Items?
+                .Where(candidate => candidate is not null && candidate.KinopoiskId > 0)
+                .GroupBy(candidate => candidate.KinopoiskId)
+                .Select(group => group.First())
+                ?? Enumerable.Empty<FilteredFilmSearchItem>();
         }
 
         private static string GetSearchTitle(T info)

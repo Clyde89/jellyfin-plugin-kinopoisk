@@ -9,15 +9,17 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IKinopoiskApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient
     {
         private readonly IKinopoiskApiClient _innerClient;
+        private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
 
         public CachedKinopoiskApiClient(IKinopoiskApiClient innerClient, IMemoryCache cache, ILogger<CachedKinopoiskApiClient> logger)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
+            _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -41,6 +43,21 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public Task<FilmSearchResponse> SearchByKeyword(string keyword, int page = 1, CancellationToken? cancellationToken = null)
             => TryGetValue(GenerateKey(nameof(SearchByKeyword), keyword, page), c => c.SearchByKeyword(keyword, page, cancellationToken));
+
+        public Task<FilteredFilmSearchResponse> SearchFilms(
+            FilmSearchQuery query,
+            CancellationToken? cancellationToken = null)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+
+            if (_filteredInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает фильтрованный поиск.");
+
+            return TryGetValue(
+                GenerateKey(nameof(SearchFilms), query),
+                _ => _filteredInnerClient.SearchFilms(query, cancellationToken));
+        }
 
         private static string GenerateKey(params object[] objects)
         {
@@ -75,7 +92,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         {
             return _cache.GetOrCreateAsync(key, async entry =>
             {
-                _logger.LogDebug($"Entry '{key}' not found in cache, requesting from server");
+                _logger.LogDebug("Entry '{Key}' not found in cache, requesting from server", key);
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
 
                 var result = await resultFactory.Invoke(_innerClient).ConfigureAwait(false);
