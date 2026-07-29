@@ -99,12 +99,99 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public async Task ShouldResolveExactRussianTitle()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(100, "Другой фильм", "Another Film", "2001"),
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001"))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "  шРэК  ",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(430, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldResolveExactEnglishTitle()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(100, "Другой фильм", "Another Film", "2001"),
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001"))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "shrek",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(430, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldResolveUniqueExactTitleWithoutYear()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001"),
+                    CreateCandidate(5273, "Шрэк 2", "Shrek 2", "2004"))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "Шрэк"
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(430, result.ProviderId);
+        }
+
+        [Fact]
+        public async Task ShouldRejectDuplicateExactTitles()
+        {
+            var apiClient = new FakeKinopoiskApiClient
+            {
+                SearchResult = CreateSearchResult(
+                    CreateCandidate(100, "Шрэк", "Shrek", "2001"),
+                    CreateCandidate(430, "Шрэк", "Shrek", "2001"))
+            };
+            var resolver = CreateMovieResolver(apiClient);
+            var info = new MovieInfo
+            {
+                Name = "Шрэк",
+                Year = 2001
+            };
+
+            var result = await resolver.TryResolve(info);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(0, result.ProviderId);
+        }
+
+        [Fact]
         public async Task ShouldRejectMultipleCandidatesWithMatchingYearWithoutImdb()
         {
             var apiClient = new FakeKinopoiskApiClient
             {
                 SearchResult = CreateSearchResult(
-                    CreateCandidate(100, "Тест", "Test", "2001"),
+                    CreateCandidate(100, "Шрэк", "Shrek", "2001"),
                     CreateCandidate(430, "Шрэк", "Shrek", "2001"))
             };
             var resolver = CreateMovieResolver(apiClient);
@@ -127,7 +214,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             {
                 SearchResult = CreateSearchResult(
                     CreateCandidate(430, "Шрэк", "Shrek", "2001"),
-                    CreateCandidate(5273, "Шрэк 2", "Shrek 2", "2004"))
+                    CreateCandidate(5273, "Шрэк", "Shrek", "2004"))
             };
             var resolver = CreateMovieResolver(apiClient);
             var info = new MovieInfo
