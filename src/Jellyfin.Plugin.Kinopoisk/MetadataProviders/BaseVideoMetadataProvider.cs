@@ -41,17 +41,43 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ResultLanguage = Constants.ProviderMetadataLanguage
             };
 
-            var hadKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
+            var hadStoredKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
+            var hadPathKinopoiskId = VideoLookupInfoHelper.TryGetKinopoiskIdFromPath(
+                info,
+                out var pathKinopoiskId);
+
             var (resolveResult, kinopoiskId) = await _providerIdResolver.TryResolve(info, cancellationToken);
             if (!resolveResult)
                 return result;
 
+            var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!IsResolvedCardValid(film, kinopoiskId))
+                return result;
+
+            var usedPathKinopoiskId = hadPathKinopoiskId && pathKinopoiskId == kinopoiskId;
+            if (!hadStoredKinopoiskId
+                && !usedPathKinopoiskId
+                && !IsAutomaticMatchValid(info, film, kinopoiskId))
+            {
+                return result;
+            }
+
             info.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
 
-            if (hadKinopoiskId)
+            if (hadStoredKinopoiskId)
             {
                 _logger.LogDebug(
                     "Использован сохранённый Kinopoisk ID {KinopoiskId} для '{Name}'",
+                    kinopoiskId,
+                    info.Name);
+            }
+            else if (usedPathKinopoiskId)
+            {
+                _logger.LogDebug(
+                    "Использован Kinopoisk ID {KinopoiskId} из пути для '{Name}'",
                     kinopoiskId,
                     info.Name);
             }
@@ -62,10 +88,6 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     kinopoiskId,
                     info.Name);
             }
-
-            var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
-
-            cancellationToken.ThrowIfCancellationRequested();
 
             result.Item = ConvertResponseToItem(film);
             if (result.Item is null)
@@ -112,6 +134,110 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             }));
 
             return res.Where(i => i != null).ToArray();
+        }
+
+        private bool IsResolvedCardValid(Film film, int kinopoiskId)
+        {
+            if (film is null)
+            {
+                _logger.LogWarning(
+                    "Полная карточка не получена для Kinopoisk ID {KinopoiskId}",
+                    kinopoiskId);
+                return false;
+            }
+
+            if (film.KinopoiskId != kinopoiskId)
+            {
+                _logger.LogWarning(
+                    "Полученная карточка содержит Kinopoisk ID {ActualKinopoiskId} вместо ожидаемого {ExpectedKinopoiskId}",
+                    film.KinopoiskId,
+                    kinopoiskId);
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsAutomaticMatchValid(
+            TLookupInfoType info,
+            Film film,
+            int kinopoiskId)
+        {
+            if (!IsCompatibleFilmType(film.Type))
+            {
+                _logger.LogWarning(
+                    "Автоматическое сопоставление Kinopoisk ID {KinopoiskId} отклонено из-за несовместимого типа {FilmType}",
+                    kinopoiskId,
+                    film.Type);
+                return false;
+            }
+
+            if (info.TryGetProviderId(MetadataProvider.Imdb, out var imdbId)
+                && !string.IsNullOrWhiteSpace(imdbId))
+            {
+                if (!string.Equals(
+                    imdbId.Trim(),
+                    film.ImdbId?.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Автоматическое сопоставление Kinopoisk ID {KinopoiskId} отклонено: IMDb ID полной карточки '{ActualImdbId}' не совпал с '{ExpectedImdbId}'",
+                        kinopoiskId,
+                        film.ImdbId,
+                        imdbId);
+                    return false;
+                }
+
+                _logger.LogDebug(
+                    "Полная карточка Kinopoisk ID {KinopoiskId} подтверждена по IMDb ID '{ImdbId}'",
+                    kinopoiskId,
+                    imdbId);
+                return true;
+            }
+
+            if (info.Year.HasValue && film.Year != info.Year.Value)
+            {
+                _logger.LogWarning(
+                    "Автоматическое сопоставление Kinopoisk ID {KinopoiskId} отклонено: год полной карточки {ActualYear} не совпал с {ExpectedYear}",
+                    kinopoiskId,
+                    film.Year,
+                    info.Year.Value);
+                return false;
+            }
+
+            var searchTitle = VideoLookupInfoHelper.GetSearchTitle(info);
+            if (!VideoLookupInfoHelper.IsExactTitle(searchTitle, film.NameRu)
+                && !VideoLookupInfoHelper.IsExactTitle(searchTitle, film.NameEn)
+                && !VideoLookupInfoHelper.IsExactTitle(searchTitle, film.NameOriginal))
+            {
+                _logger.LogWarning(
+                    "Автоматическое сопоставление Kinopoisk ID {KinopoiskId} отклонено: название полной карточки не совпало с '{ExpectedTitle}'",
+                    kinopoiskId,
+                    searchTitle);
+                return false;
+            }
+
+            _logger.LogDebug(
+                "Полная карточка Kinopoisk ID {KinopoiskId} подтверждена по названию '{Name}' и году {Year}",
+                kinopoiskId,
+                searchTitle,
+                info.Year);
+            return true;
+        }
+
+        private static bool IsCompatibleFilmType(FilmType filmType)
+        {
+            if (typeof(TLookupInfoType) == typeof(MovieInfo))
+                return filmType is FilmType.FILM or FilmType.VIDEO;
+
+            if (typeof(TLookupInfoType) == typeof(SeriesInfo))
+            {
+                return filmType is FilmType.TV_SHOW
+                    or FilmType.TV_SERIES
+                    or FilmType.MINI_SERIES;
+            }
+
+            return false;
         }
 
         private async Task AddStaff(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
