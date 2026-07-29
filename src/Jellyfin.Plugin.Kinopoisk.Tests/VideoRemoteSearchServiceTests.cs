@@ -287,7 +287,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
         private sealed class FakeFilteredKinopoiskApiClient : IFilteredKinopoiskApiClient
         {
-            public Queue<FilteredFilmSearchResponse> FilteredResponses { get; set; } = new();
+            public IList<FilteredFilmSearchResponse> FilteredResponses { get; set; } = new List<FilteredFilmSearchResponse>();
 
             public FilmSearchResponse KeywordResult { get; set; } = CreateKeywordResult();
 
@@ -309,10 +309,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             {
                 FilteredSearchCalls++;
                 Queries.Add(query);
-                return Task.FromResult(
-                    FilteredResponses.Count > 0
-                        ? FilteredResponses.Dequeue()
-                        : CreateFilteredResult());
+
+                if (FilteredResponses.Count < 1)
+                    return Task.FromResult(CreateFilteredResult());
+
+                var response = FilteredResponses[0];
+                FilteredResponses.RemoveAt(0);
+                return Task.FromResult(response);
             }
 
             public Task<FilmSearchResponse> SearchByKeyword(
