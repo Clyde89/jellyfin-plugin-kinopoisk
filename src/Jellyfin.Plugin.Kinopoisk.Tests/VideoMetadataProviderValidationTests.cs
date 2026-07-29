@@ -269,6 +269,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         private sealed class FixedProviderIdResolver<TLookupInfo> : IProviderIdResolver<TLookupInfo>
+            where TLookupInfo : IHasProviderIds
         {
             private readonly int _kinopoiskId;
 
