@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using KinopoiskUnofficialInfo.ApiClient;
+using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Jellyfin.Plugin.Kinopoisk.Tests
@@ -25,6 +27,63 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(1, result[0].SortOrder);
             Assert.Equal("John Smith", result[1].Name);
             Assert.Equal(2, result[1].SortOrder);
+        }
+
+        [Fact]
+        public void FilmSearchResultShouldIncludeYearAndImdbId()
+        {
+            var film = new Film
+            {
+                KinopoiskId = 430,
+                NameRu = "Шрэк",
+                NameOriginal = "Shrek",
+                Year = 2001,
+                ImdbId = "tt0126029"
+            };
+
+            var result = film.ToRemoteSearchResult();
+
+            Assert.NotNull(result);
+            Assert.Equal(2001, result.ProductionYear);
+            Assert.Equal("430", result.GetProviderId(Constants.ProviderId));
+            Assert.Equal("tt0126029", result.GetProviderId(MetadataProvider.Imdb));
+        }
+
+        [Fact]
+        public void KeywordSearchResultShouldIncludeYear()
+        {
+            var film = new FilmSearchResponse_films
+            {
+                FilmId = 430,
+                NameRu = "Шрэк",
+                NameEn = "Shrek",
+                Year = "2001",
+                Type = FilmSearchResponse_filmsType.FILM
+            };
+
+            var result = film.ToRemoteSearchResult(NullLogger.Instance);
+
+            Assert.NotNull(result);
+            Assert.Equal(2001, result.ProductionYear);
+            Assert.Equal("430", result.GetProviderId(Constants.ProviderId));
+        }
+
+        [Fact]
+        public void KeywordSearchResultShouldUseFirstYearFromRange()
+        {
+            var film = new FilmSearchResponse_films
+            {
+                FilmId = 430,
+                NameRu = "Тест",
+                NameEn = "Test",
+                Year = "2001-2004",
+                Type = FilmSearchResponse_filmsType.TV_SHOW
+            };
+
+            var result = film.ToRemoteSearchResult(NullLogger.Instance);
+
+            Assert.NotNull(result);
+            Assert.Equal(2001, result.ProductionYear);
         }
 
         private static StaffResponse CreateStaff(
