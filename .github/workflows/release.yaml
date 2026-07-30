@@ -1,175 +1,258 @@
-name: Release
+name: Публикация релиза
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Версия плагина в формате X.Y.Z.W
+        required: true
+        type: string
+      target_abi:
+        description: Целевая ABI Jellyfin
+        required: true
+        default: 10.11.0.0
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_XMLDOC_MODE: skip
   DIST_ARCHIVES_PATH: dist/kinopoisk
   MANIFEST_FILE: dist/manifest.json
-  TARGET_ABI: 10.10.0
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  release:
+    name: Собран и опубликован релиз
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
-    - name: Setup .NET 9.0
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 9.0.x
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
 
-    - name: Determine version
-      id: version
-      run: |
-        VERSION=""
-        if [ -n "${{ github.event.inputs.version }}" ]; then
-          VERSION="${{ github.event.inputs.version }}"
-        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          VERSION="${GITHUB_REF#refs/tags/v}"
-        else
-          # Пытаемся получить версию из CHANGELOG.md
-          if [ -f CHANGELOG.md ]; then
-            CHANGELOG_VERSION=$(grep -E '^## \[' CHANGELOG.md | grep -v '## \[Unreleased\]' | head -1 | sed -E 's/^## \[v?([^]]+)\].*/\1/')
-            if [ -n "$CHANGELOG_VERSION" ]; then
-              VERSION=$CHANGELOG_VERSION
-            fi
+      - name: Проверены параметры релиза
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET_ABI: ${{ inputs.target_abi }}
+        run: |
+          set -Eeuo pipefail
+
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ ! "$VERSION" =~ $version_pattern ]]; then
+            echo "Версия должна соответствовать формату X.Y.Z.W: ${VERSION}" >&2
+            exit 1
           fi
-          # Если не нашли версию в CHANGELOG.md, пробуем git
-          if [ -z "$VERSION" ]; then
-            GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$GIT_TAG" ]; then
-              VERSION="${GIT_TAG#v}"
-            fi
+
+          if [[ ! "$TARGET_ABI" =~ $version_pattern ]]; then
+            echo "ABI должна соответствовать формату X.Y.Z.W: ${TARGET_ABI}" >&2
+            exit 1
           fi
-        fi
 
-        if [ -z "$VERSION" ]; then
-          echo "Не удалось определить версию. Укажите версию вручную или создайте тег."
-          exit 1
-        fi
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Тег v${VERSION} уже существует." >&2
+            exit 1
+          fi
 
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if ! grep -Fqx "## [${VERSION}]" CHANGELOG.md; then
+            echo "В CHANGELOG.md отсутствует раздел версии ${VERSION}." >&2
+            exit 1
+          fi
 
-    - name: Extract changelog
-      id: changelog
-      run: |
-        if [ -f CHANGELOG.md ]; then
-          # Ищем номер строки с нашей версией
-          LINE_NUM=$(grep -n "## \\[${{ env.VERSION }}\\]" CHANGELOG.md | cut -d: -f1)
-          
-          if [ -n "$LINE_NUM" ]; then
-            # Извлекаем контент от следующей строки до следующего заголовка ## [
-            NEXT_HEADER_LINE=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md | grep -n "## \\[" | head -1 | cut -d: -f1)
-            
-            if [ -n "$NEXT_HEADER_LINE" ]; then
-              # Есть следующий заголовок - извлекаем до него
-              CHANGELOG=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md | head -n $((NEXT_HEADER_LINE-1)))
-            else
-              # Нет следующего заголовка - извлекаем до конца файла
-              CHANGELOG=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md)
-            fi
-            
-            # Удаляем пустые строки в начале и конце
-            CHANGELOG=$(echo "$CHANGELOG" | sed -e '1s/^[[:space:]]*//' -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
-            
-            # Если остались только пустые строки
-            if [ -z "$(echo "$CHANGELOG" | tr -d '[:space:]')" ]; then
-              CHANGELOG="New release"
-            fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "TARGET_ABI=${TARGET_ABI}" >> "$GITHUB_ENV"
+
+      - name: Подготовлено описание релиза
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          awk -v version="${VERSION}" '
+            $0 == "## [" version "]" {
+              found = 1
+              next
+            }
+            found && /^## \[/ {
+              exit
+            }
+            found {
+              print
+            }
+            END {
+              if (!found) {
+                exit 2
+              }
+            }
+          ' CHANGELOG.md > release-notes.md
+
+          sed -i '/./,$!d' release-notes.md
+          while [[ -s release-notes.md ]] && [[ -z "$(tail -n 1 release-notes.md | tr -d '[:space:]')" ]]; do
+            sed -i '$d' release-notes.md
+          done
+
+          if [[ ! -s release-notes.md ]]; then
+            echo "Описание релиза для версии ${VERSION} отсутствует." >&2
+            exit 1
+          fi
+
+      - name: Восстановлены зависимости
+        run: |
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet restore src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+
+      - name: Собран плагин
+        run: >-
+          dotnet build
+          src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          --configuration Release
+          --no-restore
+          --property:Version=${VERSION}
+          --verbosity normal
+
+      - name: Выполнены тесты API
+        run: >-
+          dotnet test
+          src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Выполнены тесты плагина
+        run: >-
+          dotnet test
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Подготовлен архив релиза
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          output_dir="src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0"
+          release_filename="jellyfin-plugin-kinopoisk_${VERSION}.zip"
+          release_file="${DIST_ARCHIVES_PATH}/${release_filename}"
+
+          mkdir -p "${DIST_ARCHIVES_PATH}"
+
+          test -f "${output_dir}/Jellyfin.Plugin.Kinopoisk.dll"
+          test -f "${output_dir}/KinopoiskUnofficialInfo.ApiClient.dll"
+
+          zip --junk-paths "${release_file}" \
+            "${output_dir}/Jellyfin.Plugin.Kinopoisk.dll" \
+            "${output_dir}/KinopoiskUnofficialInfo.ApiClient.dll"
+
+          unzip -t "${release_file}"
+
+          md5="$(md5sum "${release_file}" | cut -d' ' -f1)"
+          sha256="$(sha256sum "${release_file}" | cut -d' ' -f1)"
+
+          {
+            echo
+            echo "## Контрольные суммы"
+            echo
+            echo "- MD5: \`${md5}\`"
+            echo "- SHA256: \`${sha256}\`"
+          } >> release-notes.md
+
+          echo "RELEASE_FILENAME=${release_filename}" >> "$GITHUB_ENV"
+          echo "RELEASE_FILE=${release_file}" >> "$GITHUB_ENV"
+          echo "RELEASE_MD5=${md5}" >> "$GITHUB_ENV"
+          echo "RELEASE_SHA256=${sha256}" >> "$GITHUB_ENV"
+
+      - name: Опубликован GitHub Release
+        uses: softprops/action-gh-release@1853d73993c8ca1b2c9c1a7fede39682d0ab5c2a
+        with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: КиноПоиск ${{ env.VERSION }}
+          body_path: release-notes.md
+          files: ${{ env.RELEASE_FILE }}
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          make_latest: true
+
+      - name: Обновлён стабильный manifest.json
+        shell: bash
+        env:
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.RELEASE_FILENAME }}
+        run: |
+          set -Eeuo pipefail
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git fetch origin --prune
+
+          if git show-ref --verify --quiet refs/remotes/origin/release; then
+            git worktree add release-worktree origin/release
+            git -C release-worktree switch -C release --track origin/release
           else
-            CHANGELOG="New release"
+            git worktree add -b release release-worktree "${GITHUB_SHA}"
           fi
-        else
-          CHANGELOG="New release"
-        fi
-        
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
 
-    - name: Build project
-      run: dotnet build --configuration Release --property:Version=${VERSION} ./src
+          manifest_path="release-worktree/${MANIFEST_FILE}"
+          test -f "${manifest_path}"
+          jq empty "${manifest_path}"
 
-    - name: Package release archive
-      run: |
-        RELEASE_FILENAME=jellyfin-plugin-kinopoisk_${VERSION}.zip
-        RELEASE_FILE=${DIST_ARCHIVES_PATH}/${RELEASE_FILENAME}
-        zip --junk-paths $RELEASE_FILE \
-          ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll \
-          ./src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll
-        echo "RELEASE_FILENAME=$RELEASE_FILENAME" >> $GITHUB_ENV
-        echo "RELEASE_FILE=$RELEASE_FILE" >> $GITHUB_ENV
+          if jq -e --arg version "${VERSION}" '.[0].versions[]? | select(.version == $version)' "${manifest_path}" >/dev/null; then
+            echo "Версия ${VERSION} уже присутствует в manifest.json." >&2
+            exit 1
+          fi
 
-    - name: Create Release
-      id: create_release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ env.VERSION }}
-        body: ${{ steps.changelog.outputs.changelog }}
-        files: |
-          ${{ env.RELEASE_FILE }}
+          changelog_json="$(jq -Rs . < release-notes.md)"
+          timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
-    - name: Hashsum calculation
-      id: hashsum
-      run: |
-        HASH=$(md5sum "${DIST_ARCHIVES_PATH}/jellyfin-plugin-kinopoisk_${VERSION}.zip" | cut -d' ' -f1)
-        echo "HASH=$HASH" >> $GITHUB_ENV
-        echo "hash=$HASH" >> $GITHUB_OUTPUT
+          jq \
+            --arg version "${VERSION}" \
+            --arg checksum "${RELEASE_MD5}" \
+            --argjson changelog "${changelog_json}" \
+            --arg target_abi "${TARGET_ABI}" \
+            --arg source_url "${SOURCE_URL}" \
+            --arg timestamp "${timestamp}" \
+            '.[0].versions = [{
+              "version": $version,
+              "checksum": $checksum,
+              "changelog": $changelog,
+              "targetAbi": $target_abi,
+              "sourceUrl": $source_url,
+              "timestamp": $timestamp
+            }] + .[0].versions' \
+            "${manifest_path}" > "${manifest_path}.tmp"
 
-    - name: Update manifest
-      id: update_manifest
-      run: |
-        CHANGELOG_JSON=$(echo -n "${{ steps.changelog.outputs.changelog }}" | jq -Rs .)
-        # SOURCE_URL="${{ fromJSON(steps.create_release.outputs.assets)[0].browser_download_url }}" # Не работает, отдаёт временный урл
-        SOURCE_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.RELEASE_FILENAME }}"
+          mv "${manifest_path}.tmp" "${manifest_path}"
+          jq empty "${manifest_path}"
 
-        jq --arg VERSION "${{ env.VERSION }}" \
-           --arg HASH "${{ env.HASH }}" \
-           --argjson CHANGELOG "$CHANGELOG_JSON" \
-           --arg TARGET_ABI "${{ env.TARGET_ABI }}" \
-           --arg TIMESTAMP "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-           --arg SOURCE_URL "$SOURCE_URL" \
-           '.[0].versions = [
-             {
-               "version": $VERSION,
-               "checksum": $HASH,
-               "changelog": $CHANGELOG,
-               "targetAbi": $TARGET_ABI,
-               "sourceUrl": $SOURCE_URL,
-               "timestamp": $TIMESTAMP
-             }
-           ] + .[0].versions' \
-           "${MANIFEST_FILE}" > "${MANIFEST_FILE}.tmp"
+          git -C release-worktree add "${MANIFEST_FILE}"
+          git -C release-worktree commit -m "Опубликована версия ${VERSION} в manifest.json [skip ci]"
+          git -C release-worktree push origin HEAD:release
 
-        mv "${MANIFEST_FILE}.tmp" "${MANIFEST_FILE}"
-
-
-    - name: Commit and push changes
-      run: |
-        # Настраиваем git
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git config user.name "github-actions[bot]"
-        
-        # Получаем имя текущей ветки
-        CURRENT_BRANCH=${GITHUB_REF#refs/heads/}
-        echo "Текущая ветка: $CURRENT_BRANCH"
-        
-        # Проверяем, есть ли изменения в манифесте или архиве
-        if git diff --quiet HEAD -- "${MANIFEST_FILE}"; then
-          echo "ℹ️ Нет изменений для коммита"
-        else
-          # Добавляем измененные файлы
-          git add "${MANIFEST_FILE}"
-          
-          # Создаем коммит с [skip ci], чтобы не запускать workflow снова
-          git commit -m "Added to manifest version ${{ env.VERSION }} [skip ci]"
-          echo "✅ Изменения закоммичены"
-          
-          # Пушим изменения в текущую ветку
-          git push origin HEAD:$CURRENT_BRANCH
-          echo "✅ Изменения запущены в ветку $CURRENT_BRANCH"
-        fi
+      - name: Опубликован архив проверки
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kinopoisk-release-${{ env.VERSION }}
+          path: |
+            ${{ env.RELEASE_FILE }}
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
