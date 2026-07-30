@@ -116,7 +116,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         private static DateTime? GetPremiereDate(ApiSeason season)
         {
             return season.Episodes?
-                .Select(episode => episode.ReleaseDate.ParseDate())
+                .Select(episode => episode.ReleaseDate.ParseKinopoiskDate())
                 .Where(date => date.HasValue)
                 .Select(date => (DateTime?)date.Value)
                 .OrderBy(date => date)
