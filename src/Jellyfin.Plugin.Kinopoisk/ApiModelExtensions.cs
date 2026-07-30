@@ -25,10 +25,13 @@ namespace Jellyfin.Plugin.Kinopoisk
                 Name = src.GetLocalName(),
                 ImageUrl = src.PosterUrl,
                 PremiereDate = src.GetPremiereDate(),
+                ProductionYear = src.Year > 1900 ? src.Year : null,
                 Overview = src.Description,
                 SearchProviderName = Constants.ProviderName
             };
             res.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId));
+            if (!string.IsNullOrWhiteSpace(src.ImdbId))
+                res.SetProviderId(MetadataProvider.Imdb, src.ImdbId);
 
             return res;
         }
@@ -53,6 +56,7 @@ namespace Jellyfin.Plugin.Kinopoisk
                     Name = src.GetLocalName(),
                     ImageUrl = src.PosterUrl,
                     PremiereDate = src.GetPremiereDate(),
+                    ProductionYear = GetFirstYear(src.Year),
                     Overview = src.Description,
                     SearchProviderName = Constants.ProviderName
                 };

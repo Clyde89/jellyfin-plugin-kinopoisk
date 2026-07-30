@@ -11,6 +11,17 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public override object ReadJson(JsonReader reader, System.Type objectType, object existingValue, JsonSerializer serializer)
         {
+            if (reader.TokenType == JsonToken.String)
+            {
+                var sourceType = ((string)reader.Value)?.ToUpperInvariant();
+
+                if (sourceType == "VIDEO")
+                    return FilmSearchResponse_filmsType.FILM;
+
+                if (sourceType == "MINI_SERIES" || sourceType == "TV_SERIES")
+                    return FilmSearchResponse_filmsType.TV_SHOW;
+            }
+
             try
             {
                 return base.ReadJson(reader, objectType, existingValue, serializer);

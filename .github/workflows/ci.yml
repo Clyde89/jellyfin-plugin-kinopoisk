@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - develop
+      - 'feature/**'
+      - 'fix/**'
   pull_request:
     branches:
       - develop
@@ -57,10 +59,15 @@ jobs:
           dotnet restore
           src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
 
-      - name: Восстановлены зависимости тестов
+      - name: Восстановлены зависимости тестов API
         run: >-
           dotnet restore
           src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+
+      - name: Восстановлены зависимости тестов плагина
+        run: >-
+          dotnet restore
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
 
       - name: Собран плагин
         run: >-
@@ -70,10 +77,18 @@ jobs:
           --no-restore
           --verbosity normal
 
-      - name: Выполнены тесты
+      - name: Выполнены тесты API
         run: >-
           dotnet test
           src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Выполнены тесты плагина
+        run: >-
+          dotnet test
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
           --configuration Release
           --no-restore
           --verbosity normal
@@ -93,3 +108,16 @@ jobs:
           sha256sum \
             "$plugin_dll" \
             "$api_client_dll"
+
+      - name: Опубликована тестовая сборка
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kinopoisk-plugin-${{ github.sha }}
+          path: |
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.pdb
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll
+            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.pdb
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9

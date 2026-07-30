@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Reflection;
@@ -9,15 +10,25 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IKinopoiskApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient
     {
+        private static readonly TimeSpan PersonExpiration = TimeSpan.FromHours(24);
+        private static readonly TimeSpan FilmExpiration = TimeSpan.FromHours(12);
+        private static readonly TimeSpan StaffExpiration = TimeSpan.FromHours(12);
+        private static readonly TimeSpan TrailersExpiration = TimeSpan.FromHours(6);
+        private static readonly TimeSpan SearchExpiration = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan EmptyResultExpiration = TimeSpan.FromMinutes(3);
+
         private readonly IKinopoiskApiClient _innerClient;
+        private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
+        private readonly ConcurrentDictionary<string, Lazy<Task<object>>> _inflightRequests = new();
 
         public CachedKinopoiskApiClient(IKinopoiskApiClient innerClient, IMemoryCache cache, ILogger<CachedKinopoiskApiClient> logger)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
+            _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -28,19 +39,68 @@ namespace KinopoiskUnofficialInfo.ApiClient
         }
 
         public Task<PersonResponse> GetPerson(int personId, CancellationToken? cancellationToken = null)
-            => TryGetValue(GenerateKey(nameof(GetPerson), personId), c => c.GetPerson(personId, cancellationToken));
+            => GetOrCreate(
+                GenerateKey(nameof(GetPerson), personId),
+                PersonExpiration,
+                EmptyResultExpiration,
+                c => c.GetPerson(personId, CancellationToken.None),
+                result => result is null,
+                cancellationToken);
 
         public Task<Film> GetSingleFilm(int filmId, CancellationToken? cancellationToken = null)
-            => TryGetValue(GenerateKey(nameof(GetSingleFilm), filmId), c => c.GetSingleFilm(filmId, cancellationToken));
+            => GetOrCreate(
+                GenerateKey(nameof(GetSingleFilm), filmId),
+                FilmExpiration,
+                EmptyResultExpiration,
+                c => c.GetSingleFilm(filmId, CancellationToken.None),
+                result => result is null,
+                cancellationToken);
 
         public Task<ICollection<StaffResponse>> GetStaff(int filmId, CancellationToken? cancellationToken = null)
-            => TryGetValue(GenerateKey(nameof(GetStaff), filmId), c => c.GetStaff(filmId, cancellationToken));
+            => GetOrCreate(
+                GenerateKey(nameof(GetStaff), filmId),
+                StaffExpiration,
+                EmptyResultExpiration,
+                c => c.GetStaff(filmId, CancellationToken.None),
+                result => result is null || result.Count < 1,
+                cancellationToken);
 
         public Task<VideoResponse> GetTrailers(int filmId, CancellationToken? cancellationToken = null)
-            => TryGetValue(GenerateKey(nameof(GetTrailers), filmId), c => c.GetTrailers(filmId, cancellationToken));
+            => GetOrCreate(
+                GenerateKey(nameof(GetTrailers), filmId),
+                TrailersExpiration,
+                EmptyResultExpiration,
+                c => c.GetTrailers(filmId, CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                cancellationToken);
 
         public Task<FilmSearchResponse> SearchByKeyword(string keyword, int page = 1, CancellationToken? cancellationToken = null)
-            => TryGetValue(GenerateKey(nameof(SearchByKeyword), keyword, page), c => c.SearchByKeyword(keyword, page, cancellationToken));
+            => GetOrCreate(
+                GenerateKey(nameof(SearchByKeyword), keyword, page),
+                SearchExpiration,
+                EmptyResultExpiration,
+                c => c.SearchByKeyword(keyword, page, CancellationToken.None),
+                result => result?.Films is null || result.Films.Count < 1,
+                cancellationToken);
+
+        public Task<FilteredFilmSearchResponse> SearchFilms(
+            FilmSearchQuery query,
+            CancellationToken? cancellationToken = null)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+
+            if (_filteredInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает фильтрованный поиск.");
+
+            return GetOrCreate(
+                GenerateKey(nameof(SearchFilms), query),
+                SearchExpiration,
+                EmptyResultExpiration,
+                _ => _filteredInnerClient.SearchFilms(query, CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                cancellationToken);
+        }
 
         private static string GenerateKey(params object[] objects)
         {
@@ -59,9 +119,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     {
                         var currentValue = propertyInfo.GetValue(obj, null);
                         if (currentValue == null)
-                        {
                             continue;
-                        }
 
                         key += propertyInfo.Name + "=" + currentValue + ";";
                     }
@@ -71,17 +129,70 @@ namespace KinopoiskUnofficialInfo.ApiClient
             return key;
         }
 
-        private Task<T> TryGetValue<T>(string key, Func<IKinopoiskApiClient, Task<T>> resultFactory)
+        private async Task<T> GetOrCreate<T>(
+            string key,
+            TimeSpan expiration,
+            TimeSpan emptyResultExpiration,
+            Func<IKinopoiskApiClient, Task<T>> resultFactory,
+            Func<T, bool> isEmptyResult,
+            CancellationToken? cancellationToken)
         {
-            return _cache.GetOrCreateAsync(key, async entry =>
-            {
-                _logger.LogDebug($"Entry '{key}' not found in cache, requesting from server");
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
+            var callerCancellationToken = cancellationToken ?? CancellationToken.None;
+            callerCancellationToken.ThrowIfCancellationRequested();
 
+            if (_cache.TryGetValue(key, out T cachedResult))
+            {
+                _logger.LogDebug("Ответ '{Key}' получен из кэша", key);
+                return cachedResult;
+            }
+
+            var sharedRequest = _inflightRequests.GetOrAdd(
+                key,
+                _ => new Lazy<Task<object>>(
+                    () => RequestAndCache(
+                        key,
+                        expiration,
+                        emptyResultExpiration,
+                        resultFactory,
+                        isEmptyResult),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+
+            return (T)await sharedRequest.Value
+                .WaitAsync(callerCancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        private async Task<object> RequestAndCache<T>(
+            string key,
+            TimeSpan expiration,
+            TimeSpan emptyResultExpiration,
+            Func<IKinopoiskApiClient, Task<T>> resultFactory,
+            Func<T, bool> isEmptyResult)
+        {
+            try
+            {
+                if (_cache.TryGetValue(key, out T cachedResult))
+                    return cachedResult;
+
+                _logger.LogDebug("Ответ '{Key}' отсутствует в кэше, выполнен запрос к серверу", key);
                 var result = await resultFactory.Invoke(_innerClient).ConfigureAwait(false);
+                var selectedExpiration = isEmptyResult(result)
+                    ? emptyResultExpiration
+                    : expiration;
+
+                _cache.Set(key, result, selectedExpiration);
+
+                _logger.LogDebug(
+                    "Ответ '{Key}' сохранён в кэше на {ExpirationMinutes} минут",
+                    key,
+                    selectedExpiration.TotalMinutes);
 
                 return result;
-            });
+            }
+            finally
+            {
+                _inflightRequests.TryRemove(key, out _);
+            }
         }
     }
 }

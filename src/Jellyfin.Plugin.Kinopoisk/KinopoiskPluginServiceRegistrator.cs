@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Kinopoisk
 {
     /// <summary>
-    /// Registers services
+    /// Регистрирует сервисы плагина.
     /// </summary>
     public class KinopoiskPluginServiceRegistrator : IPluginServiceRegistrator
     {
