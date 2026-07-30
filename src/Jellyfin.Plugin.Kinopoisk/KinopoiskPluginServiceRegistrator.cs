@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Kinopoisk
 {
     /// <summary>
-    /// Registers services
+    /// Регистрирует сервисы плагина.
     /// </summary>
     public class KinopoiskPluginServiceRegistrator : IPluginServiceRegistrator
     {
@@ -23,11 +23,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<ILogger<KinopoiskApiClient>>(),
                 sp.GetRequiredService<IHttpClientFactory>()
             ));
-            serviceCollection.AddSingleton((sp) => new RateLimitedKinopoiskApiClient(
-                sp.GetRequiredService<KinopoiskApiClient>()
-            ));
             serviceCollection.AddSingleton<IKinopoiskApiClient>((sp) => new CachedKinopoiskApiClient(
-                sp.GetRequiredService<RateLimitedKinopoiskApiClient>(),
+                sp.GetRequiredService<KinopoiskApiClient>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<ILogger<CachedKinopoiskApiClient>>()
             ));
