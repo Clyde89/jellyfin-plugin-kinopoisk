@@ -34,7 +34,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         }
 
         public CachedKinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> innerLogger, IHttpClientFactory httpClientFactory, IMemoryCache cache, ILogger<CachedKinopoiskApiClient> logger)
-            : this(new KinopoiskApiClient(apiToken, innerLogger, httpClientFactory), cache, logger)
+            : this(new RateLimitedKinopoiskApiClient(new KinopoiskApiClient(apiToken, innerLogger, httpClientFactory)), cache, logger)
         {
         }
 
