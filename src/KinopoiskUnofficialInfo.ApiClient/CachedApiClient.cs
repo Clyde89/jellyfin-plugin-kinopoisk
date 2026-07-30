@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient
     {
         private static readonly TimeSpan PersonExpiration = TimeSpan.FromHours(24);
         private static readonly TimeSpan FilmExpiration = TimeSpan.FromHours(12);
@@ -23,6 +23,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private readonly IKinopoiskApiClient _innerClient;
         private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
         private readonly IKinopoiskImageApiClient _imageInnerClient;
+        private readonly IKinopoiskPersonSearchApiClient _personSearchInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
         private readonly ConcurrentDictionary<string, Lazy<Task<object>>> _inflightRequests = new();
@@ -32,6 +33,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
             _imageInnerClient = innerClient as IKinopoiskImageApiClient;
+            _personSearchInnerClient = innerClient as IKinopoiskPersonSearchApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -49,6 +51,31 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 c => c.GetPerson(personId, CancellationToken.None),
                 result => result is null,
                 cancellationToken);
+
+        public Task<PersonSearchResponse> SearchPersons(
+            string name,
+            int page = 1,
+            CancellationToken? cancellationToken = null)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Имя персоны не должно быть пустым.", nameof(name));
+
+            if (_personSearchInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает поиск персон.");
+
+            var normalizedName = name.Trim();
+            var selectedPage = page is >= 1 and <= 2 ? page : 1;
+            return GetOrCreate(
+                GenerateKey(nameof(SearchPersons), normalizedName.ToUpperInvariant(), selectedPage),
+                SearchExpiration,
+                EmptyResultExpiration,
+                _ => _personSearchInnerClient.SearchPersons(
+                    normalizedName,
+                    selectedPage,
+                    CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                cancellationToken);
+        }
 
         public Task<Film> GetSingleFilm(int filmId, CancellationToken? cancellationToken = null)
             => GetOrCreate(

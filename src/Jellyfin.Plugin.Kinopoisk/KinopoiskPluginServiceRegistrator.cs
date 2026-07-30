@@ -32,6 +32,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
             serviceCollection.AddSingleton<IKinopoiskImageApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
+            serviceCollection.AddSingleton<IKinopoiskPersonSearchApiClient>((sp) =>
+                sp.GetRequiredService<CachedKinopoiskApiClient>());
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();

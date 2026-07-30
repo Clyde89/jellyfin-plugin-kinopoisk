@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient
+    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
@@ -156,6 +156,20 @@ namespace KinopoiskUnofficialInfo.ApiClient
         public Task<PersonResponse> GetPerson(int personId, CancellationToken? cancellationToken = null)
             => Invoke((ct) => _apiClient.StaffAsync(personId, ct), cancellationToken);
 
+        public Task<PersonSearchResponse> SearchPersons(
+            string name,
+            int page = 1,
+            CancellationToken? cancellationToken = null)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Имя персоны не должно быть пустым.", nameof(name));
+
+            var selectedPage = page is >= 1 and <= 2 ? page : 1;
+            return Invoke(
+                ct => SearchPersonsCore(name.Trim(), selectedPage, ct),
+                cancellationToken);
+        }
+
         public Task<VideoResponse> GetTrailers(int filmId, CancellationToken? cancellationToken = null)
         {
             return Invoke(async (ct) => {
@@ -208,6 +222,21 @@ namespace KinopoiskUnofficialInfo.ApiClient
             var requestUri = $"{ApiBaseUrl}/api/v2.2/films?{string.Join("&", parameters)}";
             return await SendJsonRequest<FilteredFilmSearchResponse>(requestUri, cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        private Task<PersonSearchResponse> SearchPersonsCore(
+            string name,
+            int page,
+            CancellationToken cancellationToken)
+        {
+            var requestUri = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}/api/v1/persons?name={1}&page={2}",
+                ApiBaseUrl,
+                Uri.EscapeDataString(name),
+                page);
+
+            return SendJsonRequest<PersonSearchResponse>(requestUri, cancellationToken);
         }
 
         private Task<ImageResponse> GetImagesCore(
