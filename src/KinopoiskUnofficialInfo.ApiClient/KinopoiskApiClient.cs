@@ -14,6 +14,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
     public class KinopoiskApiClient : IFilteredKinopoiskApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
+        private const int MaximumAttempts = 3;
+        private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
+        private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(10);
 
         private readonly string _apiToken;
         private readonly ILogger<KinopoiskApiClient> _logger;
@@ -42,21 +45,89 @@ namespace KinopoiskUnofficialInfo.ApiClient
             CancellationToken? ct,
             [CallerMemberName] string memberName = "")
         {
-            try
+            var cancellationToken = ct ?? CancellationToken.None;
+
+            for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
             {
-                _logger.LogDebug("{MemberName} request starting...", memberName);
-                var res = await method.Invoke(ct ?? CancellationToken.None);
-                _logger.LogDebug("{MemberName} request complete successfully", memberName);
-                return res;
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    _logger.LogDebug(
+                        "Запрос {MemberName} начат, попытка {Attempt}/{MaximumAttempts}",
+                        memberName,
+                        attempt,
+                        MaximumAttempts);
+
+                    var result = await method.Invoke(cancellationToken);
+
+                    _logger.LogDebug(
+                        "Запрос {MemberName} успешно завершён, попытка {Attempt}/{MaximumAttempts}",
+                        memberName,
+                        attempt,
+                        MaximumAttempts);
+
+                    return result;
+                }
+                catch (ApiException exception) when (
+                    IsTransientStatusCode(exception.StatusCode)
+                    && attempt < MaximumAttempts)
+                {
+                    await WaitBeforeRetry(
+                        memberName,
+                        attempt,
+                        exception.StatusCode,
+                        exception.Headers,
+                        cancellationToken);
+                }
+                catch (HttpRequestException) when (attempt < MaximumAttempts)
+                {
+                    await WaitBeforeRetry(
+                        memberName,
+                        attempt,
+                        null,
+                        null,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (
+                    !cancellationToken.IsCancellationRequested
+                    && attempt < MaximumAttempts)
+                {
+                    await WaitBeforeRetry(
+                        memberName,
+                        attempt,
+                        null,
+                        null,
+                        cancellationToken);
+                }
+                catch (ApiException exception)
+                {
+                    _logger.LogError(
+                        "Запрос {MemberName} завершён ошибкой КиноПоиска со статусом {StatusCode}",
+                        memberName,
+                        exception.StatusCode);
+                    throw;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogError(
+                        "Запрос {MemberName} завершён по тайм-ауту после {MaximumAttempts} попыток",
+                        memberName,
+                        MaximumAttempts);
+                    throw;
+                }
+                catch (HttpRequestException exception)
+                {
+                    _logger.LogError(
+                        exception,
+                        "Запрос {MemberName} завершён сетевой ошибкой после {MaximumAttempts} попыток",
+                        memberName,
+                        MaximumAttempts);
+                    throw;
+                }
             }
-            catch (ApiException e)
-            {
-                _logger.LogError(
-                    "Received non-success result status code {StatusCode} from Kinopoisk API, response content is:\n{Response}",
-                    e.StatusCode,
-                    e.Response);
-                throw;
-            }
+
+            throw new InvalidOperationException("Повторные попытки запроса КиноПоиска завершены без результата.");
         }
 
         public Task<Film> GetSingleFilm(int filmId, CancellationToken? cancellationToken = null)
@@ -142,6 +213,96 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return JsonConvert.DeserializeObject<FilteredFilmSearchResponse>(responseText)
                 ?? new FilteredFilmSearchResponse();
+        }
+
+        private async Task WaitBeforeRetry(
+            string memberName,
+            int completedAttempt,
+            int? statusCode,
+            IReadOnlyDictionary<string, IEnumerable<string>> headers,
+            CancellationToken cancellationToken)
+        {
+            var delay = GetRetryDelay(headers, completedAttempt);
+
+            if (statusCode.HasValue)
+            {
+                _logger.LogWarning(
+                    "Запрос {MemberName} получил временный статус {StatusCode}; повторная попытка {NextAttempt}/{MaximumAttempts} выполнена через {DelayMilliseconds} мс",
+                    memberName,
+                    statusCode.Value,
+                    completedAttempt + 1,
+                    MaximumAttempts,
+                    delay.TotalMilliseconds);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Запрос {MemberName} завершён временной сетевой ошибкой; повторная попытка {NextAttempt}/{MaximumAttempts} выполнена через {DelayMilliseconds} мс",
+                    memberName,
+                    completedAttempt + 1,
+                    MaximumAttempts,
+                    delay.TotalMilliseconds);
+            }
+
+            await Task.Delay(delay, cancellationToken);
+        }
+
+        private static bool IsTransientStatusCode(int statusCode)
+        {
+            return Array.IndexOf(TransientStatusCodes, statusCode) >= 0;
+        }
+
+        private static TimeSpan GetRetryDelay(
+            IReadOnlyDictionary<string, IEnumerable<string>> headers,
+            int completedAttempt)
+        {
+            if (TryGetRetryAfter(headers, out var retryAfter))
+                return retryAfter > MaximumRetryDelay ? MaximumRetryDelay : retryAfter;
+
+            var exponentialMilliseconds = 250 * Math.Pow(2, completedAttempt - 1);
+            var jitterMilliseconds = Random.Shared.Next(50, 151);
+            var calculatedDelay = TimeSpan.FromMilliseconds(exponentialMilliseconds + jitterMilliseconds);
+
+            return calculatedDelay > MaximumRetryDelay
+                ? MaximumRetryDelay
+                : calculatedDelay;
+        }
+
+        private static bool TryGetRetryAfter(
+            IReadOnlyDictionary<string, IEnumerable<string>> headers,
+            out TimeSpan retryAfter)
+        {
+            retryAfter = TimeSpan.Zero;
+            if (headers is null)
+                return false;
+
+            var header = headers.FirstOrDefault(item =>
+                string.Equals(item.Key, "Retry-After", StringComparison.OrdinalIgnoreCase));
+            var value = header.Value?.FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
+            {
+                retryAfter = TimeSpan.FromSeconds(Math.Max(0, seconds));
+                return true;
+            }
+
+            if (!DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var retryDate))
+            {
+                return false;
+            }
+
+            retryAfter = retryDate - DateTimeOffset.UtcNow;
+            if (retryAfter < TimeSpan.Zero)
+                retryAfter = TimeSpan.Zero;
+
+            return true;
         }
 
         private static void AddParameter(ICollection<string> parameters, string name, string value)
