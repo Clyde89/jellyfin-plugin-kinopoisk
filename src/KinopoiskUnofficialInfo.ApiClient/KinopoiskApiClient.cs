@@ -17,12 +17,15 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private const int MaximumAttempts = 3;
         private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
         private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(200);
 
         private readonly string _apiToken;
         private readonly ILogger<KinopoiskApiClient> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly HttpClient _httpClient;
         private readonly Client _apiClient;
+        private readonly SemaphoreSlim _requestGate = new(1, 1);
+        private DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
         public KinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> logger, IHttpClientFactory httpClientFactory)
         {
@@ -50,6 +53,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                await WaitForRequestWindow(cancellationToken).ConfigureAwait(false);
 
                 try
                 {
@@ -59,7 +63,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                         attempt,
                         MaximumAttempts);
 
-                    var result = await method.Invoke(cancellationToken);
+                    var result = await method.Invoke(cancellationToken).ConfigureAwait(false);
 
                     _logger.LogDebug(
                         "Запрос {MemberName} успешно завершён, попытка {Attempt}/{MaximumAttempts}",
@@ -78,7 +82,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                         attempt,
                         exception.StatusCode,
                         exception.Headers,
-                        cancellationToken);
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (HttpRequestException) when (attempt < MaximumAttempts)
                 {
@@ -87,7 +91,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                         attempt,
                         null,
                         null,
-                        cancellationToken);
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (
                     !cancellationToken.IsCancellationRequested
@@ -98,7 +102,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                         attempt,
                         null,
                         null,
-                        cancellationToken);
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (ApiException exception)
                 {
@@ -156,7 +160,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         {
             return Invoke(async (ct) => {
                 try {
-                    return await _apiClient.VideosAsync(filmId, ct);
+                    return await _apiClient.VideosAsync(filmId, ct).ConfigureAwait(false);
                 } catch (ApiException e)
                 {
                     if (e.StatusCode == 404)
@@ -193,9 +197,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
             using var response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
 
-            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -213,6 +217,24 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return JsonConvert.DeserializeObject<FilteredFilmSearchResponse>(responseText)
                 ?? new FilteredFilmSearchResponse();
+        }
+
+        private async Task WaitForRequestWindow(CancellationToken cancellationToken)
+        {
+            await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                var delay = _nextRequestAt - DateTimeOffset.UtcNow;
+                if (delay > TimeSpan.Zero)
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+
+                _nextRequestAt = DateTimeOffset.UtcNow + MinimumRequestInterval;
+            }
+            finally
+            {
+                _requestGate.Release();
+            }
         }
 
         private async Task WaitBeforeRetry(
@@ -244,7 +266,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     delay.TotalMilliseconds);
             }
 
-            await Task.Delay(delay, cancellationToken);
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
 
         private static bool IsTransientStatusCode(int statusCode)
