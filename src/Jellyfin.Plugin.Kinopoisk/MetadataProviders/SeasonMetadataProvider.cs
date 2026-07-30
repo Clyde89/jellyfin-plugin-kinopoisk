@@ -118,9 +118,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             return season.Episodes?
                 .Select(episode => episode.ReleaseDate.ParseDate())
                 .Where(date => date.HasValue)
-                .Select(date => date.Value)
+                .Select(date => (DateTime?)date.Value)
                 .OrderBy(date => date)
-                .Cast<DateTime?>()
                 .FirstOrDefault();
         }
     }
