@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class KinopoiskApiClient : IFilteredKinopoiskApiClient
+    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
@@ -170,6 +170,21 @@ namespace KinopoiskUnofficialInfo.ApiClient
             }, cancellationToken);
         }
 
+        public Task<ImageResponse> GetImages(
+            int filmId,
+            FilmImageType type,
+            int page = 1,
+            CancellationToken? cancellationToken = null)
+        {
+            if (filmId < 1)
+                throw new ArgumentOutOfRangeException(nameof(filmId), filmId, "Идентификатор КиноПоиска должен быть положительным.");
+
+            var selectedPage = page is >= 1 and <= 20 ? page : 1;
+            return Invoke(
+                ct => GetImagesCore(filmId, type, selectedPage, ct),
+                cancellationToken);
+        }
+
         private async Task<FilteredFilmSearchResponse> SearchFilmsCore(
             FilmSearchQuery query,
             CancellationToken cancellationToken)
@@ -191,6 +206,32 @@ namespace KinopoiskUnofficialInfo.ApiClient
             AddParameter(parameters, "page", page.ToString(CultureInfo.InvariantCulture));
 
             var requestUri = $"{ApiBaseUrl}/api/v2.2/films?{string.Join("&", parameters)}";
+            return await SendJsonRequest<FilteredFilmSearchResponse>(requestUri, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        private Task<ImageResponse> GetImagesCore(
+            int filmId,
+            FilmImageType type,
+            int page,
+            CancellationToken cancellationToken)
+        {
+            var requestUri = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}/api/v2.2/films/{1}/images?type={2}&page={3}",
+                ApiBaseUrl,
+                filmId,
+                Uri.EscapeDataString(type.ToString()),
+                page);
+
+            return SendJsonRequest<ImageResponse>(requestUri, cancellationToken);
+        }
+
+        private async Task<T> SendJsonRequest<T>(
+            string requestUri,
+            CancellationToken cancellationToken)
+            where T : new()
+        {
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
             request.Headers.Accept.ParseAdd("application/json");
 
@@ -215,8 +256,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     null);
             }
 
-            return JsonConvert.DeserializeObject<FilteredFilmSearchResponse>(responseText)
-                ?? new FilteredFilmSearchResponse();
+            return JsonConvert.DeserializeObject<T>(responseText) ?? new T();
         }
 
         private async Task WaitForRequestWindow(CancellationToken cancellationToken)
