@@ -71,9 +71,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             var premiereDate = episodes
                 .Select(episode => episode.ReleaseDate.ParseDate())
                 .Where(date => date.HasValue)
-                .Select(date => date.Value)
+                .Select(date => (DateTime?)date.Value)
                 .OrderBy(date => date)
-                .Cast<DateTime?>()
                 .FirstOrDefault();
 
             var localNames = episodes
