@@ -23,8 +23,11 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<ILogger<KinopoiskApiClient>>(),
                 sp.GetRequiredService<IHttpClientFactory>()
             ));
+            serviceCollection.AddSingleton((sp) => new RateLimitedKinopoiskApiClient(
+                sp.GetRequiredService<KinopoiskApiClient>()
+            ));
             serviceCollection.AddSingleton<IKinopoiskApiClient>((sp) => new CachedKinopoiskApiClient(
-                sp.GetRequiredService<KinopoiskApiClient>(),
+                sp.GetRequiredService<RateLimitedKinopoiskApiClient>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<ILogger<CachedKinopoiskApiClient>>()
             ));
