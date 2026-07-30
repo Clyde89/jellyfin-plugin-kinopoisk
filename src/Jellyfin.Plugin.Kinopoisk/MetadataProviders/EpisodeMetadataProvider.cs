@@ -6,18 +6,18 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using KinopoiskUnofficialInfo.ApiClient;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Providers;
 using Microsoft.Extensions.Logging;
 using ApiEpisode = KinopoiskUnofficialInfo.ApiClient.Episode;
+using JellyfinEpisode = MediaBrowser.Controller.Entities.TV.Episode;
 
 namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 {
     /// <summary>
     /// Загружает сведения об эпизодах сериалов КиноПоиска.
     /// </summary>
-    public class EpisodeMetadataProvider : BaseMetadataProvider, IRemoteMetadataProvider<Episode, EpisodeInfo>
+    public class EpisodeMetadataProvider : BaseMetadataProvider, IRemoteMetadataProvider<JellyfinEpisode, EpisodeInfo>
     {
         private readonly IKinopoiskSeasonApiClient _seasonApiClient;
         private readonly ILogger<EpisodeMetadataProvider> _logger;
@@ -32,11 +32,11 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task<MetadataResult<Episode>> GetMetadata(
+        public async Task<MetadataResult<JellyfinEpisode>> GetMetadata(
             EpisodeInfo info,
             CancellationToken cancellationToken)
         {
-            var result = new MetadataResult<Episode>
+            var result = new MetadataResult<JellyfinEpisode>
             {
                 Provider = Constants.ProviderName,
                 ResultLanguage = Constants.ProviderMetadataLanguage
@@ -88,7 +88,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 .Where(overview => !string.IsNullOrWhiteSpace(overview))
                 .ToArray();
 
-            var item = new Episode
+            var item = new JellyfinEpisode
             {
                 IndexNumber = info.IndexNumber,
                 IndexNumberEnd = info.IndexNumberEnd,
