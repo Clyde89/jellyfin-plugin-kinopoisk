@@ -10,13 +10,14 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient
     {
         private static readonly TimeSpan PersonExpiration = TimeSpan.FromHours(24);
         private static readonly TimeSpan FilmExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan StaffExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan TrailersExpiration = TimeSpan.FromHours(6);
         private static readonly TimeSpan ImagesExpiration = TimeSpan.FromHours(12);
+        private static readonly TimeSpan SeasonsExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan SearchExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan EmptyResultExpiration = TimeSpan.FromMinutes(3);
 
@@ -24,6 +25,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
         private readonly IKinopoiskImageApiClient _imageInnerClient;
         private readonly IKinopoiskPersonSearchApiClient _personSearchInnerClient;
+        private readonly IKinopoiskSeasonApiClient _seasonInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
         private readonly ConcurrentDictionary<string, Lazy<Task<object>>> _inflightRequests = new();
@@ -34,6 +36,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
             _imageInnerClient = innerClient as IKinopoiskImageApiClient;
             _personSearchInnerClient = innerClient as IKinopoiskPersonSearchApiClient;
+            _seasonInnerClient = innerClient as IKinopoiskSeasonApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -73,6 +76,25 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     normalizedName,
                     selectedPage,
                     CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                cancellationToken);
+        }
+
+        public Task<SeasonResponse> GetSeasons(
+            int filmId,
+            CancellationToken? cancellationToken = null)
+        {
+            if (filmId < 1)
+                throw new ArgumentOutOfRangeException(nameof(filmId), filmId, "Идентификатор КиноПоиска должен быть положительным.");
+
+            if (_seasonInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает получение сезонов.");
+
+            return GetOrCreate(
+                GenerateKey(nameof(GetSeasons), filmId),
+                SeasonsExpiration,
+                EmptyResultExpiration,
+                _ => _seasonInnerClient.GetSeasons(filmId, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
                 cancellationToken);
         }

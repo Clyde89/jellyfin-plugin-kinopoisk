@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient
+    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
@@ -167,6 +167,18 @@ namespace KinopoiskUnofficialInfo.ApiClient
             var selectedPage = page is >= 1 and <= 2 ? page : 1;
             return Invoke(
                 ct => SearchPersonsCore(name.Trim(), selectedPage, ct),
+                cancellationToken);
+        }
+
+        public Task<SeasonResponse> GetSeasons(
+            int filmId,
+            CancellationToken? cancellationToken = null)
+        {
+            if (filmId < 1)
+                throw new ArgumentOutOfRangeException(nameof(filmId), filmId, "Идентификатор КиноПоиска должен быть положительным.");
+
+            return Invoke(
+                ct => _apiClient.SeasonsAsync(filmId, ct),
                 cancellationToken);
         }
 
