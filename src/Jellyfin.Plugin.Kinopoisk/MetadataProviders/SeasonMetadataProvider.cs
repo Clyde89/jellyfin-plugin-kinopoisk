@@ -6,18 +6,18 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using KinopoiskUnofficialInfo.ApiClient;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Providers;
 using Microsoft.Extensions.Logging;
 using ApiSeason = KinopoiskUnofficialInfo.ApiClient.Season;
+using JellyfinSeason = MediaBrowser.Controller.Entities.TV.Season;
 
 namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 {
     /// <summary>
     /// Загружает сведения о сезонах сериалов КиноПоиска.
     /// </summary>
-    public class SeasonMetadataProvider : BaseMetadataProvider, IRemoteMetadataProvider<Season, SeasonInfo>
+    public class SeasonMetadataProvider : BaseMetadataProvider, IRemoteMetadataProvider<JellyfinSeason, SeasonInfo>
     {
         private readonly IKinopoiskSeasonApiClient _seasonApiClient;
         private readonly ILogger<SeasonMetadataProvider> _logger;
@@ -32,11 +32,11 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task<MetadataResult<Season>> GetMetadata(
+        public async Task<MetadataResult<JellyfinSeason>> GetMetadata(
             SeasonInfo info,
             CancellationToken cancellationToken)
         {
-            var result = new MetadataResult<Season>
+            var result = new MetadataResult<JellyfinSeason>
             {
                 Provider = Constants.ProviderName,
                 ResultLanguage = Constants.ProviderMetadataLanguage
@@ -55,7 +55,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
             var premiereDate = GetPremiereDate(apiSeason);
             var episodeCount = apiSeason.Episodes?.Count ?? 0;
-            result.Item = new Season
+            result.Item = new JellyfinSeason
             {
                 IndexNumber = apiSeason.Number,
                 Name = apiSeason.Number == 0
