@@ -10,17 +10,19 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient
     {
         private static readonly TimeSpan PersonExpiration = TimeSpan.FromHours(24);
         private static readonly TimeSpan FilmExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan StaffExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan TrailersExpiration = TimeSpan.FromHours(6);
+        private static readonly TimeSpan ImagesExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan SearchExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan EmptyResultExpiration = TimeSpan.FromMinutes(3);
 
         private readonly IKinopoiskApiClient _innerClient;
         private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
+        private readonly IKinopoiskImageApiClient _imageInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
         private readonly ConcurrentDictionary<string, Lazy<Task<object>>> _inflightRequests = new();
@@ -29,6 +31,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
+            _imageInnerClient = innerClient as IKinopoiskImageApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -74,6 +77,24 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 result => result?.Items is null || result.Items.Count < 1,
                 cancellationToken);
 
+        public Task<ImageResponse> GetImages(
+            int filmId,
+            FilmImageType type,
+            int page = 1,
+            CancellationToken? cancellationToken = null)
+        {
+            if (_imageInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает получение расширенных изображений.");
+
+            return GetOrCreate(
+                GenerateKey(nameof(GetImages), filmId, type, page),
+                ImagesExpiration,
+                EmptyResultExpiration,
+                _ => _imageInnerClient.GetImages(filmId, type, page, CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                cancellationToken);
+        }
+
         public Task<FilmSearchResponse> SearchByKeyword(string keyword, int page = 1, CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(SearchByKeyword), keyword, page),
@@ -109,7 +130,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             foreach (var obj in objects)
             {
                 var objType = obj.GetType();
-                if (objType.IsPrimitive || objType == typeof(string))
+                if (objType.IsPrimitive || objType == typeof(string) || objType.IsEnum)
                 {
                     key += obj + ";";
                 }
