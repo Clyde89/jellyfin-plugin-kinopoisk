@@ -50,11 +50,11 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         }
 
         [Fact]
-        public void ShouldRejectNonPositiveFilmIdentifier()
+        public async Task ShouldRejectNonPositiveFilmIdentifier()
         {
             var client = CreateClient(new RecordingHandler(ImageJson));
 
-            Assert.Throws<ArgumentOutOfRangeException>(() =>
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
                 client.GetImages(0, FilmImageType.STILL, 1, CancellationToken.None));
         }
 
