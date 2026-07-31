@@ -15,44 +15,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     /// </summary>
     public sealed class KinopoiskFranchiseReportOptions
     {
-        /// <summary>
-        /// Получает или задаёт признак включения сериалов.
-        /// </summary>
         public bool IncludeSeries { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт признак учёта сиквелов.
-        /// </summary>
         public bool IncludeSequels { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт признак учёта приквелов.
-        /// </summary>
         public bool IncludePrequels { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт признак учёта ремейков.
-        /// </summary>
         public bool IncludeRemakes { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт минимальное количество локальных объектов.
-        /// </summary>
         public int MinimumItems { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт суффикс названия коллекции.
-        /// </summary>
         public string CollectionNameSuffix { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Получает или задаёт признак разрешения записи управляемых коллекций.
-        /// </summary>
         public bool CollectionWritesEnabled { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт признак режима предварительного просмотра.
-        /// </summary>
         public bool PreviewOnly { get; set; } = true;
     }
 
@@ -61,34 +30,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     /// </summary>
     public sealed class KinopoiskFranchisePreviewReport
     {
-        /// <summary>
-        /// Получает или задаёт версию схемы отчёта.
-        /// </summary>
         public int SchemaVersion { get; set; } = 1;
-
-        /// <summary>
-        /// Получает или задаёт время формирования отчёта в UTC.
-        /// </summary>
         public DateTimeOffset GeneratedAtUtc { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт режим выполнения.
-        /// </summary>
         public string Mode { get; set; } = "preview";
-
-        /// <summary>
-        /// Получает или задаёт безопасный снимок параметров.
-        /// </summary>
+        public string PlanFingerprint { get; set; } = string.Empty;
         public KinopoiskFranchiseReportOptions Options { get; set; } = new();
-
-        /// <summary>
-        /// Получает или задаёт сводку выполнения.
-        /// </summary>
         public KinopoiskFranchiseReportSummary Summary { get; set; } = new();
-
-        /// <summary>
-        /// Получает или задаёт планы локальных коллекций.
-        /// </summary>
         public IReadOnlyList<KinopoiskFranchisePlan> Plans { get; set; }
             = Array.Empty<KinopoiskFranchisePlan>();
     }
@@ -98,29 +45,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     /// </summary>
     public sealed class KinopoiskFranchiseReportSummary
     {
-        /// <summary>
-        /// Получает или задаёт количество локальных объектов.
-        /// </summary>
         public int LocalItemCount { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт количество обработанных объектов.
-        /// </summary>
         public int ProcessedItemCount { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт количество неудачных запросов.
-        /// </summary>
         public int FailedRequestCount { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт количество запланированных коллекций.
-        /// </summary>
         public int PlannedCollectionCount { get; set; }
-
-        /// <summary>
-        /// Получает или задаёт количество уникальных объектов в планах.
-        /// </summary>
         public int PlannedItemCount { get; set; }
     }
 
@@ -135,11 +63,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private readonly string _reportDirectory;
         private readonly ILogger<KinopoiskFranchiseReportWriter> _logger;
 
-        /// <summary>
-        /// Инициализирует средство записи отчётов.
-        /// </summary>
-        /// <param name="reportDirectory">Каталог отчётов.</param>
-        /// <param name="logger">Журнал.</param>
         public KinopoiskFranchiseReportWriter(
             string reportDirectory,
             ILogger<KinopoiskFranchiseReportWriter> logger)
@@ -151,13 +74,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        /// <summary>
-        /// Формирует и атомарно сохраняет отчёт предварительного просмотра.
-        /// </summary>
-        /// <param name="previewResult">Результат предварительного просмотра.</param>
-        /// <param name="options">Безопасный снимок параметров.</param>
-        /// <param name="cancellationToken">Токен отмены.</param>
-        /// <returns>Полный путь к актуальному отчёту.</returns>
         public async Task<string> WritePreview(
             KinopoiskFranchisePreviewResult previewResult,
             KinopoiskFranchiseReportOptions options,
@@ -172,6 +88,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var report = new KinopoiskFranchisePreviewReport
             {
                 GeneratedAtUtc = generatedAtUtc,
+                PlanFingerprint = KinopoiskFranchisePlanFingerprint.Compute(
+                    previewResult.Plans,
+                    options),
                 Options = options,
                 Summary = new KinopoiskFranchiseReportSummary
                 {
@@ -251,27 +170,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 }
                 catch (IOException exception)
                 {
-                    _logger.LogWarning(
-                        exception,
-                        "Устаревший отчёт франшиз не удалён: {ReportPath}",
-                        report.FullName);
+                    _logger.LogWarning(exception, "Устаревший отчёт франшиз не удалён: {ReportPath}", report.FullName);
                 }
                 catch (UnauthorizedAccessException exception)
                 {
-                    _logger.LogWarning(
-                        exception,
-                        "Недостаточно прав для удаления устаревшего отчёта франшиз: {ReportPath}",
-                        report.FullName);
+                    _logger.LogWarning(exception, "Недостаточно прав для удаления устаревшего отчёта франшиз: {ReportPath}", report.FullName);
                 }
             }
         }
 
-        private static JsonSerializerOptions CreateSerializerOptions()
+        internal static JsonSerializerOptions CreateSerializerOptions()
         {
             var options = new JsonSerializerOptions
             {
                 WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
             };
             options.Converters.Add(new JsonStringEnumConverter());
             return options;
