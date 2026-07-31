@@ -1,3 +1,6 @@
+using System;
+using System.Xml.Serialization;
+using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Kinopoisk.Configuration
@@ -86,5 +89,29 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         /// Получает или задаёт интервал проверки квоты в часах.
         /// </summary>
         public int QuotaCheckIntervalHours { get; set; } = 6;
+
+        /// <summary>
+        /// Возвращает текущую оперативную диагностику без записи в XML-конфигурацию.
+        /// </summary>
+        [XmlIgnore]
+        public KinopoiskDiagnosticsSnapshot Diagnostics
+            => KinopoiskDiagnostics.Shared.GetSnapshot();
+
+        /// <summary>
+        /// Нормализует значения перед сохранением конфигурации.
+        /// </summary>
+        public void Normalize()
+        {
+            ApiToken = ApiToken?.Trim() ?? string.Empty;
+            MetadataCacheHours = Math.Clamp(MetadataCacheHours, 1, 8760);
+            ImagesCacheHours = Math.Clamp(ImagesCacheHours, 1, 8760);
+            SearchCacheMinutes = Math.Clamp(SearchCacheMinutes, 1, 10080);
+            NegativeCacheMinutes = Math.Clamp(NegativeCacheMinutes, 1, 1440);
+            PersistentCacheMaximumMegabytes = Math.Clamp(
+                PersistentCacheMaximumMegabytes,
+                64,
+                8192);
+            QuotaCheckIntervalHours = Math.Clamp(QuotaCheckIntervalHours, 1, 168);
+        }
     }
 }
