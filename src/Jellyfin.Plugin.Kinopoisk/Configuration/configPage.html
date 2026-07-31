@@ -137,6 +137,25 @@
                         <div class="fieldDescription">Рекомендуемое значение: 6 часов. Сам запрос состояния ключа также учитывается внешним сервисом.</div>
                     </div>
 
+                    <h2>Состояние поставщика</h2>
+                    <div class="fieldDescription" style="line-height: 1.8;">
+                        <div><strong>Тип учётной записи:</strong> <span id="DiagnosticAccountType">не определён</span></div>
+                        <div><strong>Суточная квота:</strong> <span id="DiagnosticDailyQuota">ещё не проверялась</span></div>
+                        <div><strong>Общая квота:</strong> <span id="DiagnosticTotalQuota">ещё не проверялась</span></div>
+                        <div><strong>Последняя проверка квоты:</strong> <span id="DiagnosticLastQuotaCheck">ещё не выполнялась</span></div>
+                        <div><strong>Запросы API:</strong> <span id="DiagnosticApiRequests">0</span></div>
+                        <div><strong>Ошибки API:</strong> <span id="DiagnosticApiFailures">0</span></div>
+                        <div><strong>Попадания в оперативный кэш:</strong> <span id="DiagnosticMemoryHits">0</span></div>
+                        <div><strong>Попадания в дисковый кэш:</strong> <span id="DiagnosticPersistentHits">0</span></div>
+                        <div><strong>Резерв устаревшего кэша:</strong> <span id="DiagnosticStaleHits">0</span></div>
+                        <div><strong>Записи в дисковый кэш:</strong> <span id="DiagnosticPersistentWrites">0</span></div>
+                    </div>
+                    <div style="margin-top: 1em;">
+                        <button id="RefreshDiagnostics" is="emby-button" type="button" class="raised emby-button">
+                            <span>Обновить показатели</span>
+                        </button>
+                    </div>
+
                     <div class="fieldDescription" style="margin: 1.5em 0;">
                         Параметры кэша и контроля квоты применяются после перезапуска Jellyfin. Функциональные переключатели учитываются при следующих запросах метаданных.
                     </div>
@@ -158,9 +177,41 @@
                 return Number.isFinite(value) ? value : fallback;
             }
 
-            $('#KinopoiskConfigPage').on('pageshow', function () {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
+            function formatQuota(used, value) {
+                if (!value) {
+                    return 'ещё не проверялась';
+                }
+
+                return String(used || 0) + ' из ' + String(value);
+            }
+
+            function formatDate(value) {
+                if (!value) {
+                    return 'ещё не выполнялась';
+                }
+
+                var date = new Date(value);
+                return Number.isNaN(date.getTime())
+                    ? 'неизвестно'
+                    : date.toLocaleString('ru-RU');
+            }
+
+            function renderDiagnostics(config) {
+                var diagnostics = config.Diagnostics || {};
+                $('#DiagnosticAccountType').text(diagnostics.AccountType || 'не определён');
+                $('#DiagnosticDailyQuota').text(formatQuota(diagnostics.DailyQuotaUsed, diagnostics.DailyQuotaValue));
+                $('#DiagnosticTotalQuota').text(formatQuota(diagnostics.TotalQuotaUsed, diagnostics.TotalQuotaValue));
+                $('#DiagnosticLastQuotaCheck').text(formatDate(diagnostics.LastQuotaCheckUtc));
+                $('#DiagnosticApiRequests').text(diagnostics.ApiRequests || 0);
+                $('#DiagnosticApiFailures').text(diagnostics.ApiFailures || 0);
+                $('#DiagnosticMemoryHits').text(diagnostics.MemoryCacheHits || 0);
+                $('#DiagnosticPersistentHits').text(diagnostics.PersistentCacheHits || 0);
+                $('#DiagnosticStaleHits').text(diagnostics.StaleCacheHits || 0);
+                $('#DiagnosticPersistentWrites').text(diagnostics.PersistentCacheWrites || 0);
+            }
+
+            function loadConfiguration() {
+                return ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
                     $('#ApiToken').val(config.ApiToken || '').change();
                     $('#EnableMovieMetadata').prop('checked', config.EnableMovieMetadata !== false).change();
                     $('#EnableSeriesMetadata').prop('checked', config.EnableSeriesMetadata !== false).change();
@@ -177,6 +228,22 @@
                     $('#PersistentCacheMaximumMegabytes').val(config.PersistentCacheMaximumMegabytes || 512).change();
                     $('#EnableQuotaMonitoring').prop('checked', config.EnableQuotaMonitoring !== false).change();
                     $('#QuotaCheckIntervalHours').val(config.QuotaCheckIntervalHours || 6).change();
+                    renderDiagnostics(config);
+                    return config;
+                });
+            }
+
+            $('#KinopoiskConfigPage').on('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                loadConfiguration().then(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            $('#RefreshDiagnostics').on('click', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
+                    renderDiagnostics(config);
                     Dashboard.hideLoadingMsg();
                 });
             });
