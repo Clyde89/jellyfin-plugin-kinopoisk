@@ -94,7 +94,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
                 ICollection<FilmSequelsAndPrequelsResponse> result = filmId switch
                 {
-                    1 => new[] { Relation(3, FilmSequelsAndPrequelsResponseRelationType.SEQUEL) },
+                    1 => new[] { Relation(2, FilmSequelsAndPrequelsResponseRelationType.SEQUEL) },
                     2 => new[] { Relation(3, FilmSequelsAndPrequelsResponseRelationType.SEQUEL) },
                     _ => Array.Empty<FilmSequelsAndPrequelsResponse>()
                 };
