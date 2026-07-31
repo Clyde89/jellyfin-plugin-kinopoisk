@@ -113,9 +113,34 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public int NegativeCacheMinutes { get; set; } = 15;
 
         /// <summary>
-        /// Получает или задаёт максимальный размер дискового кэша в мегабайтах.
+        /// Получает или задаёт максимальный размер дискового кэша ответов API в мегабайтах.
         /// </summary>
         public int PersistentCacheMaximumMegabytes { get; set; } = 512;
+
+        /// <summary>
+        /// Получает или задаёт признак локального кэширования бинарных файлов изображений.
+        /// </summary>
+        public bool EnableImageBinaryCache { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак использования устаревшего изображения при сетевой ошибке.
+        /// </summary>
+        public bool UseStaleImageCacheOnFailure { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт срок актуальности бинарного изображения в днях.
+        /// </summary>
+        public int ImageBinaryCacheDays { get; set; } = 30;
+
+        /// <summary>
+        /// Получает или задаёт максимальный общий размер бинарного кэша изображений в мегабайтах.
+        /// </summary>
+        public int ImageBinaryCacheMaximumMegabytes { get; set; } = 2048;
+
+        /// <summary>
+        /// Получает или задаёт максимальный размер одного кэшируемого изображения в мегабайтах.
+        /// </summary>
+        public int ImageBinaryCacheMaximumFileMegabytes { get; set; } = 25;
 
         /// <summary>
         /// Получает или задаёт признак контроля состояния API-ключа и квоты.
@@ -155,6 +180,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
                 PersistentCacheMaximumMegabytes,
                 64,
                 8192);
+            ImageBinaryCacheDays = Math.Clamp(ImageBinaryCacheDays, 1, 3650);
+            ImageBinaryCacheMaximumMegabytes = Math.Clamp(
+                ImageBinaryCacheMaximumMegabytes,
+                64,
+                16384);
+            ImageBinaryCacheMaximumFileMegabytes = Math.Clamp(
+                ImageBinaryCacheMaximumFileMegabytes,
+                1,
+                100);
             QuotaCheckIntervalHours = Math.Clamp(QuotaCheckIntervalHours, 1, 168);
         }
     }
