@@ -41,6 +41,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     /// </summary>
     public sealed class KinopoiskFranchiseApplyService
     {
+        private const string GenericFailureMessage
+            = "Операция с управляемой коллекцией завершена ошибкой. Подробности сохранены в журнале Jellyfin.";
+
         private readonly IKinopoiskManagedCollectionGateway _gateway;
         private readonly ILogger<KinopoiskFranchiseApplyService> _logger;
 
@@ -112,6 +115,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     var wasCreated = false;
                     if (collection is null)
                     {
+                        if (await _gateway
+                            .CollectionNameExists(plan.SuggestedName, cancellationToken)
+                            .ConfigureAwait(false))
+                        {
+                            itemResult.Action = "conflict";
+                            itemResult.Error = "Коллекция с предлагаемым названием уже существует и не была изменена.";
+                            result.ConflictCount++;
+                            itemResults.Add(itemResult);
+                            continue;
+                        }
+
                         collection = await _gateway
                             .CreateManagedCollection(
                                 plan.AnchorKinopoiskId,
@@ -172,7 +186,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 catch (Exception exception)
                 {
                     itemResult.Action = "failed";
-                    itemResult.Error = exception.Message;
+                    itemResult.Error = GenericFailureMessage;
                     result.FailureCount++;
                     itemResults.Add(itemResult);
                     _logger.LogError(
