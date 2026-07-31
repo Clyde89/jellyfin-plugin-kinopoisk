@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
@@ -13,6 +15,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
     /// </summary>
     public sealed class KinopoiskRelationsApiClient : IKinopoiskRelationsApiClient
     {
+        private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
         private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
         private static readonly SemaphoreSlim RequestGate = new(1, 1);
@@ -20,7 +23,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(10);
         private static DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
-        private readonly Client _apiClient;
+        private readonly HttpClient _httpClient;
         private readonly ILogger<KinopoiskRelationsApiClient> _logger;
 
         /// <summary>
@@ -37,9 +40,8 @@ namespace KinopoiskUnofficialInfo.ApiClient
             ArgumentNullException.ThrowIfNull(httpClientFactory);
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            var httpClient = httpClientFactory.CreateClient();
-            httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
-            _apiClient = new Client(httpClient);
+            _httpClient = httpClientFactory.CreateClient();
+            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
         }
 
         /// <inheritdoc />
@@ -63,10 +65,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
                 try
                 {
-                    var result = await _apiClient
-                        .PrequelsAsync(filmId, token)
-                        .ConfigureAwait(false);
-                    return result ?? Array.Empty<FilmSequelsAndPrequelsResponse>();
+                    return await SendRequest(filmId, token).ConfigureAwait(false);
                 }
                 catch (ApiException exception) when (exception.StatusCode == 404)
                 {
@@ -100,6 +99,44 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             throw new InvalidOperationException(
                 "Повторные попытки загрузки связей КиноПоиска завершены без результата.");
+        }
+
+        private async Task<ICollection<FilmSequelsAndPrequelsResponse>> SendRequest(
+            int filmId,
+            CancellationToken cancellationToken)
+        {
+            var requestUri = $"{ApiBaseUrl}/api/v2.1/films/{filmId}/sequels_and_prequels";
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            request.Headers.Accept.ParseAdd("application/json");
+
+            using var response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return Array.Empty<FilmSequelsAndPrequelsResponse>();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var headers = response.Headers.ToDictionary(item => item.Key, item => item.Value);
+                foreach (var header in response.Content.Headers)
+                    headers[header.Key] = header.Value;
+
+                throw new ApiException(
+                    "Сервер КиноПоиска вернул неожиданный HTTP-статус.",
+                    (int)response.StatusCode,
+                    string.Empty,
+                    headers,
+                    null);
+            }
+
+            var json = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return JsonConvert.DeserializeObject<ICollection<FilmSequelsAndPrequelsResponse>>(json)
+                ?? Array.Empty<FilmSequelsAndPrequelsResponse>();
         }
 
         private static bool IsTransientStatusCode(int statusCode)
