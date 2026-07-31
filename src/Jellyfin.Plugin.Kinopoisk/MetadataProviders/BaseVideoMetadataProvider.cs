@@ -22,10 +22,6 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         private readonly IKinopoiskApiClient _apiClient;
         private readonly IProviderIdResolver<TLookupInfoType> _providerIdResolver;
 
-        public BaseVideoMetadataProvider(TItemType unused)
-        {
-        }
-
         public BaseVideoMetadataProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
@@ -211,7 +207,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 }
 
                 _logger.LogDebug(
-                    "Полная карточка Kinopoиск ID {KinopoiskId} подтверждена по IMDb ID '{ImdbId}'",
+                    "Полная карточка Kinopoisk ID {KinopoiskId} подтверждена по IMDb ID '{ImdbId}'",
                     kinopoiskId,
                     imdbId);
                 return true;
