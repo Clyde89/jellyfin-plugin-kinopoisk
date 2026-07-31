@@ -24,17 +24,30 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.EnablePeopleMetadata);
             Assert.True(configuration.EnableTrailers);
             Assert.True(configuration.EnableImages);
+            Assert.True(configuration.EnablePrecisePremiereDate);
+            Assert.True(configuration.EnableRuntimeFallback);
+            Assert.True(configuration.EnableKinopoiskHomePage);
+            Assert.True(configuration.EnableSeriesStatus);
+            Assert.True(configuration.EnableShortDescriptionFallback);
             Assert.True(configuration.EnablePersistentCache);
             Assert.True(configuration.UseStaleCacheOnFailure);
             Assert.True(configuration.EnableQuotaMonitoring);
+            Assert.Equal(
+                CommunityRatingSource.KinopoiskWithImdbFallback,
+                configuration.CommunityRatingSource);
+            Assert.Equal(
+                CriticRatingSource.RussianWithWorldFallback,
+                configuration.CriticRatingSource);
         }
 
         [Fact]
-        public void ShouldNormalizeTokenAndCacheLimits()
+        public void ShouldNormalizeTokenCacheLimitsAndRatingSources()
         {
             var configuration = new PluginConfiguration
             {
                 ApiToken = "  test-token  ",
+                CommunityRatingSource = (CommunityRatingSource)999,
+                CriticRatingSource = (CriticRatingSource)999,
                 MetadataCacheHours = 0,
                 ImagesCacheHours = 10000,
                 SearchCacheMinutes = 0,
@@ -46,6 +59,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             configuration.Normalize();
 
             Assert.Equal("test-token", configuration.ApiToken);
+            Assert.Equal(
+                CommunityRatingSource.KinopoiskWithImdbFallback,
+                configuration.CommunityRatingSource);
+            Assert.Equal(
+                CriticRatingSource.RussianWithWorldFallback,
+                configuration.CriticRatingSource);
             Assert.Equal(1, configuration.MetadataCacheHours);
             Assert.Equal(8760, configuration.ImagesCacheHours);
             Assert.Equal(1, configuration.SearchCacheMinutes);
