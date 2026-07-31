@@ -12,14 +12,8 @@ namespace KinopoiskUnofficialInfo.ApiClient
 {
     public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient
     {
-        private static readonly TimeSpan PersonExpiration = TimeSpan.FromHours(24);
-        private static readonly TimeSpan FilmExpiration = TimeSpan.FromHours(12);
-        private static readonly TimeSpan StaffExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan TrailersExpiration = TimeSpan.FromHours(6);
-        private static readonly TimeSpan ImagesExpiration = TimeSpan.FromHours(12);
-        private static readonly TimeSpan SeasonsExpiration = TimeSpan.FromHours(12);
-        private static readonly TimeSpan SearchExpiration = TimeSpan.FromMinutes(15);
-        private static readonly TimeSpan EmptyResultExpiration = TimeSpan.FromMinutes(3);
+        private static readonly TimeSpan StaleMemoryExpiration = TimeSpan.FromMinutes(5);
 
         private readonly IKinopoiskApiClient _innerClient;
         private readonly IFilteredKinopoiskApiClient _filteredInnerClient;
@@ -28,9 +22,30 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private readonly IKinopoiskSeasonApiClient _seasonInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
+        private readonly KinopoiskCacheOptions _options;
+        private readonly KinopoiskDiagnostics _diagnostics;
+        private readonly PersistentJsonCache _persistentCache;
         private readonly ConcurrentDictionary<string, Lazy<Task<object>>> _inflightRequests = new();
 
-        public CachedKinopoiskApiClient(IKinopoiskApiClient innerClient, IMemoryCache cache, ILogger<CachedKinopoiskApiClient> logger)
+        public CachedKinopoiskApiClient(
+            IKinopoiskApiClient innerClient,
+            IMemoryCache cache,
+            ILogger<CachedKinopoiskApiClient> logger)
+            : this(
+                innerClient,
+                cache,
+                logger,
+                new KinopoiskCacheOptions(),
+                KinopoiskDiagnostics.Shared)
+        {
+        }
+
+        public CachedKinopoiskApiClient(
+            IKinopoiskApiClient innerClient,
+            IMemoryCache cache,
+            ILogger<CachedKinopoiskApiClient> logger,
+            KinopoiskCacheOptions options,
+            KinopoiskDiagnostics diagnostics)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _filteredInnerClient = innerClient as IFilteredKinopoiskApiClient;
@@ -39,20 +54,39 @@ namespace KinopoiskUnofficialInfo.ApiClient
             _seasonInnerClient = innerClient as IKinopoiskSeasonApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+
+            if (_options.EnablePersistentCache
+                && !string.IsNullOrWhiteSpace(_options.PersistentCachePath))
+            {
+                _persistentCache = new PersistentJsonCache(
+                    _options.PersistentCachePath,
+                    _options.MaximumPersistentCacheBytes,
+                    _logger);
+            }
         }
 
-        public CachedKinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> innerLogger, IHttpClientFactory httpClientFactory, IMemoryCache cache, ILogger<CachedKinopoiskApiClient> logger)
-            : this(new KinopoiskApiClient(apiToken, innerLogger, httpClientFactory), cache, logger)
+        public CachedKinopoiskApiClient(
+            string apiToken,
+            ILogger<KinopoiskApiClient> innerLogger,
+            IHttpClientFactory httpClientFactory,
+            IMemoryCache cache,
+            ILogger<CachedKinopoiskApiClient> logger)
+            : this(
+                new KinopoiskApiClient(apiToken, innerLogger, httpClientFactory),
+                cache,
+                logger)
         {
         }
 
         public Task<PersonResponse> GetPerson(int personId, CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(GetPerson), personId),
-                PersonExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
                 c => c.GetPerson(personId, CancellationToken.None),
                 result => result is null,
+                persist: true,
                 cancellationToken);
 
         public Task<PersonSearchResponse> SearchPersons(
@@ -70,13 +104,13 @@ namespace KinopoiskUnofficialInfo.ApiClient
             var selectedPage = page is >= 1 and <= 2 ? page : 1;
             return GetOrCreate(
                 GenerateKey(nameof(SearchPersons), normalizedName.ToUpperInvariant(), selectedPage),
-                SearchExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.SearchExpiration, TimeSpan.FromMinutes(15)),
                 _ => _personSearchInnerClient.SearchPersons(
                     normalizedName,
                     selectedPage,
                     CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
+                persist: true,
                 cancellationToken);
         }
 
@@ -92,38 +126,38 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return GetOrCreate(
                 GenerateKey(nameof(GetSeasons), filmId),
-                SeasonsExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
                 _ => _seasonInnerClient.GetSeasons(filmId, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
+                persist: true,
                 cancellationToken);
         }
 
         public Task<Film> GetSingleFilm(int filmId, CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(GetSingleFilm), filmId),
-                FilmExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
                 c => c.GetSingleFilm(filmId, CancellationToken.None),
                 result => result is null,
+                persist: true,
                 cancellationToken);
 
         public Task<ICollection<StaffResponse>> GetStaff(int filmId, CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(GetStaff), filmId),
-                StaffExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
                 c => c.GetStaff(filmId, CancellationToken.None),
                 result => result is null || result.Count < 1,
+                persist: true,
                 cancellationToken);
 
         public Task<VideoResponse> GetTrailers(int filmId, CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(GetTrailers), filmId),
                 TrailersExpiration,
-                EmptyResultExpiration,
                 c => c.GetTrailers(filmId, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
+                persist: false,
                 cancellationToken);
 
         public Task<ImageResponse> GetImages(
@@ -137,20 +171,23 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return GetOrCreate(
                 GenerateKey(nameof(GetImages), filmId, type, page),
-                ImagesExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.ImagesExpiration, TimeSpan.FromHours(12)),
                 _ => _imageInnerClient.GetImages(filmId, type, page, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
+                persist: true,
                 cancellationToken);
         }
 
-        public Task<FilmSearchResponse> SearchByKeyword(string keyword, int page = 1, CancellationToken? cancellationToken = null)
+        public Task<FilmSearchResponse> SearchByKeyword(
+            string keyword,
+            int page = 1,
+            CancellationToken? cancellationToken = null)
             => GetOrCreate(
                 GenerateKey(nameof(SearchByKeyword), keyword, page),
-                SearchExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.SearchExpiration, TimeSpan.FromMinutes(15)),
                 c => c.SearchByKeyword(keyword, page, CancellationToken.None),
                 result => result?.Films is null || result.Films.Count < 1,
+                persist: true,
                 cancellationToken);
 
         public Task<FilteredFilmSearchResponse> SearchFilms(
@@ -165,10 +202,10 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return GetOrCreate(
                 GenerateKey(nameof(SearchFilms), query),
-                SearchExpiration,
-                EmptyResultExpiration,
+                NormalizeExpiration(_options.SearchExpiration, TimeSpan.FromMinutes(15)),
                 _ => _filteredInnerClient.SearchFilms(query, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
+                persist: true,
                 cancellationToken);
         }
 
@@ -202,9 +239,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private async Task<T> GetOrCreate<T>(
             string key,
             TimeSpan expiration,
-            TimeSpan emptyResultExpiration,
             Func<IKinopoiskApiClient, Task<T>> resultFactory,
             Func<T, bool> isEmptyResult,
+            bool persist,
             CancellationToken? cancellationToken)
         {
             var callerCancellationToken = cancellationToken ?? CancellationToken.None;
@@ -212,8 +249,23 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             if (_cache.TryGetValue(key, out T cachedResult))
             {
-                _logger.LogDebug("Ответ '{Key}' получен из кэша", key);
+                _diagnostics.RecordMemoryCacheHit();
+                _logger.LogDebug("Ответ '{Key}' получен из оперативного кэша", key);
                 return cachedResult;
+            }
+
+            var persistentResult = await ReadPersistent<T>(
+                    key,
+                    allowStale: false,
+                    persist,
+                    callerCancellationToken)
+                .ConfigureAwait(false);
+            if (persistentResult.Found)
+            {
+                CachePersistentResult(key, persistentResult);
+                _diagnostics.RecordPersistentCacheHit();
+                _logger.LogDebug("Ответ '{Key}' получен из долговременного дискового кэша", key);
+                return persistentResult.Value;
             }
 
             var sharedRequest = _inflightRequests.GetOrAdd(
@@ -222,9 +274,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     () => RequestAndCache(
                         key,
                         expiration,
-                        emptyResultExpiration,
                         resultFactory,
-                        isEmptyResult),
+                        isEmptyResult,
+                        persist),
                     LazyThreadSafetyMode.ExecutionAndPublication));
 
             return (T)await sharedRequest.Value
@@ -235,34 +287,116 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private async Task<object> RequestAndCache<T>(
             string key,
             TimeSpan expiration,
-            TimeSpan emptyResultExpiration,
             Func<IKinopoiskApiClient, Task<T>> resultFactory,
-            Func<T, bool> isEmptyResult)
+            Func<T, bool> isEmptyResult,
+            bool persist)
         {
             try
             {
                 if (_cache.TryGetValue(key, out T cachedResult))
+                {
+                    _diagnostics.RecordMemoryCacheHit();
                     return cachedResult;
+                }
 
-                _logger.LogDebug("Ответ '{Key}' отсутствует в кэше, выполнен запрос к серверу", key);
-                var result = await resultFactory.Invoke(_innerClient).ConfigureAwait(false);
-                var selectedExpiration = isEmptyResult(result)
-                    ? emptyResultExpiration
-                    : expiration;
+                var persistentResult = await ReadPersistent<T>(
+                        key,
+                        allowStale: false,
+                        persist,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (persistentResult.Found)
+                {
+                    CachePersistentResult(key, persistentResult);
+                    _diagnostics.RecordPersistentCacheHit();
+                    return persistentResult.Value;
+                }
 
-                _cache.Set(key, result, selectedExpiration);
+                try
+                {
+                    _logger.LogDebug("Ответ '{Key}' отсутствует в кэше, выполнен запрос к серверу", key);
+                    _diagnostics.RecordApiRequest();
+                    var result = await resultFactory.Invoke(_innerClient).ConfigureAwait(false);
+                    var selectedExpiration = isEmptyResult(result)
+                        ? NormalizeExpiration(_options.EmptyResultExpiration, TimeSpan.FromMinutes(3))
+                        : expiration;
+                    var expiresAtUtc = DateTimeOffset.UtcNow + selectedExpiration;
 
-                _logger.LogDebug(
-                    "Ответ '{Key}' сохранён в кэше на {ExpirationMinutes} минут",
-                    key,
-                    selectedExpiration.TotalMinutes);
+                    _cache.Set(key, result, selectedExpiration);
 
-                return result;
+                    if (_persistentCache is not null && persist)
+                    {
+                        await _persistentCache.Write(
+                                key,
+                                result,
+                                expiresAtUtc,
+                                CancellationToken.None)
+                            .ConfigureAwait(false);
+                        _diagnostics.RecordPersistentCacheWrite();
+                    }
+
+                    _logger.LogDebug(
+                        "Ответ '{Key}' сохранён в кэше на {ExpirationMinutes} минут",
+                        key,
+                        selectedExpiration.TotalMinutes);
+
+                    return result;
+                }
+                catch (Exception exception)
+                {
+                    _diagnostics.RecordApiFailure();
+
+                    if (_options.UseStaleCacheOnFailure && _persistentCache is not null && persist)
+                    {
+                        var staleResult = await ReadPersistent<T>(
+                                key,
+                                allowStale: true,
+                                persist: true,
+                                CancellationToken.None)
+                            .ConfigureAwait(false);
+                        if (staleResult.Found)
+                        {
+                            _cache.Set(key, staleResult.Value, StaleMemoryExpiration);
+                            _diagnostics.RecordStaleCacheHit();
+                            _logger.LogWarning(
+                                exception,
+                                "Для ответа '{Key}' использован устаревший дисковый кэш из-за ошибки API",
+                                key);
+                            return staleResult.Value;
+                        }
+                    }
+
+                    throw;
+                }
             }
             finally
             {
                 _inflightRequests.TryRemove(key, out _);
             }
         }
+
+        private Task<PersistentCacheReadResult<T>> ReadPersistent<T>(
+            string key,
+            bool allowStale,
+            bool persist,
+            CancellationToken cancellationToken)
+        {
+            if (_persistentCache is null || !persist)
+                return Task.FromResult(PersistentCacheReadResult<T>.Miss);
+
+            return _persistentCache.Read<T>(key, allowStale, cancellationToken);
+        }
+
+        private void CachePersistentResult<T>(string key, PersistentCacheReadResult<T> result)
+        {
+            var remaining = result.ExpiresAtUtc - DateTimeOffset.UtcNow;
+            var expiration = result.IsStale || remaining <= TimeSpan.Zero
+                ? StaleMemoryExpiration
+                : remaining;
+            _cache.Set(key, result.Value, expiration);
+        }
+
+        private static TimeSpan NormalizeExpiration(TimeSpan value, TimeSpan fallback)
+            => value > TimeSpan.Zero ? value : fallback;
     }
 }
