@@ -18,7 +18,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         public async Task ShouldRequestExpectedRelationsEndpoint()
         {
             var handler = new RecordingHandler(_ => JsonResponse(
-                "[{\"filmId\":2,\"nameRu\":\"Сиквел\",\"nameEn\":\"Sequel\",\"posterUrl\":\"https://example.test/p.jpg\",\"posterUrlPreview\":\"https://example.test/pp.jpg\",\"relationType\":\"SEQUEL\"}]"));
+                "[{\"filmId\":2,\"nameRu\":\"Сиквел\",\"nameEn\":\"Sequel\",\"nameOriginal\":\"Sequel\",\"posterUrl\":\"https://example.test/p.jpg\",\"posterUrlPreview\":\"https://example.test/pp.jpg\",\"relationType\":\"SEQUEL\"}]"));
             var client = CreateClient(handler);
 
             var result = await client.GetRelations(1);
@@ -201,6 +201,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
                         FilmId = filmId + 1,
                         NameRu = "Связанный фильм",
                         NameEn = "Related film",
+                        NameOriginal = "Related film",
                         PosterUrl = "https://example.test/poster.jpg",
                         PosterUrlPreview = "https://example.test/poster-small.jpg",
                         RelationType = FilmSequelsAndPrequelsResponseRelationType.SEQUEL
