@@ -15,6 +15,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
     /// </summary>
     internal sealed class PersistentJsonCache
     {
+        private static readonly JsonSerializerSettings SerializerSettings
+            = JsonTransformator.TransformSettings(new JsonSerializerSettings());
+
         private readonly string _rootPath;
         private readonly long _maximumBytes;
         private readonly ILogger _logger;
@@ -43,7 +46,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
             try
             {
                 var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
-                var envelope = JsonConvert.DeserializeObject<PersistentCacheEnvelope<T>>(json);
+                var envelope = JsonConvert.DeserializeObject<PersistentCacheEnvelope<T>>(
+                    json,
+                    SerializerSettings);
                 if (envelope is null)
                     return PersistentCacheReadResult<T>.Miss;
 
@@ -91,7 +96,10 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     ExpiresAtUtc = expiresAtUtc,
                     Value = value
                 };
-                var json = JsonConvert.SerializeObject(envelope, Formatting.None);
+                var json = JsonConvert.SerializeObject(
+                    envelope,
+                    Formatting.None,
+                    SerializerSettings);
 
                 await File.WriteAllTextAsync(temporaryPath, json, Encoding.UTF8, cancellationToken)
                     .ConfigureAwait(false);
