@@ -22,6 +22,10 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         private readonly IKinopoiskApiClient _apiClient;
         private readonly IProviderIdResolver<TLookupInfoType> _providerIdResolver;
 
+        public BaseVideoMetadataProvider(TItemType unused)
+        {
+        }
+
         public BaseVideoMetadataProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
@@ -40,6 +44,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 Provider = Constants.ProviderName,
                 ResultLanguage = Constants.ProviderMetadataLanguage
             };
+
+            if (!IsMetadataEnabled())
+                return result;
 
             var hadStoredKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
             var hadPathKinopoiskId = VideoLookupInfoHelper.TryGetKinopoiskIdFromPath(
@@ -114,6 +121,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             TLookupInfoType searchInfo,
             CancellationToken cancellationToken)
         {
+            if (!IsMetadataEnabled())
+                return Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
+
             return VideoRemoteSearchService.Search(
                 _apiClient,
                 _logger,
@@ -131,6 +141,21 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             }));
 
             return res.Where(i => i != null).ToArray();
+        }
+
+        private static bool IsMetadataEnabled()
+        {
+            var configuration = Plugin.Instance?.Configuration;
+            if (configuration is null)
+                return true;
+
+            if (typeof(TLookupInfoType) == typeof(MovieInfo))
+                return configuration.EnableMovieMetadata;
+
+            if (typeof(TLookupInfoType) == typeof(SeriesInfo))
+                return configuration.EnableSeriesMetadata;
+
+            return true;
         }
 
         private bool IsResolvedCardValid(Film film, int kinopoiskId)
@@ -186,7 +211,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 }
 
                 _logger.LogDebug(
-                    "Полная карточка Kinopoisk ID {KinopoiskId} подтверждена по IMDb ID '{ImdbId}'",
+                    "Полная карточка Kinopoиск ID {KinopoiskId} подтверждена по IMDb ID '{ImdbId}'",
                     kinopoiskId,
                     imdbId);
                 return true;
@@ -239,6 +264,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
         private async Task AddStaff(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.EnablePeopleMetadata == false)
+                return;
+
             try
             {
                 var staff = await _apiClient.GetStaff(kinopoiskId, cancellationToken);
@@ -266,6 +294,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
         private async Task AddTrailers(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.EnableTrailers == false)
+                return;
+
             try
             {
                 var trailers = await _apiClient.GetTrailers(kinopoiskId, cancellationToken);
