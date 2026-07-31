@@ -5,8 +5,8 @@ using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +46,24 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
             serviceCollection.AddSingleton<IKinopoiskDistributionApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
+
+            serviceCollection.AddSingleton((sp) => new KinopoiskRelationsApiClient(
+                Plugin.Instance.Configuration.ApiToken,
+                sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<ILogger<KinopoiskRelationsApiClient>>()
+            ));
+            serviceCollection.AddSingleton((sp) => new CachedKinopoiskRelationsApiClient(
+                sp.GetRequiredService<KinopoiskRelationsApiClient>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                CreateCacheOptions(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<CachedKinopoiskRelationsApiClient>>()
+            ));
+            serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
+                sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
+            serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
+            serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
+
             serviceCollection.AddSingleton((sp) => new KinopoiskImageBinaryCache(
                 sp.GetRequiredService<IHttpClientFactory>(),
                 CreateImageCacheOptions(),
