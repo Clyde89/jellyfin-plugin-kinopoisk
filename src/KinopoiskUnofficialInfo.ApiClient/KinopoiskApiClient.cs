@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient, IKinopoiskQuotaApiClient
+    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient, IKinopoiskQuotaApiClient, IKinopoiskDistributionApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
@@ -177,6 +177,18 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             return Invoke(
                 ct => _apiClient.SeasonsAsync(filmId, ct),
+                cancellationToken);
+        }
+
+        public Task<DistributionResponse> GetDistributions(
+            int filmId,
+            CancellationToken? cancellationToken = null)
+        {
+            if (filmId < 1)
+                throw new ArgumentOutOfRangeException(nameof(filmId), filmId, "Идентификатор КиноПоиска должен быть положительным.");
+
+            return Invoke(
+                ct => _apiClient.DistributionsAsync(filmId, ct),
                 cancellationToken);
         }
 

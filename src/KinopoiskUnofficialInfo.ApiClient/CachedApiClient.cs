@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient
+    public class CachedKinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient, IKinopoiskDistributionApiClient
     {
         private static readonly TimeSpan TrailersExpiration = TimeSpan.FromHours(6);
         private static readonly TimeSpan StaleMemoryExpiration = TimeSpan.FromMinutes(5);
@@ -20,6 +20,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private readonly IKinopoiskImageApiClient _imageInnerClient;
         private readonly IKinopoiskPersonSearchApiClient _personSearchInnerClient;
         private readonly IKinopoiskSeasonApiClient _seasonInnerClient;
+        private readonly IKinopoiskDistributionApiClient _distributionInnerClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<CachedKinopoiskApiClient> _logger;
         private readonly KinopoiskCacheOptions _options;
@@ -52,6 +53,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             _imageInnerClient = innerClient as IKinopoiskImageApiClient;
             _personSearchInnerClient = innerClient as IKinopoiskPersonSearchApiClient;
             _seasonInnerClient = innerClient as IKinopoiskSeasonApiClient;
+            _distributionInnerClient = innerClient as IKinopoiskDistributionApiClient;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -128,6 +130,25 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 GenerateKey(nameof(GetSeasons), filmId),
                 NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
                 _ => _seasonInnerClient.GetSeasons(filmId, CancellationToken.None),
+                result => result?.Items is null || result.Items.Count < 1,
+                persist: true,
+                cancellationToken);
+        }
+
+        public Task<DistributionResponse> GetDistributions(
+            int filmId,
+            CancellationToken? cancellationToken = null)
+        {
+            if (filmId < 1)
+                throw new ArgumentOutOfRangeException(nameof(filmId), filmId, "Идентификатор КиноПоиска должен быть положительным.");
+
+            if (_distributionInnerClient is null)
+                throw new NotSupportedException("Клиент КиноПоиска не поддерживает получение прокатных дат.");
+
+            return GetOrCreate(
+                GenerateKey(nameof(GetDistributions), filmId),
+                NormalizeExpiration(_options.MetadataExpiration, TimeSpan.FromHours(12)),
+                _ => _distributionInnerClient.GetDistributions(filmId, CancellationToken.None),
                 result => result?.Items is null || result.Items.Count < 1,
                 persist: true,
                 cancellationToken);

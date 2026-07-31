@@ -20,21 +20,32 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
     {
         private readonly ILogger _logger;
         private readonly IKinopoiskApiClient _apiClient;
+        private readonly IKinopoiskDistributionApiClient _distributionApiClient;
         private readonly IProviderIdResolver<TLookupInfoType> _providerIdResolver;
 
-        public BaseVideoMetadataProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
+        protected BaseVideoMetadataProvider(
+            IKinopoiskApiClient kinopoiskApiClient,
+            IKinopoiskDistributionApiClient distributionApiClient,
+            IProviderIdResolver<TLookupInfoType> providerIdResolver,
+            ILogger logger,
+            IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _apiClient = kinopoiskApiClient ?? throw new ArgumentNullException(nameof(kinopoiskApiClient));
-            _providerIdResolver = providerIdResolver ?? throw new ArgumentNullException(nameof(providerIdResolver));
+            _distributionApiClient = distributionApiClient
+                ?? throw new ArgumentNullException(nameof(distributionApiClient));
+            _providerIdResolver = providerIdResolver
+                ?? throw new ArgumentNullException(nameof(providerIdResolver));
         }
 
         protected abstract TItemType ConvertResponseToItem(Film apiResponse);
 
-        public async Task<MetadataResult<TItemType>> GetMetadata(TLookupInfoType info, CancellationToken cancellationToken)
+        public async Task<MetadataResult<TItemType>> GetMetadata(
+            TLookupInfoType info,
+            CancellationToken cancellationToken)
         {
-            var result = new MetadataResult<TItemType>()
+            var result = new MetadataResult<TItemType>
             {
                 QueriedById = true,
                 Provider = Constants.ProviderName,
@@ -49,11 +60,15 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 info,
                 out var pathKinopoiskId);
 
-            var (resolveResult, kinopoiskId) = await _providerIdResolver.TryResolve(info, cancellationToken);
+            var (resolveResult, kinopoiskId) = await _providerIdResolver
+                .TryResolve(info, cancellationToken)
+                .ConfigureAwait(false);
             if (!resolveResult)
                 return result;
 
-            var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
+            var film = await _apiClient
+                .GetSingleFilm(kinopoiskId, cancellationToken)
+                .ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -107,8 +122,10 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             result.Item.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
             result.HasMetadata = true;
 
-            await AddStaff(result, kinopoiskId, cancellationToken);
-            await AddTrailers(result, kinopoiskId, cancellationToken);
+            await AddPrecisePremiereDate(result, kinopoiskId, cancellationToken)
+                .ConfigureAwait(false);
+            await AddStaff(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
+            await AddTrailers(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
 
             return result;
         }
@@ -127,16 +144,22 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 cancellationToken);
         }
 
-        protected async Task<IEnumerable<PersonInfo>> SanitizeEmptyImagePersonInfos(IEnumerable<PersonInfo> images)
+        protected async Task<IEnumerable<PersonInfo>> SanitizeEmptyImagePersonInfos(
+            IEnumerable<PersonInfo> images)
         {
-            using var httpClient = new HttpClient(new HttpClientHandler() { AllowAutoRedirect = false }, true);
+            using var httpClient = new HttpClient(
+                new HttpClientHandler { AllowAutoRedirect = false },
+                true);
             var sanitizer = new RemoteImageUrlSanitizer(httpClient);
-            var res = await Task.WhenAll(images.Select(async p => {
-                p.ImageUrl = await sanitizer.SanitizeRemoteImageUrl(p.ImageUrl);
-                return p;
-            }));
+            var result = await Task.WhenAll(images.Select(async person =>
+            {
+                person.ImageUrl = await sanitizer
+                    .SanitizeRemoteImageUrl(person.ImageUrl)
+                    .ConfigureAwait(false);
+                return person;
+            })).ConfigureAwait(false);
 
-            return res.Where(i => i != null).ToArray();
+            return result.Where(item => item is not null).ToArray();
         }
 
         private static bool IsMetadataEnabled()
@@ -213,12 +236,12 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 return true;
             }
 
-            if (info.Year.HasValue && film.Year != info.Year.Value)
+            if (info.Year.HasValue && film.GetProductionYear() != info.Year.Value)
             {
                 _logger.LogWarning(
                     "Автоматическое сопоставление Kinopoisk ID {KinopoiskId} отклонено: год полной карточки {ActualYear} не совпал с {ExpectedYear}",
                     kinopoiskId,
-                    film.Year,
+                    film.GetProductionYear(),
                     info.Year.Value);
                 return false;
             }
@@ -258,20 +281,55 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             return false;
         }
 
-        private async Task AddStaff(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
+        private async Task AddPrecisePremiereDate(
+            MetadataResult<TItemType> result,
+            int kinopoiskId,
+            CancellationToken cancellationToken)
+        {
+            if (Plugin.Instance?.Configuration.EnablePrecisePremiereDate == false)
+                return;
+
+            try
+            {
+                var distributions = await _distributionApiClient
+                    .GetDistributions(kinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                result.Item.ApplyPrecisePremiereDate(distributions);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Точная дата премьеры не загружена для Kinopoisk ID {KinopoiskId}",
+                    kinopoiskId);
+            }
+        }
+
+        private async Task AddStaff(
+            MetadataResult<TItemType> result,
+            int kinopoiskId,
+            CancellationToken cancellationToken)
         {
             if (Plugin.Instance?.Configuration.EnablePeopleMetadata == false)
                 return;
 
             try
             {
-                var staff = await _apiClient.GetStaff(kinopoiskId, cancellationToken);
+                var staff = await _apiClient
+                    .GetStaff(kinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (staff is null)
                     return;
 
-                var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos());
+                var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos())
+                    .ConfigureAwait(false);
                 foreach (var item in sanitizedPersons)
                     result.AddPerson(item);
             }
@@ -288,14 +346,19 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             }
         }
 
-        private async Task AddTrailers(MetadataResult<TItemType> result, int kinopoiskId, CancellationToken cancellationToken)
+        private async Task AddTrailers(
+            MetadataResult<TItemType> result,
+            int kinopoiskId,
+            CancellationToken cancellationToken)
         {
             if (Plugin.Instance?.Configuration.EnableTrailers == false)
                 return;
 
             try
             {
-                var trailers = await _apiClient.GetTrailers(kinopoiskId, cancellationToken);
+                var trailers = await _apiClient
+                    .GetTrailers(kinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var remoteTrailers = trailers.ToMediaUrls();

@@ -61,7 +61,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 {
                     ImageType.Primary,
                     ImageType.Backdrop,
-                    ImageType.Screenshot
+                    ImageType.Screenshot,
+                    ImageType.Logo
                 };
 
         public override async Task<IEnumerable<RemoteImageInfo>> GetImages(
@@ -96,7 +97,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
             var extendedImages = imageGroups
                 .SelectMany(group => group)
-                .Where(image => image != null && !string.IsNullOrWhiteSpace(image.Url))
+                .Where(image => image is not null && !string.IsNullOrWhiteSpace(image.Url))
                 .GroupBy(
                     image => $"{image.Type}:{image.Url}",
                     StringComparer.OrdinalIgnoreCase)
@@ -106,7 +107,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
             var result = baseImages
                 .Concat(extendedImages)
-                .Where(image => image != null && !string.IsNullOrWhiteSpace(image.Url))
+                .Where(image => image is not null && !string.IsNullOrWhiteSpace(image.Url))
                 .GroupBy(
                     image => $"{image.Type}:{image.Url}",
                     StringComparer.OrdinalIgnoreCase)
@@ -137,7 +138,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     return Enumerable.Empty<RemoteImageInfo>();
 
                 return response.Items
-                    .Where(image => image != null && !string.IsNullOrWhiteSpace(image.ImageUrl))
+                    .Where(image => image is not null && !string.IsNullOrWhiteSpace(image.ImageUrl))
                     .Select(image => new RemoteImageInfo
                     {
                         Type = targetType,
@@ -169,6 +170,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ImageType.Primary => 30,
                 ImageType.Backdrop => 60,
                 ImageType.Screenshot => 60,
+                ImageType.Logo => 5,
                 _ => 20
             };
         }
