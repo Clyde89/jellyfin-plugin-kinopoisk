@@ -80,10 +80,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Theory]
-        [InlineData(CriticRatingSource.RussianWithWorldFallback, 78)]
-        [InlineData(CriticRatingSource.RussianOnly, 78)]
-        [InlineData(CriticRatingSource.WorldWithRussianFallback, 71)]
-        [InlineData(CriticRatingSource.WorldOnly, 71)]
+        [InlineData(CriticRatingSource.RussianWithWorldFallback, 78.0)]
+        [InlineData(CriticRatingSource.RussianOnly, 78.0)]
+        [InlineData(CriticRatingSource.WorldWithRussianFallback, 71.0)]
+        [InlineData(CriticRatingSource.WorldOnly, 71.0)]
         [InlineData(CriticRatingSource.Disabled, null)]
         public void ShouldSelectAndScaleConfiguredCriticRating(
             CriticRatingSource source,
