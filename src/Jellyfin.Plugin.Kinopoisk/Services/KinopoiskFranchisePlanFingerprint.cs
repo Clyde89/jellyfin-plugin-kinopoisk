@@ -57,7 +57,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     builder.Append("item=")
                         .Append(item.KinopoiskId.ToString(CultureInfo.InvariantCulture))
                         .Append('|')
-                        .Append(item.ItemId.ToString("D", CultureInfo.InvariantCulture))
+                        .Append(item.ItemId.ToString("D"))
                         .Append('|')
                         .Append(item.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? string.Empty)
                         .Append('|')
