@@ -326,13 +326,14 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
                     if (_persistentCache is not null && persist)
                     {
-                        await _persistentCache.Write(
+                        var written = await _persistentCache.Write(
                                 key,
                                 result,
                                 expiresAtUtc,
                                 CancellationToken.None)
                             .ConfigureAwait(false);
-                        _diagnostics.RecordPersistentCacheWrite();
+                        if (written)
+                            _diagnostics.RecordPersistentCacheWrite();
                     }
 
                     _logger.LogDebug(
