@@ -44,6 +44,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
             serviceCollection.AddSingleton<IKinopoiskSeasonApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
+            serviceCollection.AddSingleton<IKinopoiskDistributionApiClient>((sp) =>
+                sp.GetRequiredService<CachedKinopoiskApiClient>());
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
