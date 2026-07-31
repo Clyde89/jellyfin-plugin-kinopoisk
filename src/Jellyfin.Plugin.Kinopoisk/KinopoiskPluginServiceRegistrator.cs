@@ -46,6 +46,12 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
             serviceCollection.AddSingleton<IKinopoiskDistributionApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskApiClient>());
+            serviceCollection.AddSingleton((sp) => new KinopoiskImageBinaryCache(
+                sp.GetRequiredService<IHttpClientFactory>(),
+                CreateImageCacheOptions(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<KinopoiskImageBinaryCache>>()
+            ));
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
@@ -79,6 +85,32 @@ namespace Jellyfin.Plugin.Kinopoisk
                 EmptyResultExpiration = TimeSpan.FromMinutes(
                     Math.Clamp(configuration.NegativeCacheMinutes, 1, 1440)),
                 MaximumPersistentCacheBytes = maximumMegabytes * 1024L * 1024L
+            };
+        }
+
+        private static KinopoiskImageCacheOptions CreateImageCacheOptions()
+        {
+            var configuration = Plugin.Instance.Configuration;
+            return new KinopoiskImageCacheOptions
+            {
+                Enabled = configuration.EnableImageBinaryCache,
+                UseStaleOnFailure = configuration.UseStaleImageCacheOnFailure,
+                CachePath = Path.Combine(
+                    Plugin.Instance.DataFolderPath,
+                    "cache",
+                    "images"),
+                Expiration = TimeSpan.FromDays(
+                    Math.Clamp(configuration.ImageBinaryCacheDays, 1, 3650)),
+                MaximumCacheBytes = Math.Clamp(
+                        configuration.ImageBinaryCacheMaximumMegabytes,
+                        64,
+                        16384)
+                    * 1024L * 1024L,
+                MaximumFileBytes = Math.Clamp(
+                        configuration.ImageBinaryCacheMaximumFileMegabytes,
+                        1,
+                        100)
+                    * 1024L * 1024L
             };
         }
     }
