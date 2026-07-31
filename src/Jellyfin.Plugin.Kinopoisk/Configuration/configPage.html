@@ -39,11 +39,42 @@
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableTrailers" type="checkbox" is="emby-checkbox" /><span>Трейлеры КиноПоиска</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">В штатный список трейлеров Jellyfin добавляются поддерживаемые ссылки, полученные через API КиноПоиска. Трейлеры не сохраняются в долговременном или бинарном кэше.</div>
+                        <div class="fieldDescription checkboxFieldDescription">В штатный список трейлеров Jellyfin добавляются поддерживаемые ролики, полученные через API КиноПоиска. Трейлеры не сохраняются в долговременном или бинарном кэше.</div>
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableImages" type="checkbox" is="emby-checkbox" /><span>Удалённые изображения</span></label>
                         <div class="fieldDescription checkboxFieldDescription">Постеры, обложки, прозрачные логотипы, фоны, кадры, изображения со съёмок, промоматериалы, концепт-арты и скриншоты.</div>
+                    </div>
+
+                    <h2>Трейлеры КиноПоиска</h2>
+                    <div class="fieldDescription" style="margin-bottom: 1em;">
+                        Внутри штатного интерфейса Jellyfin воспроизводятся только безопасно распознанные YouTube-ролики, возвращённые API КиноПоиска.
+                        Источники KINOPOISK_WIDGET и Яндекс.Диск не являются прямыми медиапотоками и не подменяются неработающими ссылками воспроизведения.
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="MaximumTrailers">Максимальное количество трейлеров</label>
+                        <input id="MaximumTrailers" type="number" min="1" max="20" step="1" is="emby-input" />
+                        <div class="fieldDescription">Ограничивает число роликов в стандартной карточке Jellyfin. Рекомендуемое значение: 5.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="PreferOfficialTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет официальных трейлеров</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Официальные ролики поднимаются выше неофициальных, фанатских и концептуальных видео.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="PreferRussianTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет русскоязычных трейлеров</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Русские, дублированные и озвученные ролики располагаются выше остальных при одинаковом типе видео.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeTrailerTeasers" type="checkbox" is="emby-checkbox" /><span>Включать тизеры</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Тизеры добавляются после полноценных трейлеров, если не заняли более высокий приоритет по языку и официальности.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeAdditionalTrailerVideos" type="checkbox" is="emby-checkbox" /><span>Включать дополнительные ролики</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Разрешает фрагменты, интервью, материалы со съёмок, клипы и телевизионные ролики. По умолчанию отключено, чтобы карточка не перегружалась.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="PrefixTrailerNames" type="checkbox" is="emby-checkbox" /><span>Добавлять источник к названию</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">К названию ролика добавляется префикс «КиноПоиск —», чтобы источник был понятен в интерфейсе Jellyfin.</div>
                     </div>
 
                     <h2>Полнота стандартных метаданных</h2>
@@ -144,7 +175,7 @@
                         <div><strong>Сохранено данных изображений:</strong> <span id="DiagnosticImageBytes">0 Б</span></div>
                     </div>
                     <div style="margin-top: 1em;"><button id="RefreshDiagnostics" is="emby-button" type="button" class="raised emby-button"><span>Обновить показатели</span></button></div>
-                    <div class="fieldDescription" style="margin: 1.5em 0;">Параметры обоих дисковых кэшей и контроля квоты применяются после перезапуска Jellyfin. Остальные параметры учитываются при следующих запросах метаданных.</div>
+                    <div class="fieldDescription" style="margin: 1.5em 0;">Параметры дисковых кэшей и контроля квоты применяются после перезапуска Jellyfin. Остальные параметры учитываются при следующих запросах метаданных.</div>
                     <div><button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Сохранить</span></button></div>
                 </form>
             </div>
@@ -155,6 +186,14 @@
             function readInteger(id, fallback) {
                 var value = parseInt(document.querySelector(id).value, 10);
                 return Number.isFinite(value) ? value : fallback;
+            }
+
+            function setCheckbox(id, value, fallback) {
+                $(id).prop('checked', value == null ? fallback : value).change();
+            }
+
+            function setValue(id, value, fallback) {
+                $(id).val(value == null ? fallback : value).change();
             }
 
             function formatQuota(used, value) {
@@ -197,33 +236,39 @@
             function loadConfiguration() {
                 return ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
                     $('#ApiToken').val(config.ApiToken || '').change();
-                    $('#EnableMovieMetadata').prop('checked', config.EnableMovieMetadata !== false).change();
-                    $('#EnableSeriesMetadata').prop('checked', config.EnableSeriesMetadata !== false).change();
-                    $('#EnableSeasonEpisodeMetadata').prop('checked', config.EnableSeasonEpisodeMetadata !== false).change();
-                    $('#EnablePeopleMetadata').prop('checked', config.EnablePeopleMetadata !== false).change();
-                    $('#EnableTrailers').prop('checked', config.EnableTrailers !== false).change();
-                    $('#EnableImages').prop('checked', config.EnableImages !== false).change();
-                    $('#CommunityRatingSource').val(String(config.CommunityRatingSource == null ? 0 : config.CommunityRatingSource)).change();
-                    $('#CriticRatingSource').val(String(config.CriticRatingSource == null ? 0 : config.CriticRatingSource)).change();
-                    $('#EnablePrecisePremiereDate').prop('checked', config.EnablePrecisePremiereDate !== false).change();
-                    $('#EnableRuntimeFallback').prop('checked', config.EnableRuntimeFallback !== false).change();
-                    $('#EnableKinopoiskHomePage').prop('checked', config.EnableKinopoiskHomePage !== false).change();
-                    $('#EnableSeriesStatus').prop('checked', config.EnableSeriesStatus !== false).change();
-                    $('#EnableShortDescriptionFallback').prop('checked', config.EnableShortDescriptionFallback !== false).change();
-                    $('#EnablePersistentCache').prop('checked', config.EnablePersistentCache !== false).change();
-                    $('#UseStaleCacheOnFailure').prop('checked', config.UseStaleCacheOnFailure !== false).change();
-                    $('#MetadataCacheHours').val(config.MetadataCacheHours || 168).change();
-                    $('#ImagesCacheHours').val(config.ImagesCacheHours || 720).change();
-                    $('#SearchCacheMinutes').val(config.SearchCacheMinutes || 60).change();
-                    $('#NegativeCacheMinutes').val(config.NegativeCacheMinutes || 15).change();
-                    $('#PersistentCacheMaximumMegabytes').val(config.PersistentCacheMaximumMegabytes || 512).change();
-                    $('#EnableImageBinaryCache').prop('checked', config.EnableImageBinaryCache !== false).change();
-                    $('#UseStaleImageCacheOnFailure').prop('checked', config.UseStaleImageCacheOnFailure !== false).change();
-                    $('#ImageBinaryCacheDays').val(config.ImageBinaryCacheDays || 30).change();
-                    $('#ImageBinaryCacheMaximumMegabytes').val(config.ImageBinaryCacheMaximumMegabytes || 2048).change();
-                    $('#ImageBinaryCacheMaximumFileMegabytes').val(config.ImageBinaryCacheMaximumFileMegabytes || 25).change();
-                    $('#EnableQuotaMonitoring').prop('checked', config.EnableQuotaMonitoring !== false).change();
-                    $('#QuotaCheckIntervalHours').val(config.QuotaCheckIntervalHours || 6).change();
+                    setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
+                    setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
+                    setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
+                    setCheckbox('#EnablePeopleMetadata', config.EnablePeopleMetadata, true);
+                    setCheckbox('#EnableTrailers', config.EnableTrailers, true);
+                    setCheckbox('#EnableImages', config.EnableImages, true);
+                    setValue('#MaximumTrailers', config.MaximumTrailers, 5);
+                    setCheckbox('#PreferOfficialTrailers', config.PreferOfficialTrailers, true);
+                    setCheckbox('#PreferRussianTrailers', config.PreferRussianTrailers, true);
+                    setCheckbox('#IncludeTrailerTeasers', config.IncludeTrailerTeasers, true);
+                    setCheckbox('#IncludeAdditionalTrailerVideos', config.IncludeAdditionalTrailerVideos, false);
+                    setCheckbox('#PrefixTrailerNames', config.PrefixTrailerNames, true);
+                    setValue('#CommunityRatingSource', config.CommunityRatingSource, 0);
+                    setValue('#CriticRatingSource', config.CriticRatingSource, 0);
+                    setCheckbox('#EnablePrecisePremiereDate', config.EnablePrecisePremiereDate, true);
+                    setCheckbox('#EnableRuntimeFallback', config.EnableRuntimeFallback, true);
+                    setCheckbox('#EnableKinopoiskHomePage', config.EnableKinopoiskHomePage, true);
+                    setCheckbox('#EnableSeriesStatus', config.EnableSeriesStatus, true);
+                    setCheckbox('#EnableShortDescriptionFallback', config.EnableShortDescriptionFallback, true);
+                    setCheckbox('#EnablePersistentCache', config.EnablePersistentCache, true);
+                    setCheckbox('#UseStaleCacheOnFailure', config.UseStaleCacheOnFailure, true);
+                    setValue('#MetadataCacheHours', config.MetadataCacheHours, 168);
+                    setValue('#ImagesCacheHours', config.ImagesCacheHours, 720);
+                    setValue('#SearchCacheMinutes', config.SearchCacheMinutes, 60);
+                    setValue('#NegativeCacheMinutes', config.NegativeCacheMinutes, 15);
+                    setValue('#PersistentCacheMaximumMegabytes', config.PersistentCacheMaximumMegabytes, 512);
+                    setCheckbox('#EnableImageBinaryCache', config.EnableImageBinaryCache, true);
+                    setCheckbox('#UseStaleImageCacheOnFailure', config.UseStaleImageCacheOnFailure, true);
+                    setValue('#ImageBinaryCacheDays', config.ImageBinaryCacheDays, 30);
+                    setValue('#ImageBinaryCacheMaximumMegabytes', config.ImageBinaryCacheMaximumMegabytes, 2048);
+                    setValue('#ImageBinaryCacheMaximumFileMegabytes', config.ImageBinaryCacheMaximumFileMegabytes, 25);
+                    setCheckbox('#EnableQuotaMonitoring', config.EnableQuotaMonitoring, true);
+                    setValue('#QuotaCheckIntervalHours', config.QuotaCheckIntervalHours, 6);
                     renderDiagnostics(config);
                     return config;
                 });
@@ -252,6 +297,12 @@
                     config.EnablePeopleMetadata = $('#EnablePeopleMetadata').prop('checked');
                     config.EnableTrailers = $('#EnableTrailers').prop('checked');
                     config.EnableImages = $('#EnableImages').prop('checked');
+                    config.MaximumTrailers = readInteger('#MaximumTrailers', 5);
+                    config.PreferOfficialTrailers = $('#PreferOfficialTrailers').prop('checked');
+                    config.PreferRussianTrailers = $('#PreferRussianTrailers').prop('checked');
+                    config.IncludeTrailerTeasers = $('#IncludeTrailerTeasers').prop('checked');
+                    config.IncludeAdditionalTrailerVideos = $('#IncludeAdditionalTrailerVideos').prop('checked');
+                    config.PrefixTrailerNames = $('#PrefixTrailerNames').prop('checked');
                     config.CommunityRatingSource = readInteger('#CommunityRatingSource', 0);
                     config.CriticRatingSource = readInteger('#CriticRatingSource', 0);
                     config.EnablePrecisePremiereDate = $('#EnablePrecisePremiereDate').prop('checked');

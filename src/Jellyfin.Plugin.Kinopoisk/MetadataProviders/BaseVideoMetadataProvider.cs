@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
@@ -351,7 +352,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             int kinopoiskId,
             CancellationToken cancellationToken)
         {
-            if (Plugin.Instance?.Configuration.EnableTrailers == false)
+            var configuration = Plugin.Instance?.Configuration;
+            if (configuration?.EnableTrailers == false)
                 return;
 
             try
@@ -361,9 +363,26 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var remoteTrailers = trailers.ToMediaUrls();
-                if (remoteTrailers is not null)
+                var remoteTrailers = KinopoiskTrailerSelector.Select(
+                    trailers,
+                    new KinopoiskTrailerSelectionOptions
+                    {
+                        MaximumTrailers = configuration?.MaximumTrailers ?? 5,
+                        PreferOfficialTrailers = configuration?.PreferOfficialTrailers ?? true,
+                        PreferRussianTrailers = configuration?.PreferRussianTrailers ?? true,
+                        IncludeTeasers = configuration?.IncludeTrailerTeasers ?? true,
+                        IncludeAdditionalVideos = configuration?.IncludeAdditionalTrailerVideos ?? false,
+                        PrefixTrailerNames = configuration?.PrefixTrailerNames ?? true
+                    });
+
+                if (remoteTrailers.Count > 0)
+                {
                     result.Item.RemoteTrailers = remoteTrailers;
+                    _logger.LogDebug(
+                        "Для Kinopoisk ID {KinopoiskId} отобрано {TrailerCount} поддерживаемых трейлеров",
+                        kinopoiskId,
+                        remoteTrailers.Count);
+                }
             }
             catch (OperationCanceledException)
             {

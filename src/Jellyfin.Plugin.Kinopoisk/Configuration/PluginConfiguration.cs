@@ -41,6 +41,36 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public bool EnableTrailers { get; set; } = true;
 
         /// <summary>
+        /// Получает или задаёт максимальное количество трейлеров в карточке Jellyfin.
+        /// </summary>
+        public int MaximumTrailers { get; set; } = 5;
+
+        /// <summary>
+        /// Получает или задаёт признак приоритета официальных трейлеров.
+        /// </summary>
+        public bool PreferOfficialTrailers { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак приоритета русскоязычных трейлеров.
+        /// </summary>
+        public bool PreferRussianTrailers { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак включения тизеров.
+        /// </summary>
+        public bool IncludeTrailerTeasers { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак включения фрагментов, интервью и дополнительных роликов.
+        /// </summary>
+        public bool IncludeAdditionalTrailerVideos { get; set; }
+
+        /// <summary>
+        /// Получает или задаёт признак добавления названия КиноПоиска к заголовкам трейлеров.
+        /// </summary>
+        public bool PrefixTrailerNames { get; set; } = true;
+
+        /// <summary>
         /// Получает или задаёт признак загрузки удалённых изображений.
         /// </summary>
         public bool EnableImages { get; set; } = true;
@@ -172,6 +202,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
             if (!Enum.IsDefined(CriticRatingSource))
                 CriticRatingSource = CriticRatingSource.RussianWithWorldFallback;
 
+            MaximumTrailers = Math.Clamp(MaximumTrailers, 1, 20);
             MetadataCacheHours = Math.Clamp(MetadataCacheHours, 1, 8760);
             ImagesCacheHours = Math.Clamp(ImagesCacheHours, 1, 8760);
             SearchCacheMinutes = Math.Clamp(SearchCacheMinutes, 1, 10080);
