@@ -21,6 +21,8 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private static readonly SemaphoreSlim RequestGate = new(1, 1);
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(10);
+        private static readonly JsonSerializerSettings SerializerSettings =
+            JsonTransformator.TransformSettings(new JsonSerializerSettings());
         private static DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
         private readonly HttpClient _httpClient;
@@ -135,7 +137,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
             var json = await response.Content
                 .ReadAsStringAsync(cancellationToken)
                 .ConfigureAwait(false);
-            return JsonConvert.DeserializeObject<ICollection<FilmSequelsAndPrequelsResponse>>(json)
+            return JsonConvert.DeserializeObject<ICollection<FilmSequelsAndPrequelsResponse>>(
+                    json,
+                    SerializerSettings)
                 ?? Array.Empty<FilmSequelsAndPrequelsResponse>();
         }
 
