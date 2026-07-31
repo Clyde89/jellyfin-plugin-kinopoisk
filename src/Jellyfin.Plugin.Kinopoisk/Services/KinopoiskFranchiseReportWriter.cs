@@ -191,7 +191,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var latestPath = Path.Combine(_reportDirectory, "franchise-preview-latest.json");
             var archivePath = Path.Combine(
                 _reportDirectory,
-                $"franchise-preview-{generatedAtUtc:yyyyMMdd-HHmmssfff}.json");
+                $"franchise-preview-{generatedAtUtc:yyyyMMdd-HHmmssfffffff}.json");
             var temporaryPath = latestPath + ".tmp-" + Guid.NewGuid().ToString("N");
 
             try
