@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -42,7 +43,22 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             IProviderIdResolver<BaseItem> providerIdResolver,
             ILogger<VideoImageProvider> logger,
             IHttpClientFactory httpClientFactory)
-            : base(httpClientFactory)
+            : this(
+                kinopoiskApiClient,
+                providerIdResolver,
+                logger,
+                httpClientFactory,
+                null)
+        {
+        }
+
+        public VideoImageProvider(
+            IKinopoiskApiClient kinopoiskApiClient,
+            IProviderIdResolver<BaseItem> providerIdResolver,
+            ILogger<VideoImageProvider> logger,
+            IHttpClientFactory httpClientFactory,
+            KinopoiskImageBinaryCache imageBinaryCache)
+            : base(httpClientFactory, imageBinaryCache)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _apiClient = kinopoiskApiClient ?? throw new ArgumentNullException(nameof(kinopoiskApiClient));

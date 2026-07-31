@@ -31,7 +31,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.EnableShortDescriptionFallback);
             Assert.True(configuration.EnablePersistentCache);
             Assert.True(configuration.UseStaleCacheOnFailure);
+            Assert.True(configuration.EnableImageBinaryCache);
+            Assert.True(configuration.UseStaleImageCacheOnFailure);
             Assert.True(configuration.EnableQuotaMonitoring);
+            Assert.Equal(30, configuration.ImageBinaryCacheDays);
+            Assert.Equal(2048, configuration.ImageBinaryCacheMaximumMegabytes);
+            Assert.Equal(25, configuration.ImageBinaryCacheMaximumFileMegabytes);
             Assert.Equal(
                 CommunityRatingSource.KinopoiskWithImdbFallback,
                 configuration.CommunityRatingSource);
@@ -53,6 +58,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 SearchCacheMinutes = 0,
                 NegativeCacheMinutes = 2000,
                 PersistentCacheMaximumMegabytes = 1,
+                ImageBinaryCacheDays = 0,
+                ImageBinaryCacheMaximumMegabytes = 20000,
+                ImageBinaryCacheMaximumFileMegabytes = 1000,
                 QuotaCheckIntervalHours = 1000
             };
 
@@ -70,6 +78,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(1, configuration.SearchCacheMinutes);
             Assert.Equal(1440, configuration.NegativeCacheMinutes);
             Assert.Equal(64, configuration.PersistentCacheMaximumMegabytes);
+            Assert.Equal(1, configuration.ImageBinaryCacheDays);
+            Assert.Equal(16384, configuration.ImageBinaryCacheMaximumMegabytes);
+            Assert.Equal(100, configuration.ImageBinaryCacheMaximumFileMegabytes);
             Assert.Equal(168, configuration.QuotaCheckIntervalHours);
         }
     }
