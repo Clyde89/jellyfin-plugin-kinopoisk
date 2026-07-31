@@ -51,20 +51,26 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         }
 
         public override bool Supports(BaseItem item)
-            => item is Movie || item is Series;
+            => Plugin.Instance?.Configuration.EnableImages != false
+                && (item is Movie || item is Series);
 
         public override IEnumerable<ImageType> GetSupportedImages(BaseItem item)
-            => new[]
-            {
-                ImageType.Primary,
-                ImageType.Backdrop,
-                ImageType.Screenshot
-            };
+            => Plugin.Instance?.Configuration.EnableImages == false
+                ? Enumerable.Empty<ImageType>()
+                : new[]
+                {
+                    ImageType.Primary,
+                    ImageType.Backdrop,
+                    ImageType.Screenshot
+                };
 
         public override async Task<IEnumerable<RemoteImageInfo>> GetImages(
             BaseItem item,
             CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.EnableImages == false)
+                return Enumerable.Empty<RemoteImageInfo>();
+
             var (resolveResult, kinopoiskId) = await _providerIdResolver
                 .TryResolve(item, cancellationToken)
                 .ConfigureAwait(false);

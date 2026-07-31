@@ -42,6 +42,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ResultLanguage = Constants.ProviderMetadataLanguage
             };
 
+            if (Plugin.Instance?.Configuration.EnableSeasonEpisodeMetadata == false)
+                return result;
+
             if (!TryGetSeriesId(info, out var seriesId) || !info.IndexNumber.HasValue)
                 return result;
 
@@ -83,6 +86,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             SeasonInfo searchInfo,
             CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.EnableSeasonEpisodeMetadata == false)
+                return Enumerable.Empty<RemoteSearchResult>();
+
             var metadata = await GetMetadata(searchInfo, cancellationToken).ConfigureAwait(false);
             if (!metadata.HasMetadata || metadata.Item is null)
                 return Enumerable.Empty<RemoteSearchResult>();

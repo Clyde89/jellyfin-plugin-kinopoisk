@@ -45,6 +45,9 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ResultLanguage = Constants.ProviderMetadataLanguage
             };
 
+            if (Plugin.Instance?.Configuration.EnablePeopleMetadata == false)
+                return result;
+
             var (resolveResult, kinopoiskId) = await _providerIdResolver
                 .TryResolve(info, cancellationToken)
                 .ConfigureAwait(false);
@@ -66,8 +69,12 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             PersonLookupInfo searchInfo,
             CancellationToken cancellationToken)
         {
-            if (searchInfo is null || string.IsNullOrWhiteSpace(searchInfo.Name))
+            if (Plugin.Instance?.Configuration.EnablePeopleMetadata == false
+                || searchInfo is null
+                || string.IsNullOrWhiteSpace(searchInfo.Name))
+            {
                 return Enumerable.Empty<RemoteSearchResult>();
+            }
 
             var requestedName = searchInfo.Name.Trim();
             var firstPage = await _personSearchApiClient

@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient
+    public class KinopoiskApiClient : IFilteredKinopoiskApiClient, IKinopoiskImageApiClient, IKinopoiskPersonSearchApiClient, IKinopoiskSeasonApiClient, IKinopoiskQuotaApiClient
     {
         private const string ApiBaseUrl = "https://kinopoiskapiunofficial.tech";
         private const int MaximumAttempts = 3;
@@ -29,12 +29,10 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public KinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> logger, IHttpClientFactory httpClientFactory)
         {
-            if (string.IsNullOrEmpty(apiToken))
-            {
-                throw new ArgumentException($"'{nameof(apiToken)}' cannot be null or empty.", nameof(apiToken));
-            }
+            if (string.IsNullOrWhiteSpace(apiToken))
+                throw new ArgumentException("API-токен не должен быть пустым.", nameof(apiToken));
 
-            _apiToken = apiToken;
+            _apiToken = apiToken.Trim();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 
@@ -211,6 +209,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 cancellationToken);
         }
 
+        public Task<KinopoiskApiQuota> GetApiQuota(CancellationToken? cancellationToken = null)
+            => Invoke(GetApiQuotaCore, cancellationToken);
+
         private async Task<FilteredFilmSearchResponse> SearchFilmsCore(
             FilmSearchQuery query,
             CancellationToken cancellationToken)
@@ -266,6 +267,17 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 page);
 
             return SendJsonRequest<ImageResponse>(requestUri, cancellationToken);
+        }
+
+        private Task<KinopoiskApiQuota> GetApiQuotaCore(CancellationToken cancellationToken)
+        {
+            var requestUri = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}/api/v1/api_keys/{1}",
+                ApiBaseUrl,
+                Uri.EscapeDataString(_apiToken));
+
+            return SendJsonRequest<KinopoiskApiQuota>(requestUri, cancellationToken);
         }
 
         private async Task<T> SendJsonRequest<T>(

@@ -21,6 +21,16 @@ namespace Jellyfin.Plugin.Kinopoisk
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer) : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+            Configuration.Normalize();
+        }
+
+        public override void UpdateConfiguration(BasePluginConfiguration configuration)
+        {
+            if (configuration is not PluginConfiguration pluginConfiguration)
+                throw new ArgumentException("Получен неподдерживаемый тип конфигурации.", nameof(configuration));
+
+            pluginConfiguration.Normalize();
+            base.UpdateConfiguration(pluginConfiguration);
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
