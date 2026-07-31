@@ -31,6 +31,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         Task<IReadOnlyList<KinopoiskManagedCollectionSnapshot>> GetManagedCollections(
             CancellationToken cancellationToken = default);
 
+        Task<bool> CollectionNameExists(
+            string name,
+            CancellationToken cancellationToken = default);
+
         Task<KinopoiskManagedCollectionSnapshot> CreateManagedCollection(
             int anchorKinopoiskId,
             string name,
@@ -74,14 +78,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var collections = _libraryManager.GetItemList(new InternalItemsQuery
-                {
-                    IncludeItemTypes = new[] { BaseItemKind.BoxSet },
-                    CollapseBoxSetItems = false,
-                    Recursive = true,
-                    EnableTotalRecordCount = false
-                })
-                .OfType<BoxSet>()
+            var collections = GetBoxSets()
                 .Select(TryMap)
                 .Where(item => item is not null)
                 .OrderBy(item => item.AnchorKinopoiskId)
@@ -89,6 +86,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .ToArray();
 
             return Task.FromResult<IReadOnlyList<KinopoiskManagedCollectionSnapshot>>(collections);
+        }
+
+        public Task<bool> CollectionNameExists(
+            string name,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Название коллекции не должно быть пустым.", nameof(name));
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var normalizedName = name.Trim();
+            var exists = GetBoxSets().Any(boxSet => string.Equals(
+                boxSet.Name?.Trim(),
+                normalizedName,
+                StringComparison.OrdinalIgnoreCase));
+            return Task.FromResult(exists);
         }
 
         public async Task<KinopoiskManagedCollectionSnapshot> CreateManagedCollection(
@@ -142,6 +155,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }
+
+        private IEnumerable<BoxSet> GetBoxSets()
+            => _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                    CollapseBoxSetItems = false,
+                    Recursive = true,
+                    EnableTotalRecordCount = false
+                })
+                .OfType<BoxSet>();
 
         private static KinopoiskManagedCollectionSnapshot TryMap(BoxSet boxSet)
         {
