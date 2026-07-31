@@ -73,7 +73,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             }
         }
 
-        public async Task Write<T>(
+        public async Task<bool> Write<T>(
             string key,
             T value,
             DateTimeOffset expiresAtUtc,
@@ -97,6 +97,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     .ConfigureAwait(false);
                 File.Move(temporaryPath, path, true);
                 TrimToMaximumSize();
+                return true;
             }
             catch (OperationCanceledException)
             {
@@ -105,6 +106,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             catch (Exception exception)
             {
                 _logger.LogWarning(exception, "Ответ API не сохранён в долговременный дисковый кэш");
+                return false;
             }
             finally
             {
