@@ -95,6 +95,26 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public async Task ShouldBlockCreationWhenAnyCollectionUsesSuggestedName()
+        {
+            var gateway = new FakeGateway();
+            gateway.ExistingCollectionNames.Add("Матрица — коллекция");
+            var service = CreateService(gateway);
+
+            var result = await service.Apply(new[]
+            {
+                Plan(450, "матрица — КОЛЛЕКЦИЯ", Item(1, 450), Item(2, 451))
+            });
+
+            Assert.Empty(gateway.Created);
+            Assert.Empty(gateway.Added);
+            Assert.Equal(1, result.ConflictCount);
+            var item = Assert.Single(result.Items);
+            Assert.Equal("conflict", item.Action);
+            Assert.Contains("уже существует", item.Error, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task ShouldContinueAfterSinglePlanFailure()
         {
             var gateway = new FakeGateway { FailingAnchorId = 500 };
@@ -109,7 +129,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(1, result.FailureCount);
             Assert.Equal(1, result.CreatedCollectionCount);
             Assert.Equal(2, result.AddedItemCount);
-            Assert.Contains(result.Items, item => item.AnchorKinopoiskId == 500 && item.Action == "failed");
+            var failed = Assert.Single(result.Items.Where(item => item.AnchorKinopoiskId == 500));
+            Assert.Equal("failed", failed.Action);
+            Assert.DoesNotContain("Тестовая ошибка создания", failed.Error, StringComparison.Ordinal);
+            Assert.Contains("Подробности сохранены в журнале", failed.Error, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(result.Items, item => item.AnchorKinopoiskId == 600 && item.Action == "created");
         }
 
@@ -162,9 +185,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             public FakeGateway(params KinopoiskManagedCollectionSnapshot[] collections)
             {
                 _collections = collections.ToList();
+                ExistingCollectionNames = new HashSet<string>(
+                    _collections.Select(collection => collection.Name),
+                    StringComparer.OrdinalIgnoreCase);
             }
 
             public int? FailingAnchorId { get; set; }
+
+            public HashSet<string> ExistingCollectionNames { get; }
 
             public List<KinopoiskManagedCollectionSnapshot> Created { get; } = new();
 
@@ -173,6 +201,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             public Task<IReadOnlyList<KinopoiskManagedCollectionSnapshot>> GetManagedCollections(
                 CancellationToken cancellationToken = default)
                 => Task.FromResult<IReadOnlyList<KinopoiskManagedCollectionSnapshot>>(_collections.ToArray());
+
+            public Task<bool> CollectionNameExists(
+                string name,
+                CancellationToken cancellationToken = default)
+                => Task.FromResult(ExistingCollectionNames.Contains(name));
 
             public Task<KinopoiskManagedCollectionSnapshot> CreateManagedCollection(
                 int anchorKinopoiskId,
@@ -191,6 +224,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 };
                 Created.Add(snapshot);
                 _collections.Add(snapshot);
+                ExistingCollectionNames.Add(name);
                 return Task.FromResult(snapshot);
             }
 
