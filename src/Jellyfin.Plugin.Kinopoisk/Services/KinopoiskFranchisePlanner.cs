@@ -123,7 +123,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 return Array.Empty<KinopoiskFranchisePlan>();
 
             var disjointSet = new DisjointSet(localItems.Keys);
-            var relationTypesByPair = new Dictionary<(int Left, int Right), FilmSequelsAndPrequelsResponseRelationType>();
+            var relationTypesByPair = new Dictionary<
+                (int Left, int Right),
+                HashSet<FilmSequelsAndPrequelsResponseRelationType>>();
 
             foreach (var source in relationsByFilmId.OrderBy(item => item.Key))
             {
@@ -132,7 +134,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
                 foreach (var relation in source.Value
                     .Where(relation => relation is not null)
-                    .OrderBy(relation => relation.FilmId))
+                    .OrderBy(relation => relation.FilmId)
+                    .ThenBy(relation => relation.RelationType))
                 {
                     if (relation.FilmId < 1
                         || relation.FilmId == source.Key
@@ -144,7 +147,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
                     disjointSet.Union(source.Key, relation.FilmId);
                     var pair = NormalizePair(source.Key, relation.FilmId);
-                    relationTypesByPair.TryAdd(pair, relation.RelationType);
+                    if (!relationTypesByPair.TryGetValue(pair, out var pairTypes))
+                    {
+                        pairTypes = new HashSet<FilmSequelsAndPrequelsResponseRelationType>();
+                        relationTypesByPair[pair] = pairTypes;
+                    }
+
+                    pairTypes.Add(relation.RelationType);
                 }
             }
 
@@ -158,7 +167,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     relationTypesByRoot[root] = relationTypes;
                 }
 
-                relationTypes.Add(pair.Value);
+                relationTypes.UnionWith(pair.Value);
             }
 
             return localItems.Values
