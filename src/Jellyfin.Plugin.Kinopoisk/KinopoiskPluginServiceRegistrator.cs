@@ -63,6 +63,11 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
+            serviceCollection.AddSingleton<KinopoiskFranchiseLibraryScanner>();
+            serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseReportWriter(
+                Path.Combine(Plugin.Instance.DataFolderPath, "reports"),
+                sp.GetRequiredService<ILogger<KinopoiskFranchiseReportWriter>>()
+            ));
 
             serviceCollection.AddSingleton((sp) => new KinopoiskImageBinaryCache(
                 sp.GetRequiredService<IHttpClientFactory>(),

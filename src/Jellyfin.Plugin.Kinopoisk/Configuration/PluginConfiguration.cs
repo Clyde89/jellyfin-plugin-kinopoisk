@@ -113,6 +113,56 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public bool EnableShortDescriptionFallback { get; set; } = true;
 
         /// <summary>
+        /// Получает или задаёт признак разрешения записи управляемых коллекций франшиз.
+        /// </summary>
+        public bool EnableFranchiseCollections { get; set; }
+
+        /// <summary>
+        /// Получает или задаёт признак обязательного режима предварительного просмотра.
+        /// </summary>
+        public bool FranchisePreviewOnly { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак включения сериалов в план франшиз.
+        /// </summary>
+        public bool IncludeSeriesInFranchises { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак учёта сиквелов.
+        /// </summary>
+        public bool IncludeFranchiseSequels { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак учёта приквелов.
+        /// </summary>
+        public bool IncludeFranchisePrequels { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак учёта ремейков.
+        /// </summary>
+        public bool IncludeFranchiseRemakes { get; set; }
+
+        /// <summary>
+        /// Получает или задаёт минимальное количество локальных объектов во франшизе.
+        /// </summary>
+        public int MinimumFranchiseItems { get; set; } = 2;
+
+        /// <summary>
+        /// Получает или задаёт суффикс названия управляемой коллекции.
+        /// </summary>
+        public string FranchiseCollectionNameSuffix { get; set; } = " — коллекция";
+
+        /// <summary>
+        /// Получает или задаёт признак защиты коллекций, не созданных плагином.
+        /// </summary>
+        public bool PreserveManualCollections { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак удаления отсутствующих объектов только из управляемых коллекций.
+        /// </summary>
+        public bool RemoveMissingItemsFromManagedCollections { get; set; }
+
+        /// <summary>
         /// Получает или задаёт признак долговременного дискового кэширования ответов API.
         /// </summary>
         public bool EnablePersistentCache { get; set; } = true;
@@ -195,6 +245,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public void Normalize()
         {
             ApiToken = ApiToken?.Trim() ?? string.Empty;
+            FranchiseCollectionNameSuffix = string.IsNullOrWhiteSpace(FranchiseCollectionNameSuffix)
+                ? " — коллекция"
+                : FranchiseCollectionNameSuffix.TrimEnd();
 
             if (!Enum.IsDefined(CommunityRatingSource))
                 CommunityRatingSource = CommunityRatingSource.KinopoiskWithImdbFallback;
@@ -203,6 +256,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
                 CriticRatingSource = CriticRatingSource.RussianWithWorldFallback;
 
             MaximumTrailers = Math.Clamp(MaximumTrailers, 1, 20);
+            MinimumFranchiseItems = Math.Clamp(MinimumFranchiseItems, 2, 1000);
             MetadataCacheHours = Math.Clamp(MetadataCacheHours, 1, 8760);
             ImagesCacheHours = Math.Clamp(ImagesCacheHours, 1, 8760);
             SearchCacheMinutes = Math.Clamp(SearchCacheMinutes, 1, 10080);
@@ -221,6 +275,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
                 1,
                 100);
             QuotaCheckIntervalHours = Math.Clamp(QuotaCheckIntervalHours, 1, 168);
+
+            if (!EnableFranchiseCollections)
+                FranchisePreviewOnly = true;
+
+            if (!PreserveManualCollections)
+                PreserveManualCollections = true;
         }
     }
 }

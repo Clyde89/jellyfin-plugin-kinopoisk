@@ -121,6 +121,42 @@
                         <div class="fieldDescription checkboxFieldDescription">При отсутствии полного описания используется краткое описание КиноПоиска. Существующее полное описание не заменяется кратким.</div>
                     </div>
 
+                    <h2>Франшизы и связи</h2>
+                    <div class="fieldDescription" style="margin-bottom: 1em;">
+                        Текущий этап работает только в режиме предварительного просмотра. Откройте «Панель управления → Задачи по расписанию» и вручную запустите задачу «Предварительный просмотр франшиз КиноПоиска».
+                        Отчёт будет атомарно сохранён в каталоге данных плагина: <code>reports/franchise-preview-latest.json</code>. Коллекции Jellyfin не создаются и не изменяются.
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeSeriesInFranchises" type="checkbox" is="emby-checkbox" /><span>Включать сериалы</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">В предварительный план включаются локальные сериалы с сохранённым Kinopoisk ID. Сезоны и эпизоды не участвуют.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeFranchiseSequels" type="checkbox" is="emby-checkbox" /><span>Учитывать сиквелы</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Продолжения объединяются с другими локальными объектами одной связанной группы.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeFranchisePrequels" type="checkbox" is="emby-checkbox" /><span>Учитывать приквелы</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Предыстории объединяются с другими локальными объектами одной связанной группы.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="IncludeFranchiseRemakes" type="checkbox" is="emby-checkbox" /><span>Учитывать ремейки</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Ремейки могут относиться к самостоятельным интерпретациям, поэтому по умолчанию исключены.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="MinimumFranchiseItems">Минимальное количество локальных объектов</label>
+                        <input id="MinimumFranchiseItems" type="number" min="2" max="1000" step="1" is="emby-input" />
+                        <div class="fieldDescription">Группа с меньшим количеством объектов не включается в отчёт. Рекомендуемое значение: 2.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="FranchiseCollectionNameSuffix">Суффикс предлагаемого названия</label>
+                        <input id="FranchiseCollectionNameSuffix" type="text" maxlength="80" is="emby-input" />
+                        <div class="fieldDescription">Добавляется к названию опорного фильма только в плане. Значение по умолчанию: « — коллекция».</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="PreserveManualCollections" type="checkbox" is="emby-checkbox" disabled="disabled" /><span>Защищать ручные коллекции</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Параметр принудительно включён. Плагин никогда не должен переименовывать, очищать или удалять коллекции, не имеющие собственного маркера КиноПоиска.</div>
+                    </div>
+
                     <h2>Кэширование ответов API</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnablePersistentCache" type="checkbox" is="emby-checkbox" /><span>Долговременный дисковый кэш ответов</span></label>
@@ -255,6 +291,13 @@
                     setCheckbox('#EnableKinopoiskHomePage', config.EnableKinopoiskHomePage, true);
                     setCheckbox('#EnableSeriesStatus', config.EnableSeriesStatus, true);
                     setCheckbox('#EnableShortDescriptionFallback', config.EnableShortDescriptionFallback, true);
+                    setCheckbox('#IncludeSeriesInFranchises', config.IncludeSeriesInFranchises, true);
+                    setCheckbox('#IncludeFranchiseSequels', config.IncludeFranchiseSequels, true);
+                    setCheckbox('#IncludeFranchisePrequels', config.IncludeFranchisePrequels, true);
+                    setCheckbox('#IncludeFranchiseRemakes', config.IncludeFranchiseRemakes, false);
+                    setValue('#MinimumFranchiseItems', config.MinimumFranchiseItems, 2);
+                    setValue('#FranchiseCollectionNameSuffix', config.FranchiseCollectionNameSuffix, ' — коллекция');
+                    setCheckbox('#PreserveManualCollections', true, true);
                     setCheckbox('#EnablePersistentCache', config.EnablePersistentCache, true);
                     setCheckbox('#UseStaleCacheOnFailure', config.UseStaleCacheOnFailure, true);
                     setValue('#MetadataCacheHours', config.MetadataCacheHours, 168);
@@ -310,6 +353,13 @@
                     config.EnableKinopoiskHomePage = $('#EnableKinopoiskHomePage').prop('checked');
                     config.EnableSeriesStatus = $('#EnableSeriesStatus').prop('checked');
                     config.EnableShortDescriptionFallback = $('#EnableShortDescriptionFallback').prop('checked');
+                    config.IncludeSeriesInFranchises = $('#IncludeSeriesInFranchises').prop('checked');
+                    config.IncludeFranchiseSequels = $('#IncludeFranchiseSequels').prop('checked');
+                    config.IncludeFranchisePrequels = $('#IncludeFranchisePrequels').prop('checked');
+                    config.IncludeFranchiseRemakes = $('#IncludeFranchiseRemakes').prop('checked');
+                    config.MinimumFranchiseItems = readInteger('#MinimumFranchiseItems', 2);
+                    config.FranchiseCollectionNameSuffix = $('#FranchiseCollectionNameSuffix').val();
+                    config.PreserveManualCollections = true;
                     config.EnablePersistentCache = $('#EnablePersistentCache').prop('checked');
                     config.UseStaleCacheOnFailure = $('#UseStaleCacheOnFailure').prop('checked');
                     config.MetadataCacheHours = readInteger('#MetadataCacheHours', 168);
