@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Jellyfin.Data.Enums;
+using Jellyfin.Extensions;
+using Jellyfin.Plugin.Kinopoisk.Configuration;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -9,8 +12,6 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
 using Microsoft.Extensions.Logging;
-using Jellyfin.Data.Enums;
-using Jellyfin.Extensions;
 
 namespace Jellyfin.Plugin.Kinopoisk
 {
@@ -21,17 +22,19 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return null;
 
-            var res = new RemoteSearchResult() {
+            var configuration = GetConfiguration();
+            var res = new RemoteSearchResult
+            {
                 Name = src.GetLocalName(),
                 ImageUrl = src.PosterUrl,
                 PremiereDate = src.GetPremiereDate(),
-                ProductionYear = src.Year > 1900 ? src.Year : null,
-                Overview = src.Description,
+                ProductionYear = src.GetProductionYear(),
+                Overview = src.GetOverview(configuration),
                 SearchProviderName = Constants.ProviderName
             };
-            res.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId));
+            res.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId, CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(src.ImdbId))
-                res.SetProviderId(MetadataProvider.Imdb, src.ImdbId);
+                res.SetProviderId(MetadataProvider.Imdb, src.ImdbId.Trim());
 
             return res;
         }
@@ -48,11 +51,13 @@ namespace Jellyfin.Plugin.Kinopoisk
 
         public static RemoteSearchResult ToRemoteSearchResult(this FilmSearchResponse_films src, ILogger logger)
         {
-            try {
+            try
+            {
                 if (src is null)
                     return null;
 
-                var res = new RemoteSearchResult() {
+                var res = new RemoteSearchResult
+                {
                     Name = src.GetLocalName(),
                     ImageUrl = src.PosterUrl,
                     PremiereDate = src.GetPremiereDate(),
@@ -60,12 +65,13 @@ namespace Jellyfin.Plugin.Kinopoisk
                     Overview = src.Description,
                     SearchProviderName = Constants.ProviderName
                 };
-                res.SetProviderId(Constants.ProviderId, Convert.ToString(src.FilmId));
+                res.SetProviderId(Constants.ProviderId, Convert.ToString(src.FilmId, CultureInfo.InvariantCulture));
 
                 return res;
             }
-            catch (Exception e) {
-                logger.LogError(e, "Exception during parse");
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Результат поиска КиноПоиска не преобразован");
                 return null;
             }
         }
@@ -75,16 +81,14 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return null;
 
-            var res = new Series();
+            var configuration = GetConfiguration();
+            var result = new Series();
+            FillCommonFilmInfo(src, result, configuration);
 
-            FillCommonFilmInfo(src, res);
+            if (configuration.EnableSeriesStatus)
+                FillSeriesInfo(src, result);
 
-            // res.EndDate = src.Data.GetEndDate();
-            // res.Status = src.Data.IsContinuing()
-            //     ? SeriesStatus.Continuing
-            //     : SeriesStatus.Ended;
-
-            return res;
+            return result;
         }
 
         public static Movie ToMovie(this Film src)
@@ -92,146 +96,285 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return null;
 
-            var res = new Movie();
-
-            FillCommonFilmInfo(src, res);
-
-            return res;
+            var result = new Movie();
+            FillCommonFilmInfo(src, result, GetConfiguration());
+            return result;
         }
 
-        private static void FillCommonFilmInfo(Film src, BaseItem dst)
+        private static void FillCommonFilmInfo(
+            Film source,
+            BaseItem destination,
+            PluginConfiguration configuration)
         {
-            dst.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId));
-            dst.Name = src.GetLocalName();
-            dst.OriginalTitle = src.GetOriginalNameIfNotSame();
-            dst.PremiereDate = src.GetPremiereDate();
-            if (1900 < src.Year)
-                dst.ProductionYear = src.Year;
-            if (!string.IsNullOrWhiteSpace(src.Slogan))
-                dst.Tagline = src.Slogan;
-            dst.Overview = src.Description;
-            if (src.Countries != null)
-                dst.ProductionLocations = src.Countries.Select(c => c.Country1).ToArray();
-            if (src.Genres != null)
-                foreach(var genre in src.Genres.Select(c => c.Genre1))
-                    dst.AddGenre(genre);
-            if (!string.IsNullOrEmpty(src.RatingAgeLimits))
-                dst.OfficialRating = $"{src.RatingAgeLimits}+";
-            else
-                dst.OfficialRating = src.RatingMpaa;
+            destination.SetProviderId(
+                Constants.ProviderId,
+                Convert.ToString(source.KinopoiskId, CultureInfo.InvariantCulture));
+            destination.Name = source.GetLocalName();
+            destination.OriginalTitle = source.GetOriginalNameIfNotSame();
+            destination.PremiereDate = source.GetPremiereDate();
+            destination.ProductionYear = source.GetProductionYear();
 
-            dst.CommunityRating = (float)src.RatingKinopoisk;
-            if (dst.CommunityRating < 0.1)
-                dst.CommunityRating = (float)src.RatingImdb;
-            if (dst.CommunityRating < 0.1)
-                dst.CommunityRating = null;
-            dst.CriticRating = src.GetCriticRatingAsTenPointBased();
+            if (!string.IsNullOrWhiteSpace(source.Slogan))
+                destination.Tagline = source.Slogan.Trim();
 
-            if (!string.IsNullOrWhiteSpace(src.ImdbId))
-                dst.SetProviderId(MetadataProvider.Imdb, src.ImdbId);
+            destination.Overview = source.GetOverview(configuration);
+
+            if (source.Countries is not null)
+            {
+                destination.ProductionLocations = source.Countries
+                    .Select(country => country?.Country1?.Trim())
+                    .Where(country => !string.IsNullOrWhiteSpace(country))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+
+            if (source.Genres is not null)
+            {
+                foreach (var genre in source.Genres
+                    .Select(item => item?.Genre1?.Trim())
+                    .Where(genre => !string.IsNullOrWhiteSpace(genre))
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    destination.AddGenre(genre);
+                }
+            }
+
+            destination.OfficialRating = NormalizeOfficialRating(
+                source.RatingAgeLimits,
+                source.RatingMpaa);
+            destination.CommunityRating = source.GetCommunityRating(
+                configuration.CommunityRatingSource);
+            destination.CriticRating = source.GetCriticRatingAsPercentage(
+                configuration.CriticRatingSource);
+
+            if (configuration.EnableRuntimeFallback && source.FilmLength > 0)
+                destination.RunTimeTicks = TimeSpan.FromMinutes(source.FilmLength).Ticks;
+
+            if (configuration.EnableKinopoiskHomePage
+                && TryGetHttpUrl(source.WebUrl, out var homePageUrl))
+            {
+                destination.HomePageUrl = homePageUrl;
+            }
+
+            if (!string.IsNullOrWhiteSpace(source.ImdbId))
+                destination.SetProviderId(MetadataProvider.Imdb, source.ImdbId.Trim());
         }
 
-        public static float? GetCriticRatingAsTenPointBased(this Film src)
+        private static void FillSeriesInfo(Film source, Series destination)
         {
-            if (src is null)
+            if (source.StartYear > 1900)
+            {
+                destination.ProductionYear = source.StartYear;
+                if (!destination.PremiereDate.HasValue)
+                    destination.PremiereDate = new DateTime(source.StartYear, 1, 1);
+            }
+
+            if (source.EndYear > 1900)
+                destination.EndDate = new DateTime(source.EndYear, 12, 31);
+
+            if (source.Completed
+                || source.ProductionStatus == FilmProductionStatus.COMPLETED
+                || source.EndYear > 1900)
+            {
+                destination.Status = SeriesStatus.Ended;
+                return;
+            }
+
+            if (source.ProductionStatus is FilmProductionStatus.ANNOUNCED
+                or FilmProductionStatus.PRE_PRODUCTION)
+            {
+                destination.Status = SeriesStatus.Unreleased;
+                return;
+            }
+
+            destination.Status = SeriesStatus.Continuing;
+        }
+
+        public static float? GetCommunityRating(
+            this Film source,
+            CommunityRatingSource ratingSource)
+        {
+            if (source is null || ratingSource == CommunityRatingSource.Disabled)
                 return null;
 
-            if (src.RatingRfCritics > 0.0)
-                return (float)src.RatingRfCritics;
+            var kinopoisk = NormalizeTenPointRating(source.RatingKinopoisk);
+            var imdb = NormalizeTenPointRating(source.RatingImdb);
 
-            if (src.RatingFilmCritics > 0.0)
-                return (float)src.RatingFilmCritics;
+            return ratingSource switch
+            {
+                CommunityRatingSource.KinopoiskOnly => kinopoisk,
+                CommunityRatingSource.ImdbWithKinopoiskFallback => imdb ?? kinopoisk,
+                CommunityRatingSource.ImdbOnly => imdb,
+                _ => kinopoisk ?? imdb
+            };
+        }
 
-            return null;
+        public static float? GetCriticRatingAsPercentage(
+            this Film source,
+            CriticRatingSource ratingSource)
+        {
+            if (source is null || ratingSource == CriticRatingSource.Disabled)
+                return null;
+
+            var russian = NormalizeCriticPercentage(source.RatingRfCritics);
+            var world = NormalizeCriticPercentage(source.RatingFilmCritics);
+
+            return ratingSource switch
+            {
+                CriticRatingSource.RussianOnly => russian,
+                CriticRatingSource.WorldWithRussianFallback => world ?? russian,
+                CriticRatingSource.WorldOnly => world,
+                _ => russian ?? world
+            };
+        }
+
+        public static void ApplyPrecisePremiereDate(
+            this BaseItem item,
+            DistributionResponse distributions)
+        {
+            if (item is null)
+                return;
+
+            var premiereDate = distributions.GetPrecisePremiereDate();
+            if (!premiereDate.HasValue)
+                return;
+
+            item.PremiereDate = premiereDate.Value;
+            item.ProductionYear ??= premiereDate.Value.Year;
+        }
+
+        public static DateTime? GetPrecisePremiereDate(this DistributionResponse distributions)
+        {
+            if (distributions?.Items is null)
+                return null;
+
+            var parsed = distributions.Items
+                .Where(item => item is not null && !item.ReRelease)
+                .Select(item => new
+                {
+                    Item = item,
+                    Date = item.Date.ParseDate()
+                })
+                .Where(item => item.Date.HasValue)
+                .ToArray();
+
+            if (parsed.Length == 0)
+                return null;
+
+            var worldPremiere = parsed
+                .Where(item => item.Item.Type == DistributionType.WORLD_PREMIER)
+                .OrderBy(item => item.Date)
+                .Select(item => item.Date)
+                .FirstOrDefault();
+            if (worldPremiere.HasValue)
+                return worldPremiere;
+
+            var cinemaPremiere = parsed
+                .Where(item => item.Item.Type == DistributionType.PREMIERE
+                    && item.Item.SubType == DistributionSubType.CINEMA)
+                .OrderBy(item => item.Date)
+                .Select(item => item.Date)
+                .FirstOrDefault();
+            if (cinemaPremiere.HasValue)
+                return cinemaPremiere;
+
+            return parsed
+                .Where(item => item.Item.Type == DistributionType.PREMIERE)
+                .OrderBy(item => item.Date)
+                .Select(item => item.Date)
+                .FirstOrDefault()
+                ?? parsed.OrderBy(item => item.Date).Select(item => item.Date).FirstOrDefault();
         }
 
         public static IEnumerable<RemoteImageInfo> ToRemoteImageInfos(this Film src)
         {
-            var res = Enumerable.Empty<RemoteImageInfo>();
             if (src is null)
-                return res;
+                return Enumerable.Empty<RemoteImageInfo>();
 
-            if (src?.PosterUrl != null)
-            {
-                var mainPoster = new RemoteImageInfo(){
-                    Type = ImageType.Primary,
-                    Url = src.PosterUrl,
-                    Language = Constants.ProviderMetadataLanguage,
-                    ProviderName = Constants.ProviderName
-                };
-                res = res.Concat(Enumerable.Repeat(mainPoster, 1));
-            }
+            var images = new List<RemoteImageInfo>();
+            AddRemoteImage(images, src.PosterUrl, ImageType.Primary);
+            AddRemoteImage(images, src.CoverUrl, ImageType.Primary);
+            AddRemoteImage(images, src.LogoUrl, ImageType.Logo);
 
-            // if (src.Images != null)
-            // {
-            //     if (src.Images.Posters != null)
-            //         res = res.Concat(src.Images.Posters.ToRemoteImageInfos(ImageType.Primary));
-            //     if  (src.Images.Backdrops != null)
-            //         res = res.Concat(src.Images.Backdrops.ToRemoteImageInfos(ImageType.Backdrop));
-            // }
-
-            return res;
+            return images
+                .GroupBy(
+                    image => $"{image.Type}:{image.Url}",
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First());
         }
 
-        // public static IEnumerable<RemoteImageInfo> ToRemoteImageInfos(this IEnumerable<Images_posters> src, ImageType imageType)
-        // {
-        //     return src.Select(s => s.ToRemoteImageInfo(imageType))
-        //         .Where(s => s != null);
-        // }
+        private static void AddRemoteImage(
+            ICollection<RemoteImageInfo> images,
+            string url,
+            ImageType imageType)
+        {
+            if (!TryGetHttpUrl(url, out var normalizedUrl))
+                return;
 
-        // public static RemoteImageInfo ToRemoteImageInfo(this Images_posters src, ImageType imageType)
-        // {
-        //     if (src is null)
-        //         return null;
-
-        //     return new RemoteImageInfo(){
-        //         Type = imageType,
-        //         Url = src.Url,
-        //         Language = src.Language,
-        //         Height = src.Height,
-        //         Width = src.Width,
-        //         ProviderName = Constants.ProviderName
-        //     };
-        // }
+            images.Add(new RemoteImageInfo
+            {
+                Type = imageType,
+                Url = normalizedUrl,
+                Language = Constants.ProviderMetadataLanguage,
+                ProviderName = Constants.ProviderName
+            });
+        }
 
         public static IReadOnlyList<MediaUrl> ToMediaUrls(this VideoResponse src)
         {
-            if (src is null || src.Items is null || src.Items.Count < 1)
+            if (src?.Items is null || src.Items.Count < 1)
                 return null;
 
-            return src.Items.Select(t => t.ToMediaUrl())
-                .Where(mu => mu != null)
+            return src.Items
+                .Select(item => item.ToMediaUrl())
+                .Where(mediaUrl => mediaUrl is not null)
+                .GroupBy(mediaUrl => mediaUrl.Url, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .ToList();
         }
 
-        public static MediaUrl ToMediaUrl(this VideoResponse_items src) {
-            if (src is null || !VideoResponse_itemsSite.YOUTUBE.Equals(src.Site))
+        public static MediaUrl ToMediaUrl(this VideoResponse_items src)
+        {
+            if (src is null
+                || !VideoResponse_itemsSite.YOUTUBE.Equals(src.Site)
+                || string.IsNullOrWhiteSpace(src.Url))
+            {
+                return null;
+            }
+
+            var url = src.Url.SanitizeYoutubeLink();
+            if (!TryGetHttpUrl(url, out var normalizedUrl))
                 return null;
 
             return new MediaUrl
             {
-                Name = src.Name,
-                Url = src.Url.SanitizeYoutubeLink()
+                Name = string.IsNullOrWhiteSpace(src.Name)
+                    ? "Трейлер КиноПоиска"
+                    : src.Name.Trim(),
+                Url = normalizedUrl
             };
         }
 
         public static string SanitizeYoutubeLink(this string src)
         {
-            // Jellyfin web currently recognizes only https://www.youtube.com/watch?v=xxx links
-            return src
-                .Replace("http://", "https://")
-                .Replace("https://youtu.be/", "https://www.youtube.com/watch?v=")
-                .Replace("https://www.youtube.com/v/", "https://www.youtube.com/watch?v=");
+            if (string.IsNullOrWhiteSpace(src))
+                return string.Empty;
+
+            return src.Trim()
+                .Replace("http://", "https://", StringComparison.OrdinalIgnoreCase)
+                .Replace("https://youtu.be/", "https://www.youtube.com/watch?v=", StringComparison.OrdinalIgnoreCase)
+                .Replace("https://www.youtube.com/v/", "https://www.youtube.com/watch?v=", StringComparison.OrdinalIgnoreCase);
         }
 
         public static RemoteImageInfo ToRemoteImageInfo(this PersonResponse src)
         {
-            if (src is null || string.IsNullOrEmpty(src.PosterUrl))
+            if (src is null || !TryGetHttpUrl(src.PosterUrl, out var posterUrl))
                 return null;
 
-            return new RemoteImageInfo(){
+            return new RemoteImageInfo
+            {
                 Type = ImageType.Primary,
-                Url = src.PosterUrl,
+                Url = posterUrl,
                 ProviderName = Constants.ProviderName
             };
         }
@@ -241,34 +384,37 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return null;
 
-            var res = new PersonInfo()
+            var result = new PersonInfo
             {
                 Name = src.NameRu,
                 ImageUrl = src.PosterUrl,
-                Role = src.ProfessionText ?? null,
+                Role = src.ProfessionText,
                 Type = src.ProfessionKey.ToPersonType()
             };
-            if (string.IsNullOrWhiteSpace(res.Name))
-                res.Name = src.NameEn ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(result.Name))
+                result.Name = src.NameEn ?? string.Empty;
             if (src.AdditionalProperties.TryGetValue("description", out var description))
-                res.Role = description as string;
+                result.Role = description as string;
 
-            res.SetProviderId(Constants.ProviderId, Convert.ToString(src.StaffId));
-
-            return res;
+            result.SetProviderId(Constants.ProviderId, Convert.ToString(src.StaffId, CultureInfo.InvariantCulture));
+            return result;
         }
 
         public static IEnumerable<PersonInfo> ToPersonInfos(this ICollection<StaffResponse> src)
         {
-            var res = src.Select(s => s.ToPersonInfo())
-                .Where(s => s != null && !string.IsNullOrWhiteSpace(s.Name))
+            if (src is null)
+                return Enumerable.Empty<PersonInfo>();
+
+            var result = src
+                .Select(item => item.ToPersonInfo())
+                .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.Name))
                 .ToArray();
 
-            var i = 0;
-            foreach(var item in res)
-                item.SortOrder = ++i;
+            var sortOrder = 0;
+            foreach (var item in result)
+                item.SortOrder = ++sortOrder;
 
-            return res;
+            return result;
         }
 
         public static PersonKind ToPersonType(this StaffResponseProfessionKey src)
@@ -285,84 +431,115 @@ namespace Jellyfin.Plugin.Kinopoisk
                     or StaffResponseProfessionKey.PRODUCER_USSR => PersonKind.Producer,
                 StaffResponseProfessionKey.EDITOR => PersonKind.Editor,
                 StaffResponseProfessionKey.TRANSLATOR => PersonKind.Translator,
-                _ => PersonKind.Unknown,
+                _ => PersonKind.Unknown
             };
         }
 
-        public static DateTime? ParseDate(this string src){
-            if (src == null)
+        public static DateTime? ParseDate(this string src)
+        {
+            if (string.IsNullOrWhiteSpace(src))
                 return null;
 
-            if (DateTime.TryParseExact(src, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var res))
-                return res;
+            var formats = new[]
+            {
+                "yyyy-MM-dd",
+                "yyyy-MM-ddTHH:mm:ss",
+                "yyyy-MM-ddTHH:mm:ssK",
+                "o"
+            };
+
+            if (DateTime.TryParseExact(
+                src.Trim(),
+                formats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal,
+                out var result))
+            {
+                return result.Date;
+            }
 
             return null;
         }
 
         public static DateTime? GetPremiereDate(this Film src)
         {
-            // var res = src.IsRussianSpokenOriginated()
-            //     ? src.PremiereRu.ParseDate()
-            //     : src.PremiereWorld.ParseDate();
-            // if (src.PremiereRu.ParseDate() < res)
-            //     res = src.PremiereRu.ParseDate();
-            // if (src.PremiereWorld.ParseDate() < res)
-            //     res = src.PremiereWorld.ParseDate();
-            // if (src.PremiereDigital.ParseDate() < res)
-            //     res = src.PremiereDigital.ParseDate();
-            // if (src.PremiereDvd.ParseDate() < res)
-            //     res = src.PremiereDvd.ParseDate();
-            // if (src.PremiereBluRay.ParseDate() < res)
-            //     res = src.PremiereBluRay.ParseDate();
+            var productionYear = src.GetProductionYear();
+            return productionYear.HasValue
+                ? new DateTime(productionYear.Value, 1, 1)
+                : null;
+        }
 
-            // if (res.HasValue)
-            //     return res;
+        public static int? GetProductionYear(this Film src)
+        {
+            if (src is null)
+                return null;
 
-            if (src.Year > 1900)
-                return new DateTime(src.Year, 1, 1);
+            if (src.StartYear > 1900)
+                return src.StartYear;
 
-            return null;
+            return src.Year > 1900 ? src.Year : null;
         }
 
         public static DateTime? GetPremiereDate(this FilmSearchResponse_films src)
         {
             var firstYear = GetFirstYear(src.Year);
-            if (firstYear != null)
-                return new DateTime(firstYear.Value, 1, 1);
+            return firstYear.HasValue
+                ? new DateTime(firstYear.Value, 1, 1)
+                : null;
+        }
+
+        public static string GetOverview(
+            this Film src,
+            PluginConfiguration configuration)
+        {
+            if (src is null)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(src.Description))
+                return src.Description.Trim();
+
+            if (configuration?.EnableShortDescriptionFallback != false
+                && !string.IsNullOrWhiteSpace(src.ShortDescription))
+            {
+                return src.ShortDescription.Trim();
+            }
 
             return null;
         }
 
         public static string GetLocalName(this Film src)
         {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameOriginal;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
+            var result = src?.NameRu;
+            if (string.IsNullOrWhiteSpace(result))
+                result = src?.NameOriginal;
+            if (string.IsNullOrWhiteSpace(result))
+                result = src?.NameEn;
+            return result?.Trim();
         }
 
         public static string GetLocalName(this FilmSearchResponse_films src)
         {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
+            var result = src?.NameRu;
+            if (string.IsNullOrWhiteSpace(result))
+                result = src?.NameEn;
+            return result?.Trim();
         }
 
         public static string GetOriginalName(this Film src)
-            => src?.NameOriginal ??
-                (src.IsRussianSpokenOriginated()
+            => src?.NameOriginal
+                ?? (src.IsRussianSpokenOriginated()
                     ? src?.NameRu
                     : src?.NameEn);
 
         public static string GetOriginalNameIfNotSame(this Film src)
         {
             var localName = src.GetLocalName();
-            var originalName = src.GetOriginalName();
-            if (!string.IsNullOrWhiteSpace(originalName) && !string.Equals(localName, originalName))
+            var originalName = src.GetOriginalName()?.Trim();
+            if (!string.IsNullOrWhiteSpace(originalName)
+                && !string.Equals(localName, originalName, StringComparison.OrdinalIgnoreCase))
+            {
                 return originalName;
+            }
 
             return string.Empty;
         }
@@ -375,66 +552,47 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return false;
 
-            foreach(var country in src)
-                switch(country.Country1)
-                {
-                    case "Россия":
-                        return true;
-                }
-
-            return false;
+            return src.Any(country => string.Equals(
+                country?.Country1?.Trim(),
+                "Россия",
+                StringComparison.OrdinalIgnoreCase));
         }
 
         public static int? GetFirstYear(string years)
         {
-            if (string.IsNullOrWhiteSpace(years) || years.ToLower() == "null")
+            if (string.IsNullOrWhiteSpace(years)
+                || string.Equals(years.Trim(), "null", StringComparison.OrdinalIgnoreCase))
+            {
                 return null;
-
-            years = years.Trim();
-
-            if (int.TryParse(years, out var res))
-                return res;
-
-            var i = 0;
-            while (true) {
-                if (i > 4)
-                    return null;
-                if (!char.IsDigit(years[i]))
-                    break;
-                i++;
             }
 
-            return Convert.ToInt32(years.Substring(0, i));
+            var normalized = years.Trim();
+            var digits = new string(normalized.TakeWhile(char.IsDigit).Take(4).ToArray());
+            return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var result)
+                && result > 1900
+                ? result
+                : null;
         }
 
         public static bool IsСontinuing(string years)
-            => years?.EndsWith("-...") ?? false;
+            => years?.EndsWith("-...", StringComparison.Ordinal) ?? false;
 
         public static int? GetLastYear(string years)
         {
             if (string.IsNullOrWhiteSpace(years))
                 return null;
 
-            years = years.Trim();
+            var normalized = years.Trim();
+            var digits = new string(normalized
+                .Reverse()
+                .TakeWhile(char.IsDigit)
+                .Take(4)
+                .Reverse()
+                .ToArray());
 
-            if (int.TryParse(years, out var res))
-                return res;
-
-            var i = 0;
-            int startindex() => years.Length - 1 - i;
-            while (true) {
-                if (i > 4)
-                    return null;
-                if (!char.IsDigit(years[startindex()]))
-                {
-                    i--;
-                    break;
-                }
-                i++;
-            }
-
-            return i > 0
-                ? (int?)Convert.ToInt32(years[startindex()..])
+            return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var result)
+                && result > 1900
+                ? result
                 : null;
         }
 
@@ -443,7 +601,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (src is null)
                 return null;
 
-            var res = new Person()
+            var result = new Person
             {
                 Name = src.GetLocalName(),
                 PremiereDate = src.Birthday.ParseDate(),
@@ -451,17 +609,66 @@ namespace Jellyfin.Plugin.Kinopoisk
             };
 
             if (!string.IsNullOrWhiteSpace(src.Birthplace))
-                res.ProductionLocations = new[] { src.Birthplace };
+                result.ProductionLocations = new[] { src.Birthplace.Trim() };
 
-            return res;
+            return result;
         }
 
         public static string GetLocalName(this PersonResponse src)
         {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
+            var result = src?.NameRu;
+            if (string.IsNullOrWhiteSpace(result))
+                result = src?.NameEn;
+            return result?.Trim();
+        }
+
+        private static PluginConfiguration GetConfiguration()
+            => Plugin.Instance?.Configuration ?? new PluginConfiguration();
+
+        private static float? NormalizeTenPointRating(double value)
+        {
+            if (value <= 0 || value > 10)
+                return null;
+
+            return (float)value;
+        }
+
+        private static float? NormalizeCriticPercentage(double value)
+        {
+            if (value <= 0)
+                return null;
+
+            var percentage = value <= 10 ? value * 10 : value;
+            return (float)Math.Clamp(percentage, 0, 100);
+        }
+
+        private static string NormalizeOfficialRating(
+            string ageRating,
+            string mpaaRating)
+        {
+            if (!string.IsNullOrWhiteSpace(ageRating))
+            {
+                var digits = new string(ageRating.Where(char.IsDigit).ToArray());
+                if (!string.IsNullOrWhiteSpace(digits))
+                    return digits + "+";
+            }
+
+            return string.IsNullOrWhiteSpace(mpaaRating)
+                ? null
+                : mpaaRating.Trim().ToUpperInvariant();
+        }
+
+        private static bool TryGetHttpUrl(string value, out string normalizedUrl)
+        {
+            normalizedUrl = null;
+            if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return false;
+            }
+
+            normalizedUrl = uri.AbsoluteUri;
+            return true;
         }
     }
 }
