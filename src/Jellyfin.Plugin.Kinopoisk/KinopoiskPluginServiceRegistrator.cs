@@ -62,6 +62,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
+            serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
 
             serviceCollection.AddSingleton((sp) => new KinopoiskImageBinaryCache(
                 sp.GetRequiredService<IHttpClientFactory>(),
