@@ -61,12 +61,22 @@ namespace Jellyfin.Plugin.Kinopoisk
             ));
             serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
+
+            var reportsPath = Path.Combine(Plugin.Instance.DataFolderPath, "reports");
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
             serviceCollection.AddSingleton<KinopoiskFranchiseLibraryScanner>();
             serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseReportWriter(
-                Path.Combine(Plugin.Instance.DataFolderPath, "reports"),
+                reportsPath,
                 sp.GetRequiredService<ILogger<KinopoiskFranchiseReportWriter>>()
+            ));
+            serviceCollection.AddSingleton(_ => new KinopoiskFranchisePreviewReportReader(
+                reportsPath));
+            serviceCollection.AddSingleton<IKinopoiskManagedCollectionGateway, KinopoiskManagedCollectionGateway>();
+            serviceCollection.AddSingleton<KinopoiskFranchiseApplyService>();
+            serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseApplyReportWriter(
+                reportsPath,
+                sp.GetRequiredService<ILogger<KinopoiskFranchiseApplyReportWriter>>()
             ));
 
             serviceCollection.AddSingleton((sp) => new KinopoiskImageBinaryCache(
