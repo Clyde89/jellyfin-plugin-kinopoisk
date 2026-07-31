@@ -1,24 +1,148 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="utf-8">
     <title>КиноПоиск</title>
 </head>
 <body>
-    <div id="KinopoiskConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="KinopoiskConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
                 <form id="KinopoiskConfigForm">
+                    <h2>Подключение к API</h2>
                     <div class="inputContainer">
-                        <label class="inputeLabel inputLabelUnfocused" for="ApiToken">ApiToken</label>
-                        <input id="ApiToken" name="ApiToken" type="text" is="emby-input" />
-                        <div class="fieldDescription">Personal api token, you can get your own on
-                            <a href="https://kinopoiskapiunofficial.tech">https://kinopoiskapiunofficial.tech</a>
+                        <label class="inputeLabel inputLabelUnfocused" for="ApiToken">Персональный API-токен</label>
+                        <input id="ApiToken" name="ApiToken" type="password" autocomplete="new-password" is="emby-input" />
+                        <div class="fieldDescription">
+                            Токен выдаётся после регистрации на
+                            <a href="https://kinopoiskapiunofficial.tech" target="_blank" rel="noopener noreferrer">kinopoiskapiunofficial.tech</a>.
+                            Токен хранится в конфигурации Jellyfin и не выводится в журнал.
                         </div>
+                    </div>
+
+                    <h2>Стандартные функции Jellyfin</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableMovieMetadata" type="checkbox" is="emby-checkbox" />
+                            <span>Метаданные фильмов</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Название, оригинальное название, описание, год, страны, жанры, возрастной рейтинг, рейтинги и идентификаторы.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableSeriesMetadata" type="checkbox" is="emby-checkbox" />
+                            <span>Метаданные сериалов</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Основная карточка сериала и связанные стандартные поля Jellyfin.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableSeasonEpisodeMetadata" type="checkbox" is="emby-checkbox" />
+                            <span>Метаданные сезонов и эпизодов</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Названия, даты выпуска, описания и поддержка многосерийных файлов.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnablePeopleMetadata" type="checkbox" is="emby-checkbox" />
+                            <span>Участники и персоны</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Актёры, режиссёры, сценаристы, продюсеры и расширенные карточки персон.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableTrailers" type="checkbox" is="emby-checkbox" />
+                            <span>Трейлеры КиноПоиска</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            В штатный список трейлеров Jellyfin добавляются поддерживаемые ссылки, полученные через API КиноПоиска. Трейлеры не сохраняются в долговременном дисковом кэше.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableImages" type="checkbox" is="emby-checkbox" />
+                            <span>Удалённые изображения</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Постеры, обложки, фоны, кадры, изображения со съёмок, промоматериалы, концепт-арты и скриншоты.
+                        </div>
+                    </div>
+
+                    <h2>Кэширование API</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnablePersistentCache" type="checkbox" is="emby-checkbox" />
+                            <span>Долговременный дисковый кэш</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Ответы API сохраняются в каталоге данных плагина и используются после перезапуска Jellyfin. Трейлеры исключены из дискового кэша.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="UseStaleCacheOnFailure" type="checkbox" is="emby-checkbox" />
+                            <span>Резерв устаревшего кэша</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            При временной недоступности API или исчерпании квоты используется последний сохранённый ответ, даже если его обычный срок хранения завершён.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="MetadataCacheHours">Основные метаданные, часов</label>
+                        <input id="MetadataCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" />
+                        <div class="fieldDescription">Рекомендуемое значение: 168 часов.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="ImagesCacheHours">Списки изображений, часов</label>
+                        <input id="ImagesCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" />
+                        <div class="fieldDescription">Рекомендуемое значение: 720 часов.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="SearchCacheMinutes">Результаты поиска, минут</label>
+                        <input id="SearchCacheMinutes" type="number" min="1" max="10080" step="1" is="emby-input" />
+                        <div class="fieldDescription">Увеличенное значение уменьшает расход квоты при повторной идентификации.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="NegativeCacheMinutes">Пустые результаты, минут</label>
+                        <input id="NegativeCacheMinutes" type="number" min="1" max="1440" step="1" is="emby-input" />
+                        <div class="fieldDescription">Пустые ответы сохраняются ненадолго, чтобы исключить циклические повторные запросы.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="PersistentCacheMaximumMegabytes">Максимальный размер дискового кэша, МБ</label>
+                        <input id="PersistentCacheMaximumMegabytes" type="number" min="64" max="8192" step="1" is="emby-input" />
+                        <div class="fieldDescription">При превышении ограничения первыми удаляются самые старые файлы кэша.</div>
+                    </div>
+
+                    <h2>Контроль квоты</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input id="EnableQuotaMonitoring" type="checkbox" is="emby-checkbox" />
+                            <span>Контроль API-ключа и квоты</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Состояние ключа периодически проверяется без вывода токена в журнал. Полученные сведения используются для диагностики и защиты от лишних запросов.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputeLabel inputLabelUnfocused" for="QuotaCheckIntervalHours">Интервал проверки квоты, часов</label>
+                        <input id="QuotaCheckIntervalHours" type="number" min="1" max="168" step="1" is="emby-input" />
+                        <div class="fieldDescription">Рекомендуемое значение: 6 часов. Сам запрос состояния ключа также учитывается внешним сервисом.</div>
+                    </div>
+
+                    <div class="fieldDescription" style="margin: 1.5em 0;">
+                        Параметры кэша и контроля квоты применяются после перезапуска Jellyfin. Функциональные переключатели учитываются при следующих запросах метаданных.
                     </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
+                            <span>Сохранить</span>
                         </button>
                     </div>
                 </form>
@@ -29,10 +153,30 @@
                 pluginUniqueId: '33e6d249-648f-44cd-a9ce-497be06c08df'
             };
 
+            function readInteger(id, fallback) {
+                var value = parseInt(document.querySelector(id).value, 10);
+                return Number.isFinite(value) ? value : fallback;
+            }
+
             $('#KinopoiskConfigPage').on('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    $('#ApiToken').val(config.ApiToken).change();
+                    $('#ApiToken').val(config.ApiToken || '').change();
+                    $('#EnableMovieMetadata').prop('checked', config.EnableMovieMetadata !== false).change();
+                    $('#EnableSeriesMetadata').prop('checked', config.EnableSeriesMetadata !== false).change();
+                    $('#EnableSeasonEpisodeMetadata').prop('checked', config.EnableSeasonEpisodeMetadata !== false).change();
+                    $('#EnablePeopleMetadata').prop('checked', config.EnablePeopleMetadata !== false).change();
+                    $('#EnableTrailers').prop('checked', config.EnableTrailers !== false).change();
+                    $('#EnableImages').prop('checked', config.EnableImages !== false).change();
+                    $('#EnablePersistentCache').prop('checked', config.EnablePersistentCache !== false).change();
+                    $('#UseStaleCacheOnFailure').prop('checked', config.UseStaleCacheOnFailure !== false).change();
+                    $('#MetadataCacheHours').val(config.MetadataCacheHours || 168).change();
+                    $('#ImagesCacheHours').val(config.ImagesCacheHours || 720).change();
+                    $('#SearchCacheMinutes').val(config.SearchCacheMinutes || 60).change();
+                    $('#NegativeCacheMinutes').val(config.NegativeCacheMinutes || 15).change();
+                    $('#PersistentCacheMaximumMegabytes').val(config.PersistentCacheMaximumMegabytes || 512).change();
+                    $('#EnableQuotaMonitoring').prop('checked', config.EnableQuotaMonitoring !== false).change();
+                    $('#QuotaCheckIntervalHours').val(config.QuotaCheckIntervalHours || 6).change();
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -40,7 +184,23 @@
             $('#KinopoiskConfigForm').on('submit', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    config.ApiToken = $('#ApiToken').val();
+                    config.ApiToken = $('#ApiToken').val().trim();
+                    config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
+                    config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
+                    config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');
+                    config.EnablePeopleMetadata = $('#EnablePeopleMetadata').prop('checked');
+                    config.EnableTrailers = $('#EnableTrailers').prop('checked');
+                    config.EnableImages = $('#EnableImages').prop('checked');
+                    config.EnablePersistentCache = $('#EnablePersistentCache').prop('checked');
+                    config.UseStaleCacheOnFailure = $('#UseStaleCacheOnFailure').prop('checked');
+                    config.MetadataCacheHours = readInteger('#MetadataCacheHours', 168);
+                    config.ImagesCacheHours = readInteger('#ImagesCacheHours', 720);
+                    config.SearchCacheMinutes = readInteger('#SearchCacheMinutes', 60);
+                    config.NegativeCacheMinutes = readInteger('#NegativeCacheMinutes', 15);
+                    config.PersistentCacheMaximumMegabytes = readInteger('#PersistentCacheMaximumMegabytes', 512);
+                    config.EnableQuotaMonitoring = $('#EnableQuotaMonitoring').prop('checked');
+                    config.QuotaCheckIntervalHours = readInteger('#QuotaCheckIntervalHours', 6);
+
                     ApiClient.updatePluginConfiguration(KinopoiskPluginConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
