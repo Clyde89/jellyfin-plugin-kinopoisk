@@ -19,8 +19,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(3, "Матрица: Революция", 2003)
             };
             var relations = Relations(
-                (1, Relation(2, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)),
-                (2, Relation(3, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
+                Entry(1, Relation(2, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)),
+                Entry(2, Relation(3, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
 
             var plan = Assert.Single(new KinopoiskFranchisePlanner().Build(items, relations));
 
@@ -41,7 +41,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(11, "Локальный сиквел", 2002)
             };
             var relations = Relations(
-                (10,
+                Entry(
+                    10,
                     Relation(11, FilmSequelsAndPrequelsResponseRelationType.SEQUEL),
                     Relation(99, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
 
@@ -60,7 +61,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(21, "Ремейк", 2020)
             };
             var relations = Relations(
-                (20, Relation(21, FilmSequelsAndPrequelsResponseRelationType.REMAKE)));
+                Entry(20, Relation(21, FilmSequelsAndPrequelsResponseRelationType.REMAKE)));
 
             var plans = new KinopoiskFranchisePlanner().Build(items, relations);
 
@@ -76,7 +77,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(21, "Ремейк", 2020)
             };
             var relations = Relations(
-                (20, Relation(21, FilmSequelsAndPrequelsResponseRelationType.REMAKE)));
+                Entry(20, Relation(21, FilmSequelsAndPrequelsResponseRelationType.REMAKE)));
 
             var plan = Assert.Single(new KinopoiskFranchisePlanner().Build(
                 items,
@@ -97,7 +98,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(31, "Второй", 2002)
             };
             var relations = Relations(
-                (30,
+                Entry(
+                    30,
                     Relation(30, FilmSequelsAndPrequelsResponseRelationType.SEQUEL),
                     Relation(31, FilmSequelsAndPrequelsResponseRelationType.UNKNOWN)));
 
@@ -114,8 +116,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Item(41, "Приквел", 2005)
             };
             var relations = Relations(
-                (42, Relation(40, FilmSequelsAndPrequelsResponseRelationType.PREQUEL)),
-                (40, Relation(41, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
+                Entry(42, Relation(40, FilmSequelsAndPrequelsResponseRelationType.PREQUEL)),
+                Entry(40, Relation(41, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
 
             var plan = Assert.Single(new KinopoiskFranchisePlanner().Build(items, relations));
 
@@ -131,7 +133,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             duplicate.ItemId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
             var sequel = Item(51, "Сиквел", 2002);
             var relations = Relations(
-                (50, Relation(51, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
+                Entry(50, Relation(51, FilmSequelsAndPrequelsResponseRelationType.SEQUEL)));
 
             var plan = Assert.Single(new KinopoiskFranchisePlanner().Build(
                 new[] { duplicate, first, sequel },
@@ -161,18 +163,26 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 FilmId = filmId,
                 NameRu = $"Фильм {filmId}",
                 NameEn = $"Film {filmId}",
+                NameOriginal = $"Film {filmId}",
                 PosterUrl = "https://example.test/poster.jpg",
                 PosterUrlPreview = "https://example.test/poster-small.jpg",
                 RelationType = relationType
             };
         }
 
-        private static IReadOnlyDictionary<int, IReadOnlyCollection<FilmSequelsAndPrequelsResponse>> Relations(
-            params (int SourceId, FilmSequelsAndPrequelsResponse[] Relations)[] values)
+        private static KeyValuePair<int, IReadOnlyCollection<FilmSequelsAndPrequelsResponse>> Entry(
+            int sourceId,
+            params FilmSequelsAndPrequelsResponse[] relations)
         {
-            return values.ToDictionary(
-                value => value.SourceId,
-                value => (IReadOnlyCollection<FilmSequelsAndPrequelsResponse>)value.Relations);
+            return new KeyValuePair<int, IReadOnlyCollection<FilmSequelsAndPrequelsResponse>>(
+                sourceId,
+                relations);
+        }
+
+        private static IReadOnlyDictionary<int, IReadOnlyCollection<FilmSequelsAndPrequelsResponse>> Relations(
+            params KeyValuePair<int, IReadOnlyCollection<FilmSequelsAndPrequelsResponse>>[] values)
+        {
+            return values.ToDictionary(value => value.Key, value => value.Value);
         }
     }
 }
