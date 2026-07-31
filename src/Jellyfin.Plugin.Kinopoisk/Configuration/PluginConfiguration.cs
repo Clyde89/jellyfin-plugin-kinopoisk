@@ -46,6 +46,43 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public bool EnableImages { get; set; } = true;
 
         /// <summary>
+        /// Получает или задаёт источник пользовательского рейтинга Jellyfin.
+        /// </summary>
+        public CommunityRatingSource CommunityRatingSource { get; set; }
+            = CommunityRatingSource.KinopoiskWithImdbFallback;
+
+        /// <summary>
+        /// Получает или задаёт источник рейтинга критиков Jellyfin.
+        /// </summary>
+        public CriticRatingSource CriticRatingSource { get; set; }
+            = CriticRatingSource.RussianWithWorldFallback;
+
+        /// <summary>
+        /// Получает или задаёт признак загрузки точной даты премьеры из прокатных данных.
+        /// </summary>
+        public bool EnablePrecisePremiereDate { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак заполнения продолжительности из КиноПоиска.
+        /// </summary>
+        public bool EnableRuntimeFallback { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак заполнения домашней страницы ссылкой КиноПоиска.
+        /// </summary>
+        public bool EnableKinopoiskHomePage { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак заполнения статуса и диапазона лет сериала.
+        /// </summary>
+        public bool EnableSeriesStatus { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак использования краткого описания при отсутствии полного.
+        /// </summary>
+        public bool EnableShortDescriptionFallback { get; set; } = true;
+
+        /// <summary>
         /// Получает или задаёт признак долговременного дискового кэширования ответов API.
         /// </summary>
         public bool EnablePersistentCache { get; set; } = true;
@@ -103,6 +140,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public void Normalize()
         {
             ApiToken = ApiToken?.Trim() ?? string.Empty;
+
+            if (!Enum.IsDefined(CommunityRatingSource))
+                CommunityRatingSource = CommunityRatingSource.KinopoiskWithImdbFallback;
+
+            if (!Enum.IsDefined(CriticRatingSource))
+                CriticRatingSource = CriticRatingSource.RussianWithWorldFallback;
+
             MetadataCacheHours = Math.Clamp(MetadataCacheHours, 1, 8760);
             ImagesCacheHours = Math.Clamp(ImagesCacheHours, 1, 8760);
             SearchCacheMinutes = Math.Clamp(SearchCacheMinutes, 1, 10080);
