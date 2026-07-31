@@ -30,7 +30,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Assert.True(File.Exists(path));
                 Assert.Single(Directory.EnumerateFiles(
                     reportDirectory,
-                    "franchise-preview-????????-?????????.json"));
+                    "franchise-preview-????????-?????????????.json"));
                 Assert.Empty(Directory.EnumerateFiles(reportDirectory, "*.tmp-*"));
 
                 using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
