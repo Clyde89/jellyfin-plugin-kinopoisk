@@ -80,7 +80,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldIgnoreUnsupportedKinopoiskAndYandexSources()
+        public void ShouldIncludeSupportedKinopoiskYandexAndYoutubeSources()
         {
             var response = CreateResponse(
                 Video(
@@ -97,8 +97,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 response,
                 new KinopoiskTrailerSelectionOptions());
 
-            var trailer = Assert.Single(result);
-            Assert.Equal("https://www.youtube.com/watch?v=YOUTUBE001", trailer.Url);
+            Assert.Equal(3, result.Count);
+            Assert.Contains(result, item => item.Url.StartsWith("https://widgets.kinopoisk.ru/"));
+            Assert.Contains(result, item => item.Url.StartsWith("https://disk.yandex.ru/"));
+            Assert.Contains(result, item => item.Url == "https://www.youtube.com/watch?v=YOUTUBE001");
         }
 
         [Fact]
