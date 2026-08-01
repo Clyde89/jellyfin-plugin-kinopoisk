@@ -134,10 +134,11 @@
             });
 
         if (!$('#KinopoiskLocalStatusRefreshDescription').length) {
+            var providerStatusCard = $('#QuotaAccountType').closest('.kinopoiskStatusCard');
             $('<div id="KinopoiskLocalStatusRefreshDescription" class="fieldDescription">' +
                 'Локальные счётчики обновляются раз в 60 секунд только при открытой странице. ' +
                 'Это обновление не обращается к внешнему API и не расходует квоту КиноПоиска.' +
-                '</div>').insertBefore('#QuotaProviderStatus');
+                '</div>').insertAfter(providerStatusCard.children('h3').first());
         }
     }());
 </script>
