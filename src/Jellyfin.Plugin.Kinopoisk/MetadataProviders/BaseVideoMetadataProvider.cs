@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -46,89 +47,147 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             TLookupInfoType info,
             CancellationToken cancellationToken)
         {
-            var result = new MetadataResult<TItemType>
+            var correlationId = Guid.NewGuid().ToString("N");
+            using var diagnosticScope = _logger.BeginScope(new Dictionary<string, object>
             {
-                QueriedById = true,
-                Provider = Constants.ProviderName,
-                ResultLanguage = Constants.ProviderMetadataLanguage
-            };
+                ["KinopoiskCorrelationId"] = correlationId,
+                ["KinopoiskOperation"] = "GetMetadata",
+                ["KinopoiskItemType"] = typeof(TLookupInfoType).Name,
+                ["KinopoiskItemName"] = info?.Name ?? string.Empty,
+                ["KinopoiskYear"] = info?.Year?.ToString() ?? string.Empty
+            });
+            var stopwatch = Stopwatch.StartNew();
+            var outcome = "not_completed";
+            var resolvedKinopoiskId = 0;
 
-            if (!IsMetadataEnabled())
-                return result;
+            _logger.LogDebug(
+                "Начата обработка метаданных {ItemType} '{Name}', год {Year}, correlation ID {CorrelationId}",
+                typeof(TLookupInfoType).Name,
+                info?.Name,
+                info?.Year,
+                correlationId);
 
-            var hadStoredKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
-            var hadPathKinopoiskId = VideoLookupInfoHelper.TryGetKinopoiskIdFromPath(
-                info,
-                out var pathKinopoiskId);
-
-            var (resolveResult, kinopoiskId) = await _providerIdResolver
-                .TryResolve(info, cancellationToken)
-                .ConfigureAwait(false);
-            if (!resolveResult)
-                return result;
-
-            var film = await _apiClient
-                .GetSingleFilm(kinopoiskId, cancellationToken)
-                .ConfigureAwait(false);
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (!IsResolvedCardValid(film, kinopoiskId))
-                return result;
-
-            var usedPathKinopoiskId = hadPathKinopoiskId && pathKinopoiskId == kinopoiskId;
-            if (!hadStoredKinopoiskId
-                && !usedPathKinopoiskId
-                && !IsAutomaticMatchValid(info, film, kinopoiskId))
+            try
             {
+                var result = new MetadataResult<TItemType>
+                {
+                    QueriedById = true,
+                    Provider = Constants.ProviderName,
+                    ResultLanguage = Constants.ProviderMetadataLanguage
+                };
+
+                if (!IsMetadataEnabled())
+                {
+                    outcome = "disabled";
+                    return result;
+                }
+
+                var hadStoredKinopoiskId = info.TryGetProviderId(Constants.ProviderId, out _);
+                var hadPathKinopoiskId = VideoLookupInfoHelper.TryGetKinopoiskIdFromPath(
+                    info,
+                    out var pathKinopoiskId);
+
+                var (resolveResult, kinopoiskId) = await _providerIdResolver
+                    .TryResolve(info, cancellationToken)
+                    .ConfigureAwait(false);
+                resolvedKinopoiskId = kinopoiskId;
+                if (!resolveResult)
+                {
+                    outcome = "not_resolved";
+                    return result;
+                }
+
+                var film = await _apiClient
+                    .GetSingleFilm(kinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!IsResolvedCardValid(film, kinopoiskId))
+                {
+                    outcome = "invalid_card";
+                    return result;
+                }
+
+                var usedPathKinopoiskId = hadPathKinopoiskId && pathKinopoiskId == kinopoiskId;
+                if (!hadStoredKinopoiskId
+                    && !usedPathKinopoiskId
+                    && !IsAutomaticMatchValid(info, film, kinopoiskId))
+                {
+                    outcome = "automatic_match_rejected";
+                    return result;
+                }
+
+                info.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
+
+                if (hadStoredKinopoiskId)
+                {
+                    _logger.LogDebug(
+                        "Использован сохранённый Kinopoisk ID {KinopoiskId} для '{Name}'",
+                        kinopoiskId,
+                        info.Name);
+                }
+                else if (usedPathKinopoiskId)
+                {
+                    _logger.LogDebug(
+                        "Использован Kinopoisk ID {KinopoiskId} из пути для '{Name}'",
+                        kinopoiskId,
+                        info.Name);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Автоматически сопоставлен Kinopoisk ID {KinopoiskId} для '{Name}'",
+                        kinopoiskId,
+                        info.Name);
+                }
+
+                result.Item = ConvertResponseToItem(film);
+                if (result.Item is null)
+                {
+                    outcome = "conversion_failed";
+                    _logger.LogWarning(
+                        "Основные метаданные не преобразованы для Kinopoisk ID {KinopoiskId}",
+                        kinopoiskId);
+                    return result;
+                }
+
+                foreach (var providerId in info.ProviderIds)
+                    result.Item.ProviderIds.TryAdd(providerId.Key, providerId.Value);
+
+                result.Item.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
+                result.HasMetadata = true;
+
+                await AddPrecisePremiereDate(result, kinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
+                await AddStaff(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
+                await AddTrailers(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
+
+                outcome = "metadata_ready";
                 return result;
             }
-
-            info.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
-
-            if (hadStoredKinopoiskId)
+            catch (OperationCanceledException)
             {
+                outcome = "cancelled";
+                throw;
+            }
+            catch
+            {
+                outcome = "failed";
+                throw;
+            }
+            finally
+            {
+                stopwatch.Stop();
                 _logger.LogDebug(
-                    "Использован сохранённый Kinopoisk ID {KinopoiskId} для '{Name}'",
-                    kinopoiskId,
-                    info.Name);
+                    "Завершена обработка метаданных {ItemType} '{Name}': результат {Outcome}, Kinopoisk ID {KinopoiskId}, длительность {DurationMs} мс, correlation ID {CorrelationId}",
+                    typeof(TLookupInfoType).Name,
+                    info?.Name,
+                    outcome,
+                    resolvedKinopoiskId,
+                    stopwatch.ElapsedMilliseconds,
+                    correlationId);
             }
-            else if (usedPathKinopoiskId)
-            {
-                _logger.LogDebug(
-                    "Использован Kinopoisk ID {KinopoiskId} из пути для '{Name}'",
-                    kinopoiskId,
-                    info.Name);
-            }
-            else
-            {
-                _logger.LogInformation(
-                    "Автоматически сопоставлен Kinopoisk ID {KinopoiskId} для '{Name}'",
-                    kinopoiskId,
-                    info.Name);
-            }
-
-            result.Item = ConvertResponseToItem(film);
-            if (result.Item is null)
-            {
-                _logger.LogWarning(
-                    "Основные метаданные не преобразованы для Kinopoisk ID {KinopoiskId}",
-                    kinopoiskId);
-                return result;
-            }
-
-            foreach (var providerId in info.ProviderIds)
-                result.Item.ProviderIds.TryAdd(providerId.Key, providerId.Value);
-
-            result.Item.SetProviderId(Constants.ProviderId, Convert.ToString(kinopoiskId));
-            result.HasMetadata = true;
-
-            await AddPrecisePremiereDate(result, kinopoiskId, cancellationToken)
-                .ConfigureAwait(false);
-            await AddStaff(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
-            await AddTrailers(result, kinopoiskId, cancellationToken).ConfigureAwait(false);
-
-            return result;
         }
 
         public Task<IEnumerable<RemoteSearchResult>> GetSearchResults(
@@ -137,6 +196,15 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         {
             if (!IsMetadataEnabled())
                 return Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
+
+            using var diagnosticScope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["KinopoiskCorrelationId"] = Guid.NewGuid().ToString("N"),
+                ["KinopoiskOperation"] = "GetSearchResults",
+                ["KinopoiskItemType"] = typeof(TLookupInfoType).Name,
+                ["KinopoiskItemName"] = searchInfo?.Name ?? string.Empty,
+                ["KinopoiskYear"] = searchInfo?.Year?.ToString() ?? string.Empty
+            });
 
             return VideoRemoteSearchService.Search(
                 _apiClient,
@@ -331,8 +399,17 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
                 var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos())
                     .ConfigureAwait(false);
+                var addedCount = 0;
                 foreach (var item in sanitizedPersons)
+                {
                     result.AddPerson(item);
+                    addedCount++;
+                }
+
+                _logger.LogDebug(
+                    "Для Kinopoisk ID {KinopoiskId} добавлено участников: {PersonCount}",
+                    kinopoiskId,
+                    addedCount);
             }
             catch (OperationCanceledException)
             {
@@ -376,13 +453,12 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     });
 
                 if (remoteTrailers.Count > 0)
-                {
                     result.Item.RemoteTrailers = remoteTrailers;
-                    _logger.LogDebug(
-                        "Для Kinopoisk ID {KinopoiskId} отобрано {TrailerCount} поддерживаемых трейлеров",
-                        kinopoiskId,
-                        remoteTrailers.Count);
-                }
+
+                _logger.LogDebug(
+                    "Для Kinopoisk ID {KinopoiskId} отобрано поддерживаемых трейлеров: {TrailerCount}",
+                    kinopoiskId,
+                    remoteTrailers.Count);
             }
             catch (OperationCanceledException)
             {
