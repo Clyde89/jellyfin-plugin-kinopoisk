@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
@@ -287,30 +286,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         }
 
         private static int GetTotalPages(ImageResponse response)
-        {
-            if (response is null)
-                return 1;
-
-            var property = response.GetType().GetProperty(
-                "TotalPages",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
-            if (property?.GetValue(response) is int totalPages && totalPages > 0)
-                return totalPages;
-
-            if (response.AdditionalProperties is not null
-                && response.AdditionalProperties.TryGetValue("totalPages", out var value)
-                && int.TryParse(
-                    Convert.ToString(value, CultureInfo.InvariantCulture),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out totalPages)
-                && totalPages > 0)
-            {
-                return totalPages;
-            }
-
-            return 1;
-        }
+            => response?.TotalPages > 0 ? response.TotalPages : 1;
 
         private static bool IsHttpUrl(string value)
         {
