@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
+using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
@@ -18,7 +19,8 @@ namespace Jellyfin.Plugin.Kinopoisk
 
         public override Guid Id => Guid.Parse("33e6d249-648f-44cd-a9ce-497be06c08df");
 
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer) : base(applicationPaths, xmlSerializer)
+        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+            : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             Configuration.Normalize();
@@ -29,8 +31,19 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (configuration is not PluginConfiguration pluginConfiguration)
                 throw new ArgumentException("Получен неподдерживаемый тип конфигурации.", nameof(configuration));
 
+            var previousSessionId = Configuration?.DiagnosticSessionId;
             pluginConfiguration.Normalize();
+            var newDiagnosticSession = pluginConfiguration.EnableDiagnosticMode
+                && !string.IsNullOrWhiteSpace(pluginConfiguration.DiagnosticSessionId)
+                && !string.Equals(
+                    previousSessionId,
+                    pluginConfiguration.DiagnosticSessionId,
+                    StringComparison.Ordinal);
+
             base.UpdateConfiguration(pluginConfiguration);
+
+            if (newDiagnosticSession)
+                KinopoiskDiagnostics.Shared.ResetRuntimeCounters();
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
@@ -39,8 +52,13 @@ namespace Jellyfin.Plugin.Kinopoisk
             {
                 new PluginPageInfo
                 {
-                    Name = this.Name,
-                    EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace)
+                    Name = Name,
+                    EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
+                },
+                new PluginPageInfo
+                {
+                    Name = "КиноПоиск — диагностика",
+                    EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.diagnosticsPage.html"
                 }
             };
         }
