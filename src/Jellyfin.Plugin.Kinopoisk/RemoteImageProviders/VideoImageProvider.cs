@@ -124,10 +124,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToArray();
-
-            var verifiedCandidates = await FilterEmptyImages(allCandidates)
-                .ConfigureAwait(false);
-            var result = LimitByType(verifiedCandidates).ToArray();
+            var result = LimitByType(allCandidates).ToArray();
 
             _logger.LogDebug(
                 "Для объекта КиноПоиска {KinopoiskId} подготовлено {ImageCount} удалённых изображений",
