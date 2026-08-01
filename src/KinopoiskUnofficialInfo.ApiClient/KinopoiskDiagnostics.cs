@@ -3,9 +3,6 @@ using System.Threading;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    /// <summary>
-    /// Собирает обезличенную статистику запросов, кэша и квоты.
-    /// </summary>
     public sealed class KinopoiskDiagnostics
     {
         private readonly object _quotaSync = new();
@@ -28,9 +25,6 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private long _totalQuotaValue;
         private long _totalQuotaUsed;
 
-        /// <summary>
-        /// Получает общий экземпляр диагностики текущего процесса Jellyfin.
-        /// </summary>
         public static KinopoiskDiagnostics Shared { get; } = new();
 
         public void RecordApiRequest() => Interlocked.Increment(ref _apiRequests);
@@ -45,30 +39,35 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public void RecordPersistentCacheWrite() => Interlocked.Increment(ref _persistentCacheWrites);
 
-        /// <summary>
-        /// Регистрирует попадание в бинарный кэш изображений.
-        /// </summary>
         public void RecordImageCacheHit() => Interlocked.Increment(ref _imageCacheHits);
 
-        /// <summary>
-        /// Регистрирует отсутствие изображения в локальном кэше.
-        /// </summary>
         public void RecordImageCacheMiss() => Interlocked.Increment(ref _imageCacheMisses);
 
-        /// <summary>
-        /// Регистрирует резервное использование устаревшего изображения.
-        /// </summary>
         public void RecordImageCacheStaleHit() => Interlocked.Increment(ref _imageCacheStaleHits);
 
-        /// <summary>
-        /// Регистрирует успешную запись бинарного изображения.
-        /// </summary>
-        /// <param name="bytes">Количество сохранённых байтов.</param>
         public void RecordImageCacheWrite(long bytes)
         {
             Interlocked.Increment(ref _imageCacheWrites);
             if (bytes > 0)
                 Interlocked.Add(ref _imageCacheBytesWritten, bytes);
+        }
+
+        public void ResetRuntimeCounters()
+        {
+            Interlocked.Exchange(ref _apiRequests, 0);
+            Interlocked.Exchange(ref _apiFailures, 0);
+            Interlocked.Exchange(ref _memoryCacheHits, 0);
+            Interlocked.Exchange(ref _persistentCacheHits, 0);
+            Interlocked.Exchange(ref _staleCacheHits, 0);
+            Interlocked.Exchange(ref _persistentCacheWrites, 0);
+            Interlocked.Exchange(ref _imageCacheHits, 0);
+            Interlocked.Exchange(ref _imageCacheMisses, 0);
+            Interlocked.Exchange(ref _imageCacheStaleHits, 0);
+            Interlocked.Exchange(ref _imageCacheWrites, 0);
+            Interlocked.Exchange(ref _imageCacheBytesWritten, 0);
+
+            lock (_quotaSync)
+                _lastQuotaFailureUtc = null;
         }
 
         public void UpdateQuota(KinopoiskApiQuota quota)
@@ -121,28 +120,42 @@ namespace KinopoiskUnofficialInfo.ApiClient
         }
     }
 
-    /// <summary>
-    /// Содержит неизменяемый снимок диагностики плагина.
-    /// </summary>
     public sealed class KinopoiskDiagnosticsSnapshot
     {
         public long ApiRequests { get; set; }
+
         public long ApiFailures { get; set; }
+
         public long MemoryCacheHits { get; set; }
+
         public long PersistentCacheHits { get; set; }
+
         public long StaleCacheHits { get; set; }
+
         public long PersistentCacheWrites { get; set; }
+
         public long ImageCacheHits { get; set; }
+
         public long ImageCacheMisses { get; set; }
+
         public long ImageCacheStaleHits { get; set; }
+
         public long ImageCacheWrites { get; set; }
+
         public long ImageCacheBytesWritten { get; set; }
+
         public DateTimeOffset? LastQuotaCheckUtc { get; set; }
+
         public DateTimeOffset? LastQuotaFailureUtc { get; set; }
+
         public string AccountType { get; set; } = string.Empty;
+
         public long DailyQuotaValue { get; set; }
+
         public long DailyQuotaUsed { get; set; }
+
         public long TotalQuotaValue { get; set; }
+
         public long TotalQuotaUsed { get; set; }
     }
 }
