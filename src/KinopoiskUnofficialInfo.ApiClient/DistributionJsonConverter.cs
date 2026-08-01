@@ -36,13 +36,13 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public override bool CanWrite => false;
 
-        public override bool CanConvert(Type objectType)
+        public override bool CanConvert(System.Type objectType)
             => objectType == typeof(Distribution);
 
-        public override object ReadJson(
+        public override object? ReadJson(
             JsonReader reader,
-            Type objectType,
-            object existingValue,
+            System.Type objectType,
+            object? existingValue,
             JsonSerializer serializer)
         {
             if (reader.TokenType == JsonToken.Null)
@@ -68,8 +68,8 @@ namespace KinopoiskUnofficialInfo.ApiClient
             }
             else
             {
-                // Значение используется только как безопасный заполнитель. Логика выбора даты
-                // обязана учитывать HasSubType и не трактовать заполнитель как реальный подтип.
+                // Значение использовано только как безопасный заполнитель. Логика выбора даты
+                // учитывает HasSubType и не трактует заполнитель как реальный подтип.
                 result.SubType = DistributionSubType.DIGITAL;
                 result.HasSubType = false;
             }
@@ -86,14 +86,14 @@ namespace KinopoiskUnofficialInfo.ApiClient
             return result;
         }
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
             => throw new NotSupportedException("Запись прокатных данных этим преобразователем не поддерживается.");
 
-        private static TEnum ParseEnum<TEnum>(JToken token, TEnum fallback)
+        private static TEnum ParseEnum<TEnum>(JToken? token, TEnum fallback)
             where TEnum : struct, Enum
             => TryParseEnum(token, out TEnum value) ? value : fallback;
 
-        private static bool TryParseEnum<TEnum>(JToken token, out TEnum value)
+        private static bool TryParseEnum<TEnum>(JToken? token, out TEnum value)
             where TEnum : struct, Enum
         {
             value = default;
