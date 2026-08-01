@@ -35,13 +35,13 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public override bool CanWrite => false;
 
-        public override bool CanConvert(Type objectType)
+        public override bool CanConvert(System.Type objectType)
             => objectType == typeof(StaffResponse);
 
-        public override object ReadJson(
+        public override object? ReadJson(
             JsonReader reader,
-            Type objectType,
-            object existingValue,
+            System.Type objectType,
+            object? existingValue,
             JsonSerializer serializer)
         {
             if (reader.TokenType == JsonToken.Null)
@@ -74,10 +74,10 @@ namespace KinopoiskUnofficialInfo.ApiClient
             return result;
         }
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
             => throw new NotSupportedException("Запись сведений об участнике этим преобразователем не поддерживается.");
 
-        private static StaffResponseProfessionKey ParseProfession(JToken token)
+        private static StaffResponseProfessionKey ParseProfession(JToken? token)
         {
             var text = token?.Value<string>();
             return !string.IsNullOrWhiteSpace(text)
