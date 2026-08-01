@@ -19,8 +19,7 @@ namespace Jellyfin.Plugin.Kinopoisk
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddSingleton<KinopoiskDiagnosticLoggerProvider>();
-            serviceCollection.AddSingleton<ILoggerProvider>(sp =>
-                sp.GetRequiredService<KinopoiskDiagnosticLoggerProvider>());
+            serviceCollection.AddHostedService<KinopoiskDiagnosticLoggerActivationService>();
             serviceCollection.Configure<LoggerFilterOptions>(options =>
             {
                 var providerName = typeof(KinopoiskDiagnosticLoggerProvider).FullName;
