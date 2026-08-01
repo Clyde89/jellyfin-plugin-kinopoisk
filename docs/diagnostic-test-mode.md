@@ -27,9 +27,12 @@
 - Размер текущего JSONL ограничен; при достижении предела выполнена ротация.
 - Количество сохраняемых файлов ограничено параметром удержания.
 - Write-режим франшиз не включается диагностической сессией.
-- Preview и Apply не запускаются автоматически.
+- Preview не запускается автоматически.
+- Apply-задача не создаётся и не запускается диагностическим режимом.
 
 ## Безопасность
+
+API-токен и заголовки авторизации не записаны в диагностический JSONL.
 
 Перед записью выполнены:
 
@@ -59,13 +62,13 @@
 Файл создаётся в каталоге данных плагина:
 
 ```text
-<Plugin.DataFolderPath>/diagnostics/kinopoisk-diagnostic-<SessionId>.jsonl
+<Plugin.DataFolderPath>/diagnostics/kinopoisk-diagnostic-<session-id>.jsonl
 ```
 
 Для стандартной Docker-конфигурации Jellyfin путь внутри контейнера имеет вид:
 
 ```text
-/config/plugins/Jellyfin.Plugin.Kinopoisk/diagnostics/kinopoisk-diagnostic-<SessionId>.jsonl
+/config/plugins/Jellyfin.Plugin.Kinopoisk/diagnostics/kinopoisk-diagnostic-<session-id>.jsonl
 ```
 
 ## Порядок runtime-проверки
