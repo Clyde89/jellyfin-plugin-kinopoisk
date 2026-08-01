@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldUseEnumNamesForRatingSourceOptions()
         {
-            var page = ReadConfigurationPage();
+            var page = ReadEmbeddedPage("Configuration.configPage.html");
 
             Assert.Contains("value=\"KinopoiskWithImdbFallback\"", page);
             Assert.Contains("value=\"KinopoiskOnly\"", page);
@@ -27,19 +27,35 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldContainAccessibleExternalLinkAndUnlimitedQuotaText()
         {
-            var page = ReadConfigurationPage();
+            var page = ReadEmbeddedPage("Configuration.configPage.html");
 
             Assert.Contains("class=\"kinopoiskExternalLink\"", page);
             Assert.Contains("focus-visible", page);
             Assert.Contains("общий предел не задан", page);
         }
 
-        private static string ReadConfigurationPage()
+        [Fact]
+        public void ShouldContainBoundedDiagnosticSessionControls()
+        {
+            var page = ReadEmbeddedPage("Configuration.diagnosticsPage.html");
+
+            Assert.Contains("EnableDiagnosticMode", page);
+            Assert.Contains("DiagnosticLogLevel", page);
+            Assert.Contains("DiagnosticSessionHours", page);
+            Assert.Contains("DiagnosticMaximumFileMegabytes", page);
+            Assert.Contains("DiagnosticRetentionFiles", page);
+            Assert.Contains("StartDiagnosticSession", page);
+            Assert.Contains("StopDiagnosticSession", page);
+            Assert.Contains("API-токен и заголовки авторизации не сохраняются", page);
+            Assert.Contains("kinopoisk-diagnostic-", page);
+        }
+
+        private static string ReadEmbeddedPage(string suffix)
         {
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
             var resourceName = assembly
                 .GetManifestResourceNames()
-                .Single(name => name.EndsWith("Configuration.configPage.html"));
+                .Single(name => name.EndsWith(suffix));
 
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
