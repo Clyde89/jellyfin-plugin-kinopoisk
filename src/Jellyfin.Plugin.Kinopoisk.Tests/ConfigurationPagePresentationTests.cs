@@ -59,6 +59,20 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldRefreshLocalProviderStatusEverySixtySecondsOnlyWhileVisible()
+        {
+            var page = ReadConfigurationPage();
+
+            Assert.Contains("refreshIntervalMilliseconds = 60000", page);
+            Assert.Contains("document.visibilityState !== 'hidden'", page);
+            Assert.Contains("pagehide.kinopoiskRuntimeStatus", page);
+            Assert.Contains("visibilitychange", page);
+            Assert.Contains("ApiClient.getPluginConfiguration(pluginUniqueId)", page);
+            Assert.Contains("не расходует квоту КиноПоиска", page);
+            Assert.DoesNotContain("GetApiQuota", page);
+        }
+
+        [Fact]
         public void ShouldEmbedOnlyOneConfigurationPage()
         {
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
