@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
@@ -138,12 +139,8 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     null);
             }
 
-            var payload = JsonConvert.DeserializeObject<RelationsWireResponse>(
-                    json,
-                    SerializerSettings)
-                ?? new RelationsWireResponse();
-
-            var result = payload.Items
+            var sourceItems = DeserializeRelationItems(json);
+            var result = sourceItems
                 .Select(MapRelation)
                 .Where(item => item is not null)
                 .ToArray();
@@ -151,10 +148,31 @@ namespace KinopoiskUnofficialInfo.ApiClient
             _logger.LogDebug(
                 "Для Kinopoisk ID {KinopoiskId} получено связей: {ReceivedCount}, поддержано франшизных связей: {SelectedCount}",
                 filmId,
-                payload.Items.Count,
+                sourceItems.Count,
                 result.Length);
 
             return result;
+        }
+
+        private static ICollection<RelationWireItem> DeserializeRelationItems(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return Array.Empty<RelationWireItem>();
+
+            var serializer = JsonSerializer.Create(SerializerSettings);
+            var token = JToken.Parse(json);
+
+            if (token.Type == JTokenType.Array)
+            {
+                return token.ToObject<ICollection<RelationWireItem>>(serializer)
+                    ?? Array.Empty<RelationWireItem>();
+            }
+
+            if (token.Type != JTokenType.Object)
+                return Array.Empty<RelationWireItem>();
+
+            return token.ToObject<RelationsWireResponse>(serializer)?.Items
+                ?? Array.Empty<RelationWireItem>();
         }
 
         private static FilmSequelsAndPrequelsResponse MapRelation(RelationWireItem source)
