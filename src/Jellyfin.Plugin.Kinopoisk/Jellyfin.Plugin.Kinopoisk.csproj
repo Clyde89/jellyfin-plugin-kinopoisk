@@ -14,12 +14,31 @@
     <RepositoryUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</PackageProjectUrl>
+    <GeneratedConfigPage>$(IntermediateOutputPath)configPage.runtime.html</GeneratedConfigPage>
   </PropertyGroup>
 
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
-    <EmbeddedResource Include="Configuration\configPage.html" />
+    <None Remove="Configuration\runtimeStatusRefresh.html" />
   </ItemGroup>
+
+  <Target Name="GenerateRuntimeConfigPage" BeforeTargets="PrepareResources">
+    <Copy
+      SourceFiles="Configuration\configPage.html"
+      DestinationFiles="$(GeneratedConfigPage)" />
+    <ReadLinesFromFile File="Configuration\runtimeStatusRefresh.html">
+      <Output TaskParameter="Lines" ItemName="RuntimeStatusRefreshLines" />
+    </ReadLinesFromFile>
+    <WriteLinesToFile
+      File="$(GeneratedConfigPage)"
+      Lines="@(RuntimeStatusRefreshLines)"
+      Overwrite="false" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(GeneratedConfigPage)">
+        <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.Data" Version="10.11.11" />
