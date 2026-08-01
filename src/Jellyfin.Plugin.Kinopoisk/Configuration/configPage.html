@@ -3,6 +3,26 @@
 <head>
     <meta charset="utf-8">
     <title>КиноПоиск</title>
+    <style>
+        #KinopoiskConfigPage .kinopoiskExternalLink {
+            color: inherit;
+            background: rgba(0, 164, 220, 0.22);
+            border-radius: 0.25em;
+            font-weight: 700;
+            padding: 0.05em 0.3em;
+            text-decoration: underline;
+            text-decoration-color: #35c8ff;
+            text-decoration-thickness: 0.12em;
+            text-underline-offset: 0.14em;
+        }
+
+        #KinopoiskConfigPage .kinopoiskExternalLink:hover,
+        #KinopoiskConfigPage .kinopoiskExternalLink:focus-visible {
+            background: rgba(0, 164, 220, 0.42);
+            outline: 2px solid #35c8ff;
+            outline-offset: 2px;
+        }
+    </style>
 </head>
 <body>
     <div id="KinopoiskConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
@@ -15,7 +35,7 @@
                         <input id="ApiToken" name="ApiToken" type="password" autocomplete="new-password" is="emby-input" />
                         <div class="fieldDescription">
                             Токен выдаётся после регистрации на
-                            <a href="https://kinopoiskapiunofficial.tech" target="_blank" rel="noopener noreferrer">kinopoiskapiunofficial.tech</a>.
+                            <a class="kinopoiskExternalLink" href="https://kinopoiskapiunofficial.tech" target="_blank" rel="noopener noreferrer">kinopoiskapiunofficial.tech</a>.
                             Токен хранится в конфигурации Jellyfin и не выводится в журнал.
                         </div>
                     </div>
@@ -95,7 +115,7 @@
                             <option value="0">Критики России, затем мировые</option>
                             <option value="1">Только критики России</option>
                             <option value="2">Мировые критики, затем России</option>
-                            <option value="3">Только мировые критики</option>
+                            <option value="3">Только мировые</option>
                             <option value="4">Не заполнять</option>
                         </select>
                         <div class="fieldDescription">Рейтинг КиноПоиска преобразуется из десятибалльной шкалы в процентную шкалу CriticRating Jellyfin.</div>
@@ -233,7 +253,16 @@
             }
 
             function formatQuota(used, value) {
-                return value ? String(used || 0) + ' из ' + String(value) : 'ещё не проверялась';
+                var usedValue = Number(used || 0);
+                var limitValue = Number(value);
+
+                if (limitValue === -1) {
+                    return String(usedValue) + '; общий предел не задан';
+                }
+
+                return Number.isFinite(limitValue) && limitValue > 0
+                    ? String(usedValue) + ' из ' + String(limitValue)
+                    : 'ещё не проверялась';
             }
 
             function formatDate(value) {
