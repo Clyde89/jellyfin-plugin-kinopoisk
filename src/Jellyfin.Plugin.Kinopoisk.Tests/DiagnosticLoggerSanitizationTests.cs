@@ -46,7 +46,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
         private static string Sanitize(string value)
         {
-            var method = typeof(KinopoiskDiagnosticLoggerProvider).GetMethod(
+            var method = typeof(KinopoiskDiagnosticFileSink).GetMethod(
                 "Sanitize",
                 BindingFlags.NonPublic | BindingFlags.Static);
 
