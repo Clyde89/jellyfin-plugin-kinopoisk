@@ -14,7 +14,7 @@
     <RepositoryUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</PackageProjectUrl>
-    <GeneratedConfigPage>$(IntermediateOutputPath)configPage.runtime.html</GeneratedConfigPage>
+    <GeneratedConfigPage>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/configPage.runtime.html</GeneratedConfigPage>
   </PropertyGroup>
 
   <ItemGroup>
