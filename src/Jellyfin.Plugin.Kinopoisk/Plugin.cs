@@ -53,18 +53,10 @@ namespace Jellyfin.Plugin.Kinopoisk
                 new PluginPageInfo
                 {
                     Name = Name,
-                    DisplayName = "КиноПоиск — параметры",
+                    DisplayName = "КиноПоиск",
                     EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                     EnableInMainMenu = true,
                     MenuIcon = "settings"
-                },
-                new PluginPageInfo
-                {
-                    Name = "КиноПоиск — диагностика",
-                    DisplayName = "КиноПоиск — диагностика (Debug)",
-                    EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.diagnosticsPage.html",
-                    EnableInMainMenu = true,
-                    MenuIcon = "bug_report"
                 }
             };
         }
