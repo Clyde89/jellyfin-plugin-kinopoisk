@@ -22,7 +22,7 @@
     <None Remove="Configuration\runtimeStatusRefresh.html" />
   </ItemGroup>
 
-  <Target Name="GenerateRuntimeConfigPage" BeforeTargets="PrepareResources">
+  <Target Name="GenerateRuntimeConfigPage" BeforeTargets="PrepareResourceNames">
     <Copy
       SourceFiles="Configuration\configPage.html"
       DestinationFiles="$(GeneratedConfigPage)" />
