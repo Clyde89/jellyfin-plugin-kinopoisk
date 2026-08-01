@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldUseEnumNamesForRatingSourceOptions()
         {
-            var page = ReadEmbeddedPage("Configuration.configPage.html");
+            var page = ReadConfigurationPage();
 
             Assert.Contains("value=\"KinopoiskWithImdbFallback\"", page);
             Assert.Contains("value=\"KinopoiskOnly\"", page);
@@ -27,7 +27,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldContainAccessibleExternalLinkAndUnlimitedQuotaText()
         {
-            var page = ReadEmbeddedPage("Configuration.configPage.html");
+            var page = ReadConfigurationPage();
 
             Assert.Contains("class=\"kinopoiskExternalLink\"", page);
             Assert.Contains("focus-visible", page);
@@ -35,10 +35,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldContainBoundedDiagnosticSessionControls()
+        public void ShouldContainSettingsAndDiagnosticsOnSinglePage()
         {
-            var page = ReadEmbeddedPage("Configuration.diagnosticsPage.html");
+            var page = ReadConfigurationPage();
 
+            Assert.Contains("KinopoiskSettingsTab", page);
+            Assert.Contains("KinopoiskDiagnosticsTab", page);
+            Assert.Contains("KinopoiskSettingsPanel", page);
+            Assert.Contains("KinopoiskDiagnosticsPanel", page);
             Assert.Contains("EnableDiagnosticMode", page);
             Assert.Contains("DiagnosticLogLevel", page);
             Assert.Contains("DiagnosticSessionHours", page);
@@ -48,14 +52,31 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("StopDiagnosticSession", page);
             Assert.Contains("API-токен и заголовки авторизации не сохраняются", page);
             Assert.Contains("kinopoisk-diagnostic-", page);
+            Assert.Contains("id=\"ApiToken\"", page);
+            Assert.Contains("id=\"EnableMovieMetadata\"", page);
+            Assert.Contains("id=\"EnablePersistentCache\"", page);
+            Assert.Contains("id=\"EnableImageBinaryCache\"", page);
         }
 
-        private static string ReadEmbeddedPage(string suffix)
+        [Fact]
+        public void ShouldEmbedOnlyOneConfigurationPage()
+        {
+            var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+            var pages = assembly
+                .GetManifestResourceNames()
+                .Where(name => name.EndsWith("Page.html"))
+                .ToArray();
+
+            Assert.Single(pages);
+            Assert.EndsWith("Configuration.configPage.html", pages[0]);
+        }
+
+        private static string ReadConfigurationPage()
         {
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
             var resourceName = assembly
                 .GetManifestResourceNames()
-                .Single(name => name.EndsWith(suffix));
+                .Single(name => name.EndsWith("Configuration.configPage.html"));
 
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
