@@ -62,20 +62,19 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
 
-            var reportsPath = Path.Combine(Plugin.Instance.DataFolderPath, "reports");
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
             serviceCollection.AddSingleton<KinopoiskFranchiseLibraryScanner>();
             serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseReportWriter(
-                reportsPath,
+                GetReportsPath(),
                 sp.GetRequiredService<ILogger<KinopoiskFranchiseReportWriter>>()
             ));
             serviceCollection.AddSingleton(_ => new KinopoiskFranchisePreviewReportReader(
-                reportsPath));
+                GetReportsPath()));
             serviceCollection.AddSingleton<IKinopoiskManagedCollectionGateway, KinopoiskManagedCollectionGateway>();
             serviceCollection.AddSingleton<KinopoiskFranchiseApplyService>();
             serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseApplyReportWriter(
-                reportsPath,
+                GetReportsPath(),
                 sp.GetRequiredService<ILogger<KinopoiskFranchiseApplyReportWriter>>()
             ));
 
@@ -91,6 +90,13 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<PersonLookupInfo>, CommonResolver<PersonLookupInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<BaseItem>, CommonResolver<BaseItem>>();
+        }
+
+        private static string GetReportsPath()
+        {
+            var plugin = Plugin.Instance
+                ?? throw new InvalidOperationException("Экземпляр плагина КиноПоиск ещё не создан.");
+            return Path.Combine(plugin.DataFolderPath, "reports");
         }
 
         private static KinopoiskCacheOptions CreateCacheOptions()
