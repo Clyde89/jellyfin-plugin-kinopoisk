@@ -4,6 +4,7 @@ using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
@@ -25,6 +26,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         {
         }
 
+        [ActivatorUtilitiesConstructor]
         public SeriesMetadataProvider(
             IKinopoiskApiClient kinopoiskApiClient,
             IKinopoiskDistributionApiClient distributionApiClient,
