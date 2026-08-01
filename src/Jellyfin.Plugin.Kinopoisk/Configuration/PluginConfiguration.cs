@@ -99,8 +99,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
 
         public bool EnableDiagnosticMode { get; set; }
 
-        public DiagnosticLogLevel DiagnosticLogLevel { get; set; }
-            = DiagnosticLogLevel.Detailed;
+        public KinopoiskDiagnosticLevel DiagnosticLogLevel { get; set; }
+            = KinopoiskDiagnosticLevel.Detailed;
 
         public int DiagnosticSessionHours { get; set; } = 6;
 
@@ -132,7 +132,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
                 CriticRatingSource = CriticRatingSource.RussianWithWorldFallback;
 
             if (!Enum.IsDefined(DiagnosticLogLevel))
-                DiagnosticLogLevel = DiagnosticLogLevel.Detailed;
+                DiagnosticLogLevel = KinopoiskDiagnosticLevel.Detailed;
 
             MaximumTrailers = Math.Clamp(MaximumTrailers, 1, 20);
             MinimumFranchiseItems = Math.Clamp(MinimumFranchiseItems, 2, 1000);
