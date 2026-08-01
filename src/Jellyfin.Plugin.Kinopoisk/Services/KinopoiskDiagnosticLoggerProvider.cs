@@ -6,7 +6,6 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using System.Threading;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -20,7 +19,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             @"(?i)(x-api-key|api[_-]?token|authorization|token)\s*[:=]\s*[^\s,;]+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex UrlRegex = new(
-            @"https?://[^\s\]\)\}\""']+",
+            "https?://[^\\s\\]\\)\\}\\\"']+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -183,7 +182,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
             catch
             {
-                // Диагностическая запись не должна влиять на работу поставщика.
             }
         }
 
@@ -203,7 +201,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 }
                 catch
                 {
-                    // Ошибка ротации не должна прерывать тестовую сессию.
                 }
             }
         }
