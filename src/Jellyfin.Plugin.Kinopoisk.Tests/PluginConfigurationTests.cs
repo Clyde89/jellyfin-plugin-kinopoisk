@@ -59,7 +59,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 ApiToken = "  test-token  ",
                 CommunityRatingSource = (CommunityRatingSource)999,
                 CriticRatingSource = (CriticRatingSource)999,
-                DiagnosticLogLevel = (DiagnosticLogLevel)999,
+                DiagnosticLogLevel = (KinopoiskDiagnosticLevel)999,
                 MetadataCacheHours = 0,
                 ImagesCacheHours = 10000,
                 SearchCacheMinutes = 0,
