@@ -7,27 +7,19 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class PluginPageVisibilityTests
     {
         [Fact]
-        public void ShouldExposeConfigurationAndDiagnosticPagesInPluginMenu()
+        public void ShouldExposeSingleUnifiedPluginPage()
         {
             var plugin = (global::Jellyfin.Plugin.Kinopoisk.Plugin)
                 RuntimeHelpers.GetUninitializedObject(
                     typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin));
 
-            var pages = plugin.GetPages().ToArray();
+            var page = Assert.Single(plugin.GetPages());
 
-            var configuration = Assert.Single(
-                pages,
-                page => page.Name == "КиноПоиск");
-            Assert.True(configuration.EnableInMainMenu);
-            Assert.Equal("КиноПоиск — параметры", configuration.DisplayName);
-            Assert.Equal("settings", configuration.MenuIcon);
-
-            var diagnostics = Assert.Single(
-                pages,
-                page => page.Name == "КиноПоиск — диагностика");
-            Assert.True(diagnostics.EnableInMainMenu);
-            Assert.Equal("КиноПоиск — диагностика (Debug)", diagnostics.DisplayName);
-            Assert.Equal("bug_report", diagnostics.MenuIcon);
+            Assert.Equal("КиноПоиск", page.Name);
+            Assert.Equal("КиноПоиск", page.DisplayName);
+            Assert.True(page.EnableInMainMenu);
+            Assert.Equal("settings", page.MenuIcon);
+            Assert.EndsWith("Configuration.configPage.html", page.EmbeddedResourcePath);
         }
     }
 }
