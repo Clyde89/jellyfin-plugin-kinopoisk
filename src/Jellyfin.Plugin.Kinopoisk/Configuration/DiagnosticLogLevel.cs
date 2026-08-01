@@ -1,6 +1,6 @@
 namespace Jellyfin.Plugin.Kinopoisk.Configuration
 {
-    public enum DiagnosticLogLevel
+    public enum KinopoiskDiagnosticLevel
     {
         Basic = 0,
         Detailed = 1,
