@@ -18,23 +18,6 @@ namespace Jellyfin.Plugin.Kinopoisk
     {
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            serviceCollection.AddSingleton<KinopoiskDiagnosticLoggerProvider>();
-            serviceCollection.AddHostedService<KinopoiskDiagnosticLoggerActivationService>();
-            serviceCollection.Configure<LoggerFilterOptions>(options =>
-            {
-                var providerName = typeof(KinopoiskDiagnosticLoggerProvider).FullName;
-                options.Rules.Add(new LoggerFilterRule(
-                    providerName,
-                    "Jellyfin.Plugin.Kinopoisk",
-                    LogLevel.Trace,
-                    null));
-                options.Rules.Add(new LoggerFilterRule(
-                    providerName,
-                    "KinopoiskUnofficialInfo.ApiClient",
-                    LogLevel.Trace,
-                    null));
-            });
-
             serviceCollection.AddSingleton(KinopoiskDiagnostics.Shared);
             serviceCollection.AddSingleton((sp) => new KinopoiskApiClient(
                 Plugin.Instance.Configuration.ApiToken,
