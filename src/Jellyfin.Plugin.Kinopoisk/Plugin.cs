@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -24,6 +25,7 @@ namespace Jellyfin.Plugin.Kinopoisk
         {
             Instance = this;
             Configuration.Normalize();
+            KinopoiskDiagnostics.Shared.AttachDiagnosticSink(KinopoiskDiagnosticFileSink.Shared);
         }
 
         public override void UpdateConfiguration(BasePluginConfiguration configuration)
@@ -31,19 +33,33 @@ namespace Jellyfin.Plugin.Kinopoisk
             if (configuration is not PluginConfiguration pluginConfiguration)
                 throw new ArgumentException("Получен неподдерживаемый тип конфигурации.", nameof(configuration));
 
-            var previousSessionId = Configuration?.DiagnosticSessionId;
+            var previousConfiguration = Configuration;
+            var previousSessionId = previousConfiguration?.DiagnosticSessionId;
+            var previousSessionActive = previousConfiguration?.EnableDiagnosticMode == true
+                && previousConfiguration.DiagnosticSessionExpiresUtc.HasValue
+                && previousConfiguration.DiagnosticSessionExpiresUtc.Value > DateTimeOffset.UtcNow;
+
             pluginConfiguration.Normalize();
+
             var newDiagnosticSession = pluginConfiguration.EnableDiagnosticMode
                 && !string.IsNullOrWhiteSpace(pluginConfiguration.DiagnosticSessionId)
                 && !string.Equals(
                     previousSessionId,
                     pluginConfiguration.DiagnosticSessionId,
                     StringComparison.Ordinal);
+            var stoppedDiagnosticSession = previousSessionActive
+                && !pluginConfiguration.EnableDiagnosticMode;
+
+            if (stoppedDiagnosticSession)
+                KinopoiskDiagnostics.Shared.StopDiagnosticSession();
 
             base.UpdateConfiguration(pluginConfiguration);
 
             if (newDiagnosticSession)
+            {
                 KinopoiskDiagnostics.Shared.ResetRuntimeCounters();
+                KinopoiskDiagnostics.Shared.StartDiagnosticSession();
+            }
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
