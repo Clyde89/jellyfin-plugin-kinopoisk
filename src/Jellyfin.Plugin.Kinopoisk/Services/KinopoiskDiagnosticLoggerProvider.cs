@@ -15,8 +15,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     public sealed class KinopoiskDiagnosticLoggerProvider : ILoggerProvider, ISupportExternalScope
     {
         private static readonly object FileSync = new();
+        private static readonly Regex AuthorizationHeaderRegex = new(
+            @"(?i)\bauthorization\b\s*[:=]\s*[^\r\n,;]+",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex SecretRegex = new(
-            @"(?i)(x-api-key|api[_-]?token|authorization|token)\s*[:=]\s*[^\s,;]+",
+            @"(?i)\b(x-api-key|api[_-]?token|token)\b\s*[:=]\s*[^\s,;]+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex UrlRegex = new(
             "https?://[^\\s\\]\\)\\}\\\"']+",
@@ -235,7 +238,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             if (string.IsNullOrEmpty(value))
                 return string.Empty;
 
-            var sanitized = SecretRegex.Replace(value, "$1=***");
+            var sanitized = AuthorizationHeaderRegex.Replace(value, "authorization=***");
+            sanitized = SecretRegex.Replace(sanitized, "$1=***");
             sanitized = UrlRegex.Replace(sanitized, match =>
             {
                 if (!Uri.TryCreate(match.Value, UriKind.Absolute, out var uri))
