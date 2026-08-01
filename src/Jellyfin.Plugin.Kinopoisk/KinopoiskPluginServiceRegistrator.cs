@@ -14,13 +14,28 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk
 {
-    /// <summary>
-    /// Регистрирует сервисы плагина.
-    /// </summary>
     public class KinopoiskPluginServiceRegistrator : IPluginServiceRegistrator
     {
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
+            serviceCollection.AddSingleton<KinopoiskDiagnosticLoggerProvider>();
+            serviceCollection.AddSingleton<ILoggerProvider>(sp =>
+                sp.GetRequiredService<KinopoiskDiagnosticLoggerProvider>());
+            serviceCollection.Configure<LoggerFilterOptions>(options =>
+            {
+                var providerName = typeof(KinopoiskDiagnosticLoggerProvider).FullName;
+                options.Rules.Add(new LoggerFilterRule(
+                    providerName,
+                    "Jellyfin.Plugin.Kinopoisk",
+                    LogLevel.Trace,
+                    null));
+                options.Rules.Add(new LoggerFilterRule(
+                    providerName,
+                    "KinopoiskUnofficialInfo.ApiClient",
+                    LogLevel.Trace,
+                    null));
+            });
+
             serviceCollection.AddSingleton(KinopoiskDiagnostics.Shared);
             serviceCollection.AddSingleton((sp) => new KinopoiskApiClient(
                 Plugin.Instance.Configuration.ApiToken,
