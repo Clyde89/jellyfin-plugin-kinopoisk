@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -9,7 +10,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class DiagnosticLoggerActivationServiceTests
     {
         [Fact]
-        public async void ShouldAttachDiagnosticProviderToRuntimeLoggerFactoryOnce()
+        public async Task ShouldAttachDiagnosticProviderToRuntimeLoggerFactoryOnce()
         {
             var loggerFactory = new RecordingLoggerFactory();
             var provider = new KinopoiskDiagnosticLoggerProvider();
