@@ -3,6 +3,17 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <DebugType>portable</DebugType>
+    <Version>10.11.0.0</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <Authors>Clyde89; LinFor; skrashevich</Authors>
+    <Company>Clyde89; LinFor; skrashevich</Company>
+    <Product>КиноПоиск</Product>
+    <Description>Русскоязычный поставщик метаданных КиноПоиска для Jellyfin.</Description>
+    <RepositoryUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</PackageProjectUrl>
   </PropertyGroup>
 
   <ItemGroup>
