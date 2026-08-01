@@ -101,22 +101,22 @@
                     <div class="selectContainer">
                         <label class="selectLabel" for="CommunityRatingSource">Пользовательский рейтинг Jellyfin</label>
                         <select id="CommunityRatingSource" is="emby-select" class="emby-select-withcolor emby-select">
-                            <option value="0">КиноПоиск, затем IMDb</option>
-                            <option value="1">Только КиноПоиск</option>
-                            <option value="2">IMDb, затем КиноПоиск</option>
-                            <option value="3">Только IMDb</option>
-                            <option value="4">Не заполнять</option>
+                            <option value="KinopoiskWithImdbFallback">КиноПоиск, затем IMDb</option>
+                            <option value="KinopoiskOnly">Только КиноПоиск</option>
+                            <option value="ImdbWithKinopoiskFallback">IMDb, затем КиноПоиск</option>
+                            <option value="ImdbOnly">Только IMDb</option>
+                            <option value="Disabled">Не заполнять</option>
                         </select>
                         <div class="fieldDescription">Определяет источник стандартного поля CommunityRating. Рейтинги сохраняются по десятибалльной шкале Jellyfin.</div>
                     </div>
                     <div class="selectContainer">
                         <label class="selectLabel" for="CriticRatingSource">Рейтинг критиков Jellyfin</label>
                         <select id="CriticRatingSource" is="emby-select" class="emby-select-withcolor emby-select">
-                            <option value="0">Критики России, затем мировые</option>
-                            <option value="1">Только критики России</option>
-                            <option value="2">Мировые критики, затем России</option>
-                            <option value="3">Только мировые</option>
-                            <option value="4">Не заполнять</option>
+                            <option value="RussianWithWorldFallback">Критики России, затем мировые</option>
+                            <option value="RussianOnly">Только критики России</option>
+                            <option value="WorldWithRussianFallback">Мировые критики, затем России</option>
+                            <option value="WorldOnly">Только мировые критики</option>
+                            <option value="Disabled">Не заполнять</option>
                         </select>
                         <div class="fieldDescription">Рейтинг КиноПоиска преобразуется из десятибалльной шкалы в процентную шкалу CriticRating Jellyfin.</div>
                     </div>
@@ -313,8 +313,8 @@
                     setCheckbox('#IncludeTrailerTeasers', config.IncludeTrailerTeasers, true);
                     setCheckbox('#IncludeAdditionalTrailerVideos', config.IncludeAdditionalTrailerVideos, false);
                     setCheckbox('#PrefixTrailerNames', config.PrefixTrailerNames, true);
-                    setValue('#CommunityRatingSource', config.CommunityRatingSource, 0);
-                    setValue('#CriticRatingSource', config.CriticRatingSource, 0);
+                    setValue('#CommunityRatingSource', config.CommunityRatingSource, 'KinopoiskWithImdbFallback');
+                    setValue('#CriticRatingSource', config.CriticRatingSource, 'RussianWithWorldFallback');
                     setCheckbox('#EnablePrecisePremiereDate', config.EnablePrecisePremiereDate, true);
                     setCheckbox('#EnableRuntimeFallback', config.EnableRuntimeFallback, true);
                     setCheckbox('#EnableKinopoiskHomePage', config.EnableKinopoiskHomePage, true);
@@ -375,8 +375,8 @@
                     config.IncludeTrailerTeasers = $('#IncludeTrailerTeasers').prop('checked');
                     config.IncludeAdditionalTrailerVideos = $('#IncludeAdditionalTrailerVideos').prop('checked');
                     config.PrefixTrailerNames = $('#PrefixTrailerNames').prop('checked');
-                    config.CommunityRatingSource = readInteger('#CommunityRatingSource', 0);
-                    config.CriticRatingSource = readInteger('#CriticRatingSource', 0);
+                    config.CommunityRatingSource = $('#CommunityRatingSource').val();
+                    config.CriticRatingSource = $('#CriticRatingSource').val();
                     config.EnablePrecisePremiereDate = $('#EnablePrecisePremiereDate').prop('checked');
                     config.EnableRuntimeFallback = $('#EnableRuntimeFallback').prop('checked');
                     config.EnableKinopoiskHomePage = $('#EnableKinopoiskHomePage').prop('checked');
