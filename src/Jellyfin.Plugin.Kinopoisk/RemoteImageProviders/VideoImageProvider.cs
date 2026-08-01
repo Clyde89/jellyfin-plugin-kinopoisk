@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
@@ -52,6 +53,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         {
         }
 
+        [ActivatorUtilitiesConstructor]
         public VideoImageProvider(
             IKinopoiskApiClient kinopoiskApiClient,
             IProviderIdResolver<BaseItem> providerIdResolver,
