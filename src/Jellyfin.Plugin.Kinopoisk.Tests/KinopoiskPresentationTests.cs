@@ -135,8 +135,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     ReviewsCount = 0,
                     RatingGoodReview = 0,
                     RatingGoodReviewVoteCount = 0,
-                    RatingKinopoiskAwait = 0,
-                    RatingKinopoiskAwaitCount = 0,
                     RatingAwait = 0,
                     RatingAwaitCount = 0,
                     RatingMpaa = string.Empty,
@@ -148,7 +146,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     Completed = false,
                     HasImax = false,
                     Has3D = false,
-                    LastSync = DateTimeOffset.UtcNow,
+                    LastSync = "2026-07-10T17:23:24.956951",
                     Countries = Array.Empty<Country>(),
                     Genres = Array.Empty<Genre>()
                 });
