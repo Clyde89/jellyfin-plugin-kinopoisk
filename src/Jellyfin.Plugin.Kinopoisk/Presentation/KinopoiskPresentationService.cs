@@ -178,7 +178,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                     Type = item.Type.ToString(),
                     SubType = item.HasSubType ? item.SubType.ToString() : string.Empty,
                     Date = item.Date,
-                    Country = item.Country?.Country ?? string.Empty,
+                    Country = item.Country?.Country1 ?? string.Empty,
                     ReRelease = item.ReRelease,
                     Source = "КиноПоиск"
                 })
@@ -211,7 +211,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 {
                     var metadata = ProfessionLabels.TryGetValue(group.Key, out var value)
                         ? value
-                        : (900, NormalizeProfessionLabel(group.First().Item.ProfessionText));
+                        : (
+                            Order: 900,
+                            Label: NormalizeProfessionLabel(group.First().Item.ProfessionText));
                     var people = group
                         .GroupBy(item => item.Item.StaffId)
                         .Select(personGroup => personGroup.First().Item)
