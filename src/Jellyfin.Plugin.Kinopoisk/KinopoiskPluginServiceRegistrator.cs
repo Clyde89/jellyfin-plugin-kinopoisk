@@ -93,6 +93,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             ));
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
             serviceCollection.AddHostedService<KinopoiskWebTrailerIntegrationService>();
+            serviceCollection.AddHostedService<KinopoiskWebPresentationIntegrationService>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
