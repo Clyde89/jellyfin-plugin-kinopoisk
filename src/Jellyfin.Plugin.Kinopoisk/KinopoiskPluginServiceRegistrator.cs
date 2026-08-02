@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using Jellyfin.Plugin.Kinopoisk.Presentation;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
@@ -58,6 +59,15 @@ namespace Jellyfin.Plugin.Kinopoisk
             ));
             serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
+
+            serviceCollection.AddSingleton<KinopoiskPresentationService>();
+            serviceCollection.AddSingleton((sp) => new KinopoiskSupplementalApiClient(
+                Plugin.Instance.Configuration.ApiToken,
+                sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>()
+            ));
 
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
