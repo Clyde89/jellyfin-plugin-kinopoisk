@@ -202,7 +202,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                             SubType = DistributionSubType.DIGITAL,
                             Date = "2025-03-07",
                             ReRelease = false,
-                            Country = new Country { Country = "США" },
+                            Country = new Country { Country1 = "США" },
                             Companies = Array.Empty<Company>()
                         }
                     }
