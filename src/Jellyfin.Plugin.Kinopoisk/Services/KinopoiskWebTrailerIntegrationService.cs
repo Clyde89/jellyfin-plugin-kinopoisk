@@ -41,13 +41,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         public Task StartAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            KinopoiskWebTrailerIntegrationState.SetRegistered(false);
             RegisterScript();
             return Task.CompletedTask;
         }
 
         /// <inheritdoc />
         public Task StopAsync(CancellationToken cancellationToken)
-            => Task.CompletedTask;
+        {
+            KinopoiskWebTrailerIntegrationState.SetRegistered(false);
+            return Task.CompletedTask;
+        }
 
         private void RegisterScript()
         {
@@ -106,6 +110,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     return;
                 }
 
+                KinopoiskWebTrailerIntegrationState.SetRegistered(true);
                 RecordStatus(
                     LogLevel.Information,
                     "web-trailer.integration.registered",
@@ -148,6 +153,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
         private void RecordFailure(Exception exception)
         {
+            KinopoiskWebTrailerIntegrationState.SetRegistered(false);
             _logger.LogError(
                 exception,
                 "Регистрация веб-плеера трейлеров КиноПоиска завершилась ошибкой");
@@ -176,7 +182,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
             var fields = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["registered"] = (level == LogLevel.Information).ToString()
+                ["registered"] = KinopoiskWebTrailerIntegrationState.IsRegistered.ToString()
             };
             if (!string.IsNullOrWhiteSpace(reason))
                 fields["reason"] = reason;
