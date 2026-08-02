@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,7 +28,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("widgets.kinopoisk.ru", script);
             Assert.Contains("document.addEventListener('click', onTrailerClick, true)", script);
             Assert.Contains("event.stopImmediatePropagation()", script);
-            Assert.Contains("ApiClient.getItem", script);
+            Assert.Contains("apiClient.getItem", script);
             Assert.Contains("allowfullscreen", script);
             Assert.Contains("noopener,noreferrer", script);
             Assert.Contains("strict-origin-when-cross-origin", script);
