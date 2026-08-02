@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.Presentation;
 using KinopoiskUnofficialInfo.ApiClient;
 using Microsoft.Extensions.Logging.Abstractions;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace Jellyfin.Plugin.Kinopoisk.Tests
@@ -160,27 +161,28 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 if (_failOptionalEndpoints)
                     throw new InvalidOperationException("Тестовая ошибка участников.");
 
-                ICollection<StaffResponse> result = new[]
-                {
-                    new StaffResponse
-                    {
-                        StaffId = 1,
-                        NameRu = "Джессика Варлей",
-                        NameEn = "Jess Varley",
-                        PosterUrl = string.Empty,
-                        ProfessionText = "Режиссёр",
-                        ProfessionKey = StaffResponseProfessionKey.DIRECTOR
-                    },
-                    new StaffResponse
-                    {
-                        StaffId = 2,
-                        NameRu = "Дэйв Гарбетт",
-                        NameEn = "Dave Garbett",
-                        PosterUrl = string.Empty,
-                        ProfessionText = "Оператор",
-                        ProfessionKey = StaffResponseProfessionKey.OPERATOR
-                    }
-                };
+                const string json = """
+                    [
+                      {
+                        "staffId": 1,
+                        "nameRu": "Джессика Варлей",
+                        "nameEn": "Jess Varley",
+                        "posterUrl": "",
+                        "professionText": "Режиссёр",
+                        "professionKey": "DIRECTOR"
+                      },
+                      {
+                        "staffId": 2,
+                        "nameRu": "Дэйв Гарбетт",
+                        "nameEn": "Dave Garbett",
+                        "posterUrl": "",
+                        "professionText": "Оператор",
+                        "professionKey": "OPERATOR"
+                      }
+                    ]
+                    """;
+                var result = JsonConvert.DeserializeObject<ICollection<StaffResponse>>(json)
+                    ?? Array.Empty<StaffResponse>();
                 return Task.FromResult(result);
             }
 
