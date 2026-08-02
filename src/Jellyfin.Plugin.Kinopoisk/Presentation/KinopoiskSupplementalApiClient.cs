@@ -205,7 +205,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 .Where(item => !string.IsNullOrWhiteSpace(item.Text))
                 .Select(item => new KinopoiskFactInfo
                 {
-                    Text = item.Text.Trim(),
+                    Text = item.Text!.Trim(),
                     Type = item.Type ?? string.Empty,
                     Spoiler = item.Spoiler
                 })
@@ -252,7 +252,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                     Year = item.Year,
                     Win = item.Win,
                     ImageUrl = item.ImageUrl ?? string.Empty,
-                    Persons = item.Persons
+                    Persons = (item.Persons ?? Array.Empty<AwardPersonWireItem>())
                         .Select(person => new KinopoiskAwardPersonInfo
                         {
                             KinopoiskId = person.KinopoiskId,
@@ -346,7 +346,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             public string? ImageUrl { get; set; }
 
             [JsonProperty("persons")]
-            public ICollection<AwardPersonWireItem> Persons { get; set; }
+            public ICollection<AwardPersonWireItem>? Persons { get; set; }
                 = Array.Empty<AwardPersonWireItem>();
         }
 
