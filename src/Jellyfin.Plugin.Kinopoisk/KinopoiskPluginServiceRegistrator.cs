@@ -68,6 +68,16 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
                 sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>()
             ));
+            serviceCollection.AddSingleton((sp) => new PersistentJsonCache(
+                Path.Combine(
+                    Plugin.Instance.DataFolderPath,
+                    "cache",
+                    "presentation",
+                    "reviews"),
+                CreateCacheOptions().MaximumPersistentCacheBytes,
+                sp.GetRequiredService<ILogger<PersistentJsonCache>>()
+            ));
+            serviceCollection.AddSingleton<KinopoiskReviewCacheClient>();
             serviceCollection.AddSingleton((sp) => new KinopoiskSimilarApiClient(
                 Plugin.Instance.Configuration.ApiToken,
                 sp.GetRequiredService<IHttpClientFactory>(),
