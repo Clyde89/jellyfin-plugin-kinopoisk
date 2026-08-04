@@ -96,6 +96,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddHostedService<KinopoiskWebPresentationIntegrationService>();
             serviceCollection.AddHostedService<KinopoiskWebReviewsIntegrationService>();
             serviceCollection.AddHostedService<KinopoiskWebTagLocalizationService>();
+            serviceCollection.AddHostedService<KinopoiskWebElsewhereBridgeService>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
