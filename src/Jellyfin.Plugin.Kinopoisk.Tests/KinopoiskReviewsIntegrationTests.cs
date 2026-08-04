@@ -28,6 +28,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("Показать ещё ", script);
             Assert.Contains("Загрузить следующие рецензии", script);
             Assert.Contains("SpoilerStripReviews", script);
+            Assert.Contains("loadPage(section, state, 1)", script);
+            Assert.Contains("kpReviewRevision", script);
+            Assert.Contains("kp-carousel-navigation", script);
+            Assert.Contains("chevron_left", script);
+            Assert.Contains("chevron_right", script);
+            Assert.Contains("requestAnimationFrame", script);
             Assert.Contains("textContent", script);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(
@@ -52,6 +58,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains(
                 "AddHostedService<KinopoiskWebReviewsIntegrationService>()",
                 source);
+            Assert.Contains("KinopoiskReviewCacheClient", source);
+            Assert.Contains("cache", source);
+            Assert.Contains("presentation", source);
+            Assert.Contains("reviews", source);
         }
     }
 }
