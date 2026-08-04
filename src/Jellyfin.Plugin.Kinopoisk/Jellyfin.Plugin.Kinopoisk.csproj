@@ -33,6 +33,7 @@
     <None Remove="Web\kinopoiskRuntimePolish.js" />
     <None Remove="Web\kinopoiskCarouselRebind.js" />
     <None Remove="Web\kinopoiskRuntimeUiCorrections.js" />
+    <None Remove="Web\kinopoiskRuntimeNativeStyle.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
     </EmbeddedResource>
@@ -62,6 +63,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRuntimeUiCorrections.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRuntimeNativeStyle.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
