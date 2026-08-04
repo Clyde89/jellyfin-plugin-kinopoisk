@@ -23,12 +23,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
     {
         private readonly KinopoiskPresentationService _presentationService;
         private readonly KinopoiskSupplementalApiClient _supplementalApiClient;
+        private readonly KinopoiskReviewCacheClient _reviewCacheClient;
         private readonly KinopoiskSimilarApiClient _similarApiClient;
         private readonly ILogger<KinopoiskPresentationController> _logger;
 
         public KinopoiskPresentationController(
             KinopoiskPresentationService presentationService,
             KinopoiskSupplementalApiClient supplementalApiClient,
+            KinopoiskReviewCacheClient reviewCacheClient,
             KinopoiskSimilarApiClient similarApiClient,
             ILogger<KinopoiskPresentationController> logger)
         {
@@ -36,6 +38,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
                 ?? throw new ArgumentNullException(nameof(presentationService));
             _supplementalApiClient = supplementalApiClient
                 ?? throw new ArgumentNullException(nameof(supplementalApiClient));
+            _reviewCacheClient = reviewCacheClient
+                ?? throw new ArgumentNullException(nameof(reviewCacheClient));
             _similarApiClient = similarApiClient
                 ?? throw new ArgumentNullException(nameof(similarApiClient));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -123,7 +127,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
             return ExecuteSupplemental(
                 kinopoiskId,
                 "рецензии",
-                token => _supplementalApiClient.GetReviews(
+                token => _reviewCacheClient.GetReviews(
                     kinopoiskId,
                     page,
                     order,
