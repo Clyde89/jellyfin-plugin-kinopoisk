@@ -37,6 +37,26 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldEmbedCarouselRebindScript()
+        {
+            const string resourceName =
+                "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js";
+            var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+
+            Assert.Contains(resourceName, assembly.GetManifestResourceNames());
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            Assert.NotNull(stream);
+            using var reader = new StreamReader(stream!);
+            var script = reader.ReadToEnd();
+
+            Assert.Contains("kpBoundScrollerId", script);
+            Assert.Contains("kp-recommendations-scroller", script);
+            Assert.Contains("chevron_left", script);
+            Assert.Contains("chevron_right", script);
+            Assert.Contains("scrollBy", script);
+        }
+
+        [Fact]
         public void ShouldCombineRuntimePolishWithPresentationRegistration()
         {
             var source = File.ReadAllText(
@@ -52,6 +72,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.Contains("kinopoiskEnhancedPresentation.js", source);
             Assert.Contains("kinopoiskRuntimePolish.js", source);
+            Assert.Contains("kinopoiskCarouselRebind.js", source);
             Assert.Contains("ReadEmbeddedScripts", source);
         }
     }
