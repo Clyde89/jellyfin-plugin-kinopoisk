@@ -21,8 +21,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.Contains("emby-scrollbuttons kp-native-navigation", script);
             Assert.Contains("emby-scrollbuttons-button paper-icon-button-light", script);
-            Assert.Contains("material-icons chevron_left", script);
-            Assert.Contains("material-icons chevron_right", script);
+            Assert.Contains("'material-icons '", script);
+            Assert.Contains("'chevron_left'", script);
+            Assert.Contains("'chevron_right'", script);
             Assert.Contains("navigation.hidden = !hasOverflow", script);
             Assert.Contains("maximum > 20", script);
             Assert.DoesNotContain("@media(hover:hover)", script, StringComparison.Ordinal);
