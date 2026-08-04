@@ -253,6 +253,10 @@
         });
     }
 
+    window.KinopoiskTmdbResolver = Object.freeze({
+        resolve: resolveTmdbId
+    });
+
     function scheduleRender() {
         clearTimeout(renderTimer);
         renderTimer = setTimeout(renderCurrentItem, 300);
