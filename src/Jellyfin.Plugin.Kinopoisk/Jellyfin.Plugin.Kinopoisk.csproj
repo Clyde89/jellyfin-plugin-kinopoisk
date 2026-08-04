@@ -29,6 +29,7 @@
     <None Remove="Web\kinopoiskReviewsIntegration.js" />
     <None Remove="Web\kinopoiskTagLocalization.js" />
     <None Remove="Web\kinopoiskElsewhereBridge.js" />
+    <None Remove="Web\kinopoiskRecommendations.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
     </EmbeddedResource>
@@ -46,6 +47,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskElsewhereBridge.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskElsewhereBridge.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendations.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
