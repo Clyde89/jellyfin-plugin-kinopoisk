@@ -23,17 +23,21 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
     {
         private readonly KinopoiskPresentationService _presentationService;
         private readonly KinopoiskSupplementalApiClient _supplementalApiClient;
+        private readonly KinopoiskSimilarApiClient _similarApiClient;
         private readonly ILogger<KinopoiskPresentationController> _logger;
 
         public KinopoiskPresentationController(
             KinopoiskPresentationService presentationService,
             KinopoiskSupplementalApiClient supplementalApiClient,
+            KinopoiskSimilarApiClient similarApiClient,
             ILogger<KinopoiskPresentationController> logger)
         {
             _presentationService = presentationService
                 ?? throw new ArgumentNullException(nameof(presentationService));
             _supplementalApiClient = supplementalApiClient
                 ?? throw new ArgumentNullException(nameof(supplementalApiClient));
+            _similarApiClient = similarApiClient
+                ?? throw new ArgumentNullException(nameof(similarApiClient));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -126,6 +130,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
                     token),
                 cancellationToken);
         }
+
+        [HttpGet("{kinopoiskId:int}/similars")]
+        [ProducesResponseType(typeof(KinopoiskSimilarResponse), StatusCodes.Status200OK)]
+        public Task<ActionResult<KinopoiskSimilarResponse>> GetSimilars(
+            int kinopoiskId,
+            CancellationToken cancellationToken)
+            => ExecuteSupplemental(
+                kinopoiskId,
+                "похожие фильмы",
+                token => _similarApiClient.GetSimilar(kinopoiskId, token),
+                cancellationToken);
 
         private async Task<ActionResult<T>> ExecuteSupplemental<T>(
             int kinopoiskId,
