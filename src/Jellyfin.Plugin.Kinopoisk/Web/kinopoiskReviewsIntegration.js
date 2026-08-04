@@ -9,6 +9,8 @@
 
     var reviewCache = new Map();
     var reviewStates = new Map();
+    var itemCache = new Map();
+    var spoilerCache = new Map();
     var renderTimer = null;
 
     var reviewTypeLabels = {
@@ -22,14 +24,12 @@
         if (!object) {
             return undefined;
         }
-
         for (var index = 1; index < arguments.length; index++) {
             var key = arguments[index];
             if (Object.prototype.hasOwnProperty.call(object, key)) {
                 return object[key];
             }
         }
-
         return undefined;
     }
 
@@ -55,7 +55,6 @@
         if (queryIndex >= 0) {
             candidates.push(hash.substring(queryIndex));
         }
-
         for (var index = 0; index < candidates.length; index++) {
             var itemId = new URLSearchParams(candidates[index]).get('id');
             if (itemId) {
@@ -97,7 +96,6 @@
         if (!apiClient) {
             return Promise.reject(new Error('ApiClient недоступен.'));
         }
-
         return fetch(apiClient.getUrl(path), {
             credentials: 'same-origin',
             headers: getAuthHeaders()
@@ -110,15 +108,22 @@
     }
 
     function fetchCurrentItem(itemId) {
-        var apiClient = getApiClient();
-        if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
-            return Promise.resolve(null);
+        if (!itemCache.has(itemId)) {
+            var apiClient = getApiClient();
+            if (!apiClient || typeof apiClient.getItem !== 'function') {
+                return Promise.resolve(null);
+            }
+            itemCache.set(
+                itemId,
+                apiClient.getItem(apiClient.getCurrentUserId(), itemId)
+                    .catch(function (error) {
+                        itemCache.delete(itemId);
+                        console.warn('[КиноПоиск] Карточка для рецензий не загружена.', error);
+                        return null;
+                    })
+            );
         }
-        return apiClient.getItem(apiClient.getCurrentUserId(), itemId)
-            .catch(function (error) {
-                console.warn('[КиноПоиск] Карточка для рецензий не загружена.', error);
-                return null;
-            });
+        return itemCache.get(itemId);
     }
 
     function fetchReviewPage(kinopoiskId, page) {
@@ -145,16 +150,20 @@
         if (document.getElementById('kinopoiskReviewsIntegrationStyles')) {
             return;
         }
-
         var style = document.createElement('style');
         style.id = 'kinopoiskReviewsIntegrationStyles';
         style.textContent = [
             '.kp-reviews-fallback{margin:2em 0 1em;display:flex!important;flex-direction:column}',
             '.kp-reviews-fallback>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between}',
             '.kp-reviews-fallback[open]>summary .expand-icon{transform:rotate(180deg)}',
-            '.kp-review-source-bar{display:flex;gap:.45em;flex-wrap:wrap;padding:.65em .5em 0}',
+            '.kp-review-toolbar{display:flex;align-items:center;gap:.55em;flex-wrap:wrap;padding:.65em .5em 0}',
+            '.kp-review-source-bar{display:flex;gap:.45em;flex-wrap:wrap}',
             '.kp-review-source-button{border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.06);color:inherit;padding:.38em .7em;cursor:pointer;font:inherit}',
             '.kp-review-source-button.is-active{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.34)}',
+            '.kp-carousel-navigation{display:flex;gap:.28em;margin-left:auto}',
+            '.kp-carousel-button{display:inline-flex;align-items:center;justify-content:center;width:2.45em;height:2.45em;border:0;border-radius:50%;background:rgba(0,0,0,.52);color:inherit;cursor:pointer;font:inherit}',
+            '.kp-carousel-button:hover,.kp-carousel-button:focus-visible{background:rgba(0,0,0,.78);outline:2px solid rgba(255,255,255,.65);outline-offset:2px}',
+            '.kp-carousel-button:disabled{opacity:.28;cursor:default;outline:0}',
             '.kp-review-card{border-left-color:#ff9b38!important;background:rgba(45,25,5,.46)!important}',
             '.kp-review-card.kp-review-positive{border-left-color:#52c76b!important}',
             '.kp-review-card.kp-review-negative{border-left-color:#e45d5d!important}',
@@ -180,9 +189,7 @@
     }
 
     function findStandardReviewSection(page) {
-        var sections = Array.prototype.slice.call(
-            page.querySelectorAll('.tmdb-reviews-section')
-        );
+        var sections = Array.prototype.slice.call(page.querySelectorAll('.tmdb-reviews-section'));
         var standard = sections.find(function (section) {
             return !section.classList.contains('kp-reviews-fallback');
         });
@@ -200,10 +207,9 @@
     function createFallbackReviewSection(page, itemId) {
         var section = createElement('details', 'detailSection tmdb-reviews-section kp-reviews-fallback');
         section.dataset.kpItemId = itemId;
-
         var summary = createElement('summary', 'sectionTitle');
         summary.append(
-            document.createTextNode('Рецензии (0) '),
+            document.createTextNode('Рецензии (…) '),
             createElement('i', 'material-icons expand-icon', 'expand_more')
         );
         section.appendChild(summary);
@@ -221,11 +227,7 @@
     }
 
     function getOrCreateReviewSection(page, itemId) {
-        var section = findStandardReviewSection(page);
-        if (section) {
-            return section;
-        }
-        return createFallbackReviewSection(page, itemId);
+        return findStandardReviewSection(page) || createFallbackReviewSection(page, itemId);
     }
 
     function getSwipeContainer(section) {
@@ -238,81 +240,82 @@
     }
 
     function classifyReviewCards(section) {
-        Array.prototype.forEach.call(
-            section.querySelectorAll('.tmdb-review-card'),
-            function (card) {
-                if (card.classList.contains('kp-review-card')) {
-                    card.dataset.reviewSource = 'kinopoisk';
-                } else if (card.classList.contains('je-user-review-card')) {
-                    card.dataset.reviewSource = 'users';
-                } else {
-                    card.dataset.reviewSource = 'tmdb';
-                }
+        Array.prototype.forEach.call(section.querySelectorAll('.tmdb-review-card'), function (card) {
+            if (card.classList.contains('kp-review-card')) {
+                card.dataset.reviewSource = 'kinopoisk';
+            } else if (card.classList.contains('je-user-review-card')) {
+                card.dataset.reviewSource = 'users';
+            } else {
+                card.dataset.reviewSource = 'tmdb';
             }
-        );
+        });
     }
 
     function getAvailableSources(section) {
         var available = new Set();
-        Array.prototype.forEach.call(
-            section.querySelectorAll('.tmdb-review-card'),
-            function (card) {
-                if (card.dataset.reviewSource) {
-                    available.add(card.dataset.reviewSource);
-                }
+        Array.prototype.forEach.call(section.querySelectorAll('.tmdb-review-card'), function (card) {
+            if (card.dataset.reviewSource) {
+                available.add(card.dataset.reviewSource);
             }
-        );
+        });
         return available;
     }
 
     function applyReviewFilter(section, source) {
         section.dataset.kpReviewFilter = source;
-        Array.prototype.forEach.call(
-            section.querySelectorAll('.tmdb-review-card'),
-            function (card) {
-                card.hidden = source !== 'all' && card.dataset.reviewSource !== source;
-            }
-        );
-        Array.prototype.forEach.call(
-            section.querySelectorAll('.kp-review-source-button'),
-            function (button) {
-                var active = button.dataset.source === source;
-                button.classList.toggle('is-active', active);
-                button.setAttribute('aria-pressed', active ? 'true' : 'false');
-            }
-        );
+        Array.prototype.forEach.call(section.querySelectorAll('.tmdb-review-card'), function (card) {
+            card.hidden = source !== 'all' && card.dataset.reviewSource !== source;
+        });
+        Array.prototype.forEach.call(section.querySelectorAll('.kp-review-source-button'), function (button) {
+            var active = button.dataset.source === source;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+    }
+
+    function getOrCreateToolbar(section) {
+        var toolbar = section.querySelector('.kp-review-toolbar');
+        if (!toolbar) {
+            toolbar = createElement('div', 'kp-review-toolbar');
+            var swipe = getSwipeContainer(section);
+            section.insertBefore(toolbar, swipe);
+        }
+        return toolbar;
     }
 
     function ensureSourceBar(section) {
         classifyReviewCards(section);
         var available = getAvailableSources(section);
-        var bar = section.querySelector('.kp-review-source-bar');
+        var toolbar = getOrCreateToolbar(section);
+        var bar = toolbar.querySelector('.kp-review-source-bar');
         if (!bar) {
             bar = createElement('div', 'kp-review-source-bar');
-            var swipe = getSwipeContainer(section);
-            section.insertBefore(bar, swipe);
+            toolbar.insertBefore(bar, toolbar.firstChild);
         }
-
-        var sources = [
-            { key: 'all', label: 'Все' },
-            { key: 'kinopoisk', label: 'КиноПоиск' },
-            { key: 'tmdb', label: 'TMDB' },
-            { key: 'users', label: 'Пользователи' }
-        ];
-        bar.textContent = '';
-        sources.forEach(function (source) {
-            if (source.key !== 'all' && !available.has(source.key)) {
-                return;
-            }
-            var button = createElement('button', 'kp-review-source-button', source.label);
-            button.type = 'button';
-            button.dataset.source = source.key;
-            button.addEventListener('click', function () {
-                applyReviewFilter(section, source.key);
+        var signature = Array.from(available).sort().join('|');
+        if (bar.dataset.sourceSignature !== signature) {
+            bar.dataset.sourceSignature = signature;
+            bar.textContent = '';
+            [
+                { key: 'all', label: 'Все' },
+                { key: 'kinopoisk', label: 'КиноПоиск' },
+                { key: 'tmdb', label: 'TMDB' },
+                { key: 'users', label: 'Пользователи' }
+            ].forEach(function (source) {
+                if (source.key !== 'all' && !available.has(source.key)) {
+                    return;
+                }
+                var button = createElement('button', 'kp-review-source-button', source.label);
+                button.type = 'button';
+                button.dataset.source = source.key;
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applyReviewFilter(section, source.key);
+                });
+                bar.appendChild(button);
             });
-            bar.appendChild(button);
-        });
-
+        }
         var requested = section.dataset.kpReviewFilter || 'all';
         if (requested !== 'all' && !available.has(requested)) {
             requested = 'all';
@@ -320,19 +323,75 @@
         applyReviewFilter(section, requested);
     }
 
-    function updateReviewSummary(section, kinopoiskTotal) {
+    function ensureCarouselNavigation(section) {
+        var container = getSwipeContainer(section);
+        var toolbar = getOrCreateToolbar(section);
+        var navigation = toolbar.querySelector('.kp-carousel-navigation');
+        if (!navigation) {
+            navigation = createElement('div', 'kp-carousel-navigation');
+            var previous = createElement('button', 'kp-carousel-button material-icons', 'chevron_left');
+            var next = createElement('button', 'kp-carousel-button material-icons', 'chevron_right');
+            previous.type = 'button';
+            next.type = 'button';
+            previous.title = 'Предыдущие рецензии';
+            next.title = 'Следующие рецензии';
+            previous.setAttribute('aria-label', previous.title);
+            next.setAttribute('aria-label', next.title);
+            navigation.append(previous, next);
+            toolbar.appendChild(navigation);
+
+            function scroll(direction) {
+                var distance = Math.max(320, Math.floor(container.clientWidth * 0.86));
+                container.scrollBy({ left: direction * distance, behavior: 'smooth' });
+            }
+            previous.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                scroll(-1);
+            });
+            next.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                scroll(1);
+            });
+
+            var pending = false;
+            function update() {
+                pending = false;
+                var maximum = Math.max(0, container.scrollWidth - container.clientWidth);
+                previous.disabled = container.scrollLeft <= 4;
+                next.disabled = maximum <= 4 || container.scrollLeft >= maximum - 4;
+            }
+            function scheduleUpdate() {
+                if (!pending) {
+                    pending = true;
+                    window.requestAnimationFrame(update);
+                }
+            }
+            container.addEventListener('scroll', scheduleUpdate, { passive: true });
+            window.addEventListener('resize', scheduleUpdate);
+            navigation.__kpUpdate = scheduleUpdate;
+        }
+        if (typeof navigation.__kpUpdate === 'function') {
+            navigation.__kpUpdate();
+        }
+    }
+
+    function updateReviewSummary(section, total) {
         var summary = section.querySelector('summary');
         if (!summary) {
             return;
         }
-        var otherCount = section.querySelectorAll(
-            '.tmdb-review-card:not(.kp-review-card)'
-        ).length;
+        var otherCount = section.querySelectorAll('.tmdb-review-card:not(.kp-review-card)').length;
+        var count = otherCount + Math.max(0, Number(total || 0));
+        var signature = String(count);
+        if (summary.dataset.kpReviewCount === signature) {
+            return;
+        }
+        summary.dataset.kpReviewCount = signature;
         summary.textContent = '';
         summary.append(
-            document.createTextNode(
-                'Рецензии (' + String(otherCount + Math.max(0, Number(kinopoiskTotal || 0))) + ') '
-            ),
+            document.createTextNode('Рецензии (' + signature + ') '),
             createElement('i', 'material-icons expand-icon', 'expand_more')
         );
     }
@@ -350,92 +409,6 @@
         return '';
     }
 
-    function createReviewCard(review) {
-        var type = String(pick(review, 'type', 'Type') || 'UNKNOWN').toUpperCase();
-        var description = String(pick(review, 'description', 'Description') || '');
-        var previewLength = 350;
-        var expanded = false;
-        var card = createElement(
-            'div',
-            'tmdb-review-card kp-review-card ' + reviewTypeClass(type)
-        );
-        card.dataset.reviewSource = 'kinopoisk';
-
-        var header = createElement('div', 'tmdb-review-header');
-        var authorInfo = createElement('div', 'tmdb-review-author-info');
-        authorInfo.append(
-            createElement(
-                'strong',
-                'tmdb-review-author',
-                String(pick(review, 'author', 'Author') || 'Автор КиноПоиска')
-            ),
-            createElement(
-                'span',
-                'tmdb-review-date',
-                formatDate(pick(review, 'date', 'Date'))
-            )
-        );
-        header.append(
-            authorInfo,
-            createElement(
-                'span',
-                'kp-review-type',
-                reviewTypeLabels[type] || reviewTypeLabels.UNKNOWN
-            )
-        );
-        card.appendChild(header);
-
-        var title = String(pick(review, 'title', 'Title') || '').trim();
-        if (title) {
-            card.appendChild(createElement('div', 'kp-review-title', title));
-        }
-
-        var wrapper = createElement('div', 'tmdb-review-content-wrapper');
-        var text = createElement('p', 'tmdb-review-text');
-        var toggle = null;
-
-        function renderText() {
-            var visible = expanded || description.length <= previewLength
-                ? description
-                : description.substring(0, previewLength).trimEnd() + '…';
-            text.textContent = visible;
-            if (toggle) {
-                toggle.textContent = expanded ? 'Свернуть' : 'Читать полностью';
-                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-            }
-        }
-
-        wrapper.appendChild(text);
-        if (description.length > previewLength) {
-            toggle = createElement('button', 'kp-review-toggle', 'Читать полностью');
-            toggle.type = 'button';
-            toggle.setAttribute('aria-expanded', 'false');
-            toggle.addEventListener('click', function () {
-                expanded = !expanded;
-                renderText();
-            });
-            wrapper.appendChild(toggle);
-        }
-        card.appendChild(wrapper);
-
-        var votes = createElement('div', 'kp-review-votes');
-        votes.append(
-            createElement(
-                'span',
-                '',
-                '👍 ' + String(Math.max(0, Number(pick(review, 'positiveRating', 'PositiveRating') || 0)))
-            ),
-            createElement(
-                'span',
-                '',
-                '👎 ' + String(Math.max(0, Number(pick(review, 'negativeRating', 'NegativeRating') || 0)))
-            )
-        );
-        card.appendChild(votes);
-        renderText();
-        return card;
-    }
-
     function formatDate(value) {
         if (!value) {
             return '';
@@ -451,6 +424,70 @@
         });
     }
 
+    function createReviewCard(review) {
+        var type = String(pick(review, 'type', 'Type') || 'UNKNOWN').toUpperCase();
+        var description = String(pick(review, 'description', 'Description') || '');
+        var previewLength = 350;
+        var card = createElement('div', 'tmdb-review-card kp-review-card ' + reviewTypeClass(type));
+        card.dataset.reviewSource = 'kinopoisk';
+
+        var header = createElement('div', 'tmdb-review-header');
+        var authorInfo = createElement('div', 'tmdb-review-author-info');
+        authorInfo.append(
+            createElement('strong', 'tmdb-review-author', String(pick(review, 'author', 'Author') || 'Автор КиноПоиска')),
+            createElement('span', 'tmdb-review-date', formatDate(pick(review, 'date', 'Date')))
+        );
+        header.append(
+            authorInfo,
+            createElement('span', 'kp-review-type', reviewTypeLabels[type] || reviewTypeLabels.UNKNOWN)
+        );
+        card.appendChild(header);
+
+        var title = String(pick(review, 'title', 'Title') || '').trim();
+        if (title) {
+            card.appendChild(createElement('div', 'kp-review-title', title));
+        }
+
+        var wrapper = createElement('div', 'tmdb-review-content-wrapper');
+        var text = createElement('p', 'tmdb-review-text');
+        var toggle = null;
+        review.__kpExpanded = review.__kpExpanded === true;
+
+        function renderText() {
+            var visible = review.__kpExpanded || description.length <= previewLength
+                ? description
+                : description.substring(0, previewLength).trimEnd() + '…';
+            text.textContent = visible;
+            if (toggle) {
+                toggle.textContent = review.__kpExpanded ? 'Свернуть' : 'Читать полностью';
+                toggle.setAttribute('aria-expanded', review.__kpExpanded ? 'true' : 'false');
+            }
+        }
+
+        wrapper.appendChild(text);
+        if (description.length > previewLength) {
+            toggle = createElement('button', 'kp-review-toggle', 'Читать полностью');
+            toggle.type = 'button';
+            toggle.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                review.__kpExpanded = !review.__kpExpanded;
+                renderText();
+            });
+            wrapper.appendChild(toggle);
+        }
+        card.appendChild(wrapper);
+
+        var votes = createElement('div', 'kp-review-votes');
+        votes.append(
+            createElement('span', '', '👍 ' + String(Math.max(0, Number(pick(review, 'positiveRating', 'PositiveRating') || 0)))),
+            createElement('span', '', '👎 ' + String(Math.max(0, Number(pick(review, 'negativeRating', 'NegativeRating') || 0))))
+        );
+        card.appendChild(votes);
+        renderText();
+        return card;
+    }
+
     function getState(itemId, kinopoiskId) {
         var state = reviewStates.get(itemId);
         if (!state || state.kinopoiskId !== String(kinopoiskId)) {
@@ -464,11 +501,16 @@
                 visibleCount: 5,
                 loading: false,
                 loaded: false,
-                error: false
+                error: false,
+                revision: 0
             };
             reviewStates.set(itemId, state);
         }
         return state;
+    }
+
+    function markChanged(state) {
+        state.revision += 1;
     }
 
     function removeKinopoiskReviewElements(section) {
@@ -478,7 +520,20 @@
         );
     }
 
+    function refreshExternalState(section, state) {
+        classifyReviewCards(section);
+        ensureSourceBar(section);
+        ensureCarouselNavigation(section);
+        updateReviewSummary(section, state.total);
+    }
+
     function renderState(section, state) {
+        var revision = String(state.revision);
+        if (section.dataset.kpReviewRevision === revision) {
+            refreshExternalState(section, state);
+            return;
+        }
+        section.dataset.kpReviewRevision = revision;
         removeKinopoiskReviewElements(section);
         var swipe = getSwipeContainer(section);
         var visible = state.items.slice(0, state.visibleCount);
@@ -486,13 +541,12 @@
             swipe.appendChild(createReviewCard(review));
         });
 
-        if (state.loaded && !state.items.length) {
-            var empty = createElement('div', 'kp-review-status', 'Рецензии КиноПоиска отсутствуют.');
-            section.insertBefore(empty, swipe.nextSibling);
-        }
-        if (state.error) {
-            var error = createElement('div', 'kp-review-status', 'Рецензии КиноПоиска временно недоступны.');
-            section.insertBefore(error, swipe.nextSibling);
+        if (state.loading && !state.loaded) {
+            section.insertBefore(createElement('div', 'kp-review-status', 'Рецензии КиноПоиска загружаются…'), swipe.nextSibling);
+        } else if (state.loaded && !state.items.length) {
+            section.insertBefore(createElement('div', 'kp-review-status', 'Рецензии КиноПоиска отсутствуют.'), swipe.nextSibling);
+        } else if (state.error) {
+            section.insertBefore(createElement('div', 'kp-review-status', 'Рецензии КиноПоиска временно недоступны.'), swipe.nextSibling);
         }
 
         var canReveal = state.visibleCount < state.items.length;
@@ -508,9 +562,12 @@
             );
             button.type = 'button';
             button.disabled = state.loading;
-            button.addEventListener('click', function () {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
                 if (state.visibleCount < state.items.length) {
                     state.visibleCount = Math.min(state.items.length, state.visibleCount + 5);
+                    markChanged(state);
                     renderState(section, state);
                     return;
                 }
@@ -520,9 +577,7 @@
             section.insertBefore(pager, swipe.nextSibling);
         }
 
-        classifyReviewCards(section);
-        ensureSourceBar(section);
-        updateReviewSummary(section, state.total);
+        refreshExternalState(section, state);
     }
 
     function loadPage(section, state, page) {
@@ -531,6 +586,7 @@
         }
         state.loading = true;
         state.error = false;
+        markChanged(state);
         renderState(section, state);
 
         return fetchReviewPage(state.kinopoiskId, page)
@@ -557,87 +613,90 @@
                 });
                 state.loaded = true;
                 state.loading = false;
+                markChanged(state);
                 renderState(section, state);
             })
             .catch(function (error) {
                 console.warn('[КиноПоиск] Рецензии не загружены.', error);
                 state.loading = false;
                 state.error = true;
+                markChanged(state);
                 renderState(section, state);
             });
     }
 
     function shouldSuppressForSpoilerMode(item) {
-        var enhanced = window.JellyfinEnhanced;
-        if (!enhanced || !enhanced.pluginConfig || !enhanced.spoilerBlur) {
-            return Promise.resolve(false);
+        var itemId = String(pick(item, 'Id', 'id') || '');
+        if (spoilerCache.has(itemId)) {
+            return spoilerCache.get(itemId);
         }
-        if (!enhanced.pluginConfig.SpoilerBlurEnabled
-            || enhanced.pluginConfig.SpoilerStripReviews === false) {
-            return Promise.resolve(false);
-        }
-
-        var spoilerBlur = enhanced.spoilerBlur;
-        var ready = typeof spoilerBlur.whenLoaded === 'function'
-            ? spoilerBlur.whenLoaded()
-            : Promise.resolve();
-        return Promise.resolve(ready).then(function () {
-            if (typeof spoilerBlur.isLoadOk === 'function' && !spoilerBlur.isLoadOk()) {
-                return true;
+        var promise = (function () {
+            var enhanced = window.JellyfinEnhanced;
+            if (!enhanced || !enhanced.pluginConfig || !enhanced.spoilerBlur) {
+                return Promise.resolve(false);
             }
-            if (typeof spoilerBlur.getUserPrefs === 'function') {
-                var preferences = spoilerBlur.getUserPrefs() || {};
-                if (preferences.HideReviews === false) {
-                    return false;
+            if (!enhanced.pluginConfig.SpoilerBlurEnabled
+                || enhanced.pluginConfig.SpoilerStripReviews === false) {
+                return Promise.resolve(false);
+            }
+            var spoilerBlur = enhanced.spoilerBlur;
+            var ready = typeof spoilerBlur.whenLoaded === 'function'
+                ? spoilerBlur.whenLoaded()
+                : Promise.resolve();
+            return Promise.resolve(ready).then(function () {
+                if (typeof spoilerBlur.isLoadOk === 'function' && !spoilerBlur.isLoadOk()) {
+                    return true;
                 }
-            }
-            var itemType = String(pick(item, 'Type', 'type') || '');
-            if (itemType === 'Movie') {
-                return !!(spoilerBlur.isMovieEnabledFor
-                    && spoilerBlur.isMovieEnabledFor(pick(item, 'Id', 'id') || ''));
-            }
-            if (itemType === 'Series') {
-                return !!(spoilerBlur.isEnabledFor
-                    && spoilerBlur.isEnabledFor(pick(item, 'Id', 'id') || ''));
-            }
-            return false;
-        }).catch(function (error) {
-            console.warn('[КиноПоиск] Проверка Spoiler Guard завершилась ошибкой.', error);
-            return true;
-        });
+                if (typeof spoilerBlur.getUserPrefs === 'function') {
+                    var preferences = spoilerBlur.getUserPrefs() || {};
+                    if (preferences.HideReviews === false) {
+                        return false;
+                    }
+                }
+                var itemType = String(pick(item, 'Type', 'type') || '');
+                if (itemType === 'Movie') {
+                    return !!(spoilerBlur.isMovieEnabledFor && spoilerBlur.isMovieEnabledFor(itemId));
+                }
+                if (itemType === 'Series') {
+                    return !!(spoilerBlur.isEnabledFor && spoilerBlur.isEnabledFor(itemId));
+                }
+                return false;
+            }).catch(function (error) {
+                console.warn('[КиноПоиск] Проверка Spoiler Guard завершилась ошибкой.', error);
+                return true;
+            });
+        }());
+        spoilerCache.set(itemId, promise);
+        return promise;
     }
 
     function bindSection(section, itemId, kinopoiskId) {
         var state = getState(itemId, kinopoiskId);
         var bindingKey = itemId + ':' + String(kinopoiskId);
-        if (section.dataset.kpReviewsBinding !== bindingKey) {
-            section.dataset.kpReviewsBinding = bindingKey;
+        section.dataset.kpReviewsBinding = bindingKey;
+        section.dataset.kpItemId = itemId;
+        if (section.dataset.kpReviewsToggleBound !== bindingKey) {
+            section.dataset.kpReviewsToggleBound = bindingKey;
             section.addEventListener('toggle', function () {
-                if (section.open && !state.loaded && !state.loading) {
-                    loadPage(section, state, 1);
+                if (section.open) {
+                    refreshExternalState(section, state);
                 }
             });
         }
-
-        if (state.loaded || state.loading || state.error) {
-            renderState(section, state);
-        } else {
-            ensureSourceBar(section);
-        }
-        if (section.open && !state.loaded && !state.loading) {
+        renderState(section, state);
+        if (!state.loaded && !state.loading) {
             loadPage(section, state, 1);
         }
     }
 
     function removeSuppressedElements(page) {
-        Array.prototype.forEach.call(
-            page.querySelectorAll('.kp-reviews-fallback'),
-            function (section) { section.remove(); }
-        );
+        Array.prototype.forEach.call(page.querySelectorAll('.kp-reviews-fallback'), function (section) {
+            section.remove();
+        });
         var standard = page.querySelector('.tmdb-reviews-section');
         if (standard) {
             Array.prototype.forEach.call(
-                standard.querySelectorAll('.kp-review-card,.kp-review-source-bar,.kp-review-pager,.kp-review-status'),
+                standard.querySelectorAll('.kp-review-card,.kp-review-toolbar,.kp-review-pager,.kp-review-status'),
                 function (element) { element.remove(); }
             );
         }
@@ -648,7 +707,6 @@
         if (!itemId) {
             return;
         }
-
         fetchCurrentItem(itemId).then(function (item) {
             if (!item || getCurrentItemId() !== itemId) {
                 return;
@@ -661,7 +719,6 @@
             if (!kinopoiskId || !/^\d+$/.test(String(kinopoiskId))) {
                 return;
             }
-
             shouldSuppressForSpoilerMode(item).then(function (suppressed) {
                 if (getCurrentItemId() !== itemId) {
                     return;
