@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 namespace Jellyfin.Plugin.Kinopoisk.Presentation
 {
     /// <summary>
-    /// Загружены факты, бюджет, сборы и награды без передачи API-токена браузеру.
+    /// Загружены дополнительные данные карточки без передачи API-токена браузеру.
     /// </summary>
     public sealed class KinopoiskSupplementalApiClient
     {
@@ -24,6 +24,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
         private static readonly TimeSpan SuccessfulExpiration = TimeSpan.FromHours(12);
         private static readonly TimeSpan EmptyExpiration = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(250);
+        private static readonly HashSet<string> SupportedReviewOrders = new(
+            new[]
+            {
+                "DATE_ASC",
+                "DATE_DESC",
+                "USER_POSITIVE_RATING_ASC",
+                "USER_POSITIVE_RATING_DESC",
+                "USER_NEGATIVE_RATING_ASC",
+                "USER_NEGATIVE_RATING_DESC"
+            },
+            StringComparer.Ordinal);
 
         private readonly HttpClient _httpClient;
         private readonly IMemoryCache _cache;
@@ -83,6 +94,35 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 MapAwards,
                 result => result.Total < 1,
                 cancellationToken);
+
+        public Task<KinopoiskReviewsResponse> GetReviews(
+            int kinopoiskId,
+            int page,
+            string? order,
+            CancellationToken cancellationToken)
+        {
+            if (page is < 1 or > 50)
+                throw new ArgumentOutOfRangeException(nameof(page));
+
+            var normalizedOrder = NormalizeReviewOrder(order);
+            return GetOrCreate(
+                kinopoiskId,
+                $"reviews:{page}:{normalizedOrder}",
+                $"/api/v2.2/films/{kinopoiskId}/reviews?page={page}&order={normalizedOrder}",
+                json => MapReviews(json, page),
+                result => result.Total < 1 || result.Items.Count < 1,
+                cancellationToken);
+        }
+
+        internal static string NormalizeReviewOrder(string? order)
+        {
+            var normalized = string.IsNullOrWhiteSpace(order)
+                ? "USER_POSITIVE_RATING_DESC"
+                : order.Trim().ToUpperInvariant();
+            return SupportedReviewOrders.Contains(normalized)
+                ? normalized
+                : "USER_POSITIVE_RATING_DESC";
+        }
 
         private async Task<T> GetOrCreate<T>(
             int kinopoiskId,
@@ -194,6 +234,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 KinopoiskFactsResponse facts => facts.Total,
                 KinopoiskBoxOfficeResponse boxOffice => boxOffice.Total,
                 KinopoiskAwardsResponse awards => awards.Total,
+                KinopoiskReviewsResponse reviews => reviews.Total,
                 _ => 0
             };
 
@@ -277,6 +318,61 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 Total = items.Length,
                 Items = items
             };
+        }
+
+        internal static KinopoiskReviewsResponse MapReviews(string json, int page)
+        {
+            var source = JsonConvert.DeserializeObject<ReviewsWireResponse>(json)
+                ?? new ReviewsWireResponse();
+            var items = source.Items
+                .Select(item => new KinopoiskReviewInfo
+                {
+                    KinopoiskId = item.KinopoiskId,
+                    Type = NormalizeReviewType(item.Type),
+                    Date = NormalizeReviewDate(item.Date),
+                    PositiveRating = Math.Max(0, item.PositiveRating),
+                    NegativeRating = Math.Max(0, item.NegativeRating),
+                    Author = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.Author),
+                    Title = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.Title),
+                    Description = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.Description)
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Description))
+                .ToArray();
+            var totalPages = Math.Max(0, source.TotalPages);
+            return new KinopoiskReviewsResponse
+            {
+                Total = Math.Max(items.Length, source.Total),
+                TotalPages = totalPages,
+                TotalPositiveReviews = Math.Max(0, source.TotalPositiveReviews),
+                TotalNegativeReviews = Math.Max(0, source.TotalNegativeReviews),
+                TotalNeutralReviews = Math.Max(0, source.TotalNeutralReviews),
+                Page = page,
+                HasNextPage = page < totalPages,
+                Items = items
+            };
+        }
+
+        private static string NormalizeReviewType(string? value)
+        {
+            var normalized = string.IsNullOrWhiteSpace(value)
+                ? "UNKNOWN"
+                : value.Trim().ToUpperInvariant();
+            return normalized is "POSITIVE" or "NEGATIVE" or "NEUTRAL"
+                ? normalized
+                : "UNKNOWN";
+        }
+
+        private static string NormalizeReviewDate(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+            return DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal,
+                out var parsed)
+                ? parsed.ToString("O", CultureInfo.InvariantCulture)
+                : string.Empty;
         }
 
         private sealed class FactsWireResponse
@@ -369,6 +465,55 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
 
             [JsonProperty("profession")]
             public string? Profession { get; set; }
+        }
+
+        private sealed class ReviewsWireResponse
+        {
+            [JsonProperty("total")]
+            public int Total { get; set; }
+
+            [JsonProperty("totalPages")]
+            public int TotalPages { get; set; }
+
+            [JsonProperty("totalPositiveReviews")]
+            public int TotalPositiveReviews { get; set; }
+
+            [JsonProperty("totalNegativeReviews")]
+            public int TotalNegativeReviews { get; set; }
+
+            [JsonProperty("totalNeutralReviews")]
+            public int TotalNeutralReviews { get; set; }
+
+            [JsonProperty("items")]
+            public ICollection<ReviewWireItem> Items { get; set; }
+                = Array.Empty<ReviewWireItem>();
+        }
+
+        private sealed class ReviewWireItem
+        {
+            [JsonProperty("kinopoiskId")]
+            public int KinopoiskId { get; set; }
+
+            [JsonProperty("type")]
+            public string? Type { get; set; }
+
+            [JsonProperty("date")]
+            public string? Date { get; set; }
+
+            [JsonProperty("positiveRating")]
+            public int PositiveRating { get; set; }
+
+            [JsonProperty("negativeRating")]
+            public int NegativeRating { get; set; }
+
+            [JsonProperty("author")]
+            public string? Author { get; set; }
+
+            [JsonProperty("title")]
+            public string? Title { get; set; }
+
+            [JsonProperty("description")]
+            public string? Description { get; set; }
         }
     }
 }
