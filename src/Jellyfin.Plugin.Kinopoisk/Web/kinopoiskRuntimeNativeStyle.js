@@ -44,6 +44,7 @@
             '.kp-native-release-row .kp-runtime-release-date-label{font-weight:650}',
             '.kp-native-release-row .kp-runtime-release-date-value.is-missing{opacity:.58}',
             '.kp-native-release-row .kp-runtime-release-date-more{display:inline-flex;align-items:center;justify-content:center;margin:0;padding:.12em .28em;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}',
+            '.kp-native-release-row .kp-runtime-release-date-more>.material-icons{display:block;font-size:1.25em;line-height:1}',
             '.kp-native-release-row .kp-runtime-release-date-more:hover,.kp-native-release-row .kp-runtime-release-date-more:focus-visible{background:rgba(255,255,255,.12);outline:0}',
             '@media(max-width:600px){.kp-native-release-row .kp-runtime-release-date-label{display:none}.kp-native-release-row .kp-runtime-release-date{gap:.55em}}'
         ].join('');
@@ -236,7 +237,19 @@
 
                 var calendar = row.querySelector('.kp-runtime-release-date-more');
                 if (calendar) {
+                    calendar.classList.remove('material-icons');
                     calendar.classList.add('paper-icon-button-light');
+                    var calendarIcon = calendar.querySelector('.material-icons');
+                    if (!calendarIcon) {
+                        calendar.textContent = '';
+                        calendarIcon = createElement(
+                            'span',
+                            'material-icons',
+                            'calendar_month'
+                        );
+                        calendarIcon.setAttribute('aria-hidden', 'true');
+                        calendar.appendChild(calendarIcon);
+                    }
                     calendar.title = 'Все даты релиза · источники: TMDB и КиноПоиск';
                     calendar.setAttribute('aria-label', calendar.title);
                 }
