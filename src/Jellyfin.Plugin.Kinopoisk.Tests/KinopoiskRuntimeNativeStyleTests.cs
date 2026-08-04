@@ -31,6 +31,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("border:0!important", script);
             Assert.Contains("источник: TMDB", script);
             Assert.Contains("источники: TMDB и КиноПоиск", script);
+            Assert.Contains("calendar.classList.remove('material-icons')", script);
+            Assert.Contains("'calendar_month'", script);
+            Assert.Contains("calendar.appendChild(calendarIcon)", script);
+            Assert.Contains("kp-runtime-release-date-more>.material-icons", script);
         }
 
         [Fact]
