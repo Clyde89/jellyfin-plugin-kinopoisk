@@ -27,7 +27,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private static readonly string[] ResourceNames =
         {
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js"
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js",
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js"
         };
         private const string RegistrationSuffix = "kinopoisk-enhanced-presentation";
 
