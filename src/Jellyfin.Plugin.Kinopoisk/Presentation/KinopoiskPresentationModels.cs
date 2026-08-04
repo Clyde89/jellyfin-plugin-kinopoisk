@@ -174,4 +174,43 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
 
         public string Profession { get; set; } = string.Empty;
     }
+
+    public sealed class KinopoiskReviewsResponse
+    {
+        public int Total { get; set; }
+
+        public int TotalPages { get; set; }
+
+        public int TotalPositiveReviews { get; set; }
+
+        public int TotalNegativeReviews { get; set; }
+
+        public int TotalNeutralReviews { get; set; }
+
+        public int Page { get; set; }
+
+        public bool HasNextPage { get; set; }
+
+        public IReadOnlyList<KinopoiskReviewInfo> Items { get; set; }
+            = Array.Empty<KinopoiskReviewInfo>();
+    }
+
+    public sealed class KinopoiskReviewInfo
+    {
+        public int KinopoiskId { get; set; }
+
+        public string Type { get; set; } = string.Empty;
+
+        public string Date { get; set; } = string.Empty;
+
+        public int PositiveRating { get; set; }
+
+        public int NegativeRating { get; set; }
+
+        public string Author { get; set; } = string.Empty;
+
+        public string Title { get; set; } = string.Empty;
+
+        public string Description { get; set; } = string.Empty;
+    }
 }
