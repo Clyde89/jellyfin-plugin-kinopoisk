@@ -12,7 +12,6 @@
     var supplementalCache = new Map();
     var renderTimer = null;
     var activeDatesDialog = null;
-    var lastRenderedItemId = null;
 
     var professionLabels = {
         DIRECTOR: 'Режиссёры',
@@ -34,18 +33,21 @@
         REMAKE: 'Ремейк'
     };
 
-    var releaseTypeLabels = {
-        WORLD_PREMIER: 'Мировая премьера',
-        PREMIERE: 'Премьера',
-        COUNTRY_SPECIFIC: 'Прокат в стране',
-        ALL: 'Дата релиза'
-    };
-
     var boxOfficeLabels = {
         BUDGET: 'Бюджет',
         RUS: 'Сборы в России',
         USA: 'Сборы в США',
         WORLD: 'Сборы в мире'
+    };
+
+    var countryAliases = {
+        RU: { display: 'Россия', prepositional: 'России', compact: 'Россия' },
+        RUSSIA: { display: 'Россия', prepositional: 'России', compact: 'Россия' },
+        'РОССИЯ': { display: 'Россия', prepositional: 'России', compact: 'Россия' },
+        US: { display: 'США', prepositional: 'США', compact: 'США' },
+        USA: { display: 'США', prepositional: 'США', compact: 'США' },
+        'UNITED STATES': { display: 'США', prepositional: 'США', compact: 'США' },
+        'США': { display: 'США', prepositional: 'США', compact: 'США' }
     };
 
     function pick(object) {
@@ -210,7 +212,10 @@
         }
         return percentage
             ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(number) + '%'
-            : new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(number);
+            : new Intl.NumberFormat('ru-RU', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1
+            }).format(number);
     }
 
     function formatMoney(item) {
@@ -287,6 +292,37 @@
         }
     }
 
+    function normalizeCountry(value) {
+        var raw = String(value || '').trim();
+        var alias = countryAliases[raw.toUpperCase()];
+        return alias || {
+            display: raw,
+            prepositional: raw,
+            compact: raw
+        };
+    }
+
+    function formatKinopoiskReleaseLabel(type, country) {
+        if (type === 'WORLD_PREMIER') {
+            return 'Мировая премьера';
+        }
+
+        if ((type === 'PREMIERE' || type === 'COUNTRY_SPECIFIC') && country) {
+            var normalized = normalizeCountry(country);
+            if (normalized.prepositional) {
+                return 'Премьера в ' + normalized.prepositional;
+            }
+        }
+
+        if (type === 'PREMIERE') {
+            return 'Премьера';
+        }
+        if (type === 'COUNTRY_SPECIFIC') {
+            return 'Начало проката';
+        }
+        return 'Дата релиза';
+    }
+
     function ensureStyles() {
         if (document.getElementById('kinopoiskEnhancedPresentationStyles')) {
             return;
@@ -297,8 +333,7 @@
         style.textContent = [
             '.kp-presentation{margin:1.2em 0;padding:1.05em;border:1px solid rgba(255,255,255,.12);border-radius:.75em;background:rgba(12,15,25,.62);backdrop-filter:blur(8px);color:inherit}',
             '.kp-presentation__header{display:flex;align-items:center;gap:.7em;flex-wrap:wrap;margin-bottom:.9em}',
-            '.kp-presentation__title{font-size:1.35em;font-weight:700;margin-right:auto}',
-            '.kp-links{display:flex;gap:.5em;flex-wrap:wrap}',
+            '.kp-presentation__title{font-size:1.35em;font-weight:700}',
             '.kp-link,.kp-action{display:inline-flex;align-items:center;gap:.3em;padding:.42em .68em;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:inherit;text-decoration:none;cursor:pointer;font:inherit}',
             '.kp-link:hover,.kp-action:hover{background:rgba(255,255,255,.16)}',
             '.kp-ratings{display:flex;gap:.65em;flex-wrap:wrap;margin:.65em 0 1em}',
@@ -318,8 +353,9 @@
             '.kp-details__body{padding:0 .82em .82em}',
             '.kp-row{display:grid;grid-template-columns:minmax(7.5em,.36fr) 1fr;gap:.7em;padding:.38em 0;border-top:1px solid rgba(255,255,255,.07)}',
             '.kp-row__label{font-weight:600;opacity:.78}',
-            '.kp-person-list{display:flex;gap:.35em;flex-wrap:wrap}',
+            '.kp-person-list{display:flex;gap:.35em;flex-wrap:wrap;align-items:center}',
             '.kp-person{padding:.2em .45em;border-radius:.38em;background:rgba(255,255,255,.07)}',
+            '.kp-person-more{padding:.25em .55em;font-size:.9em}',
             '.kp-relations{display:flex;gap:.65em;overflow-x:auto;padding:.2em 0 .55em;scrollbar-width:thin}',
             '.kp-relation{width:8.2em;flex:0 0 8.2em;color:inherit;text-decoration:none}',
             '.kp-relation img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:.52em;background:rgba(255,255,255,.06)}',
@@ -380,18 +416,60 @@
     function normalizeCoreReleaseDates(core) {
         return asArray(pick(core, 'releaseDates', 'ReleaseDates')).map(function (item) {
             var type = String(pick(item, 'type', 'Type') || '');
-            var country = String(pick(item, 'country', 'Country') || '');
+            var country = String(pick(item, 'country', 'Country') || '').trim();
+            var normalizedCountry = normalizeCountry(country);
             return {
-                key: 'kp|' + type + '|' + String(pick(item, 'date', 'Date') || '') + '|' + country,
+                key: 'kp|' + type + '|' + String(pick(item, 'date', 'Date') || '') + '|' + normalizedCountry.display,
                 kind: 'kinopoisk',
-                label: releaseTypeLabels[type] || 'Дата релиза',
+                type: type,
+                label: formatKinopoiskReleaseLabel(type, country),
+                compactLabel: type === 'WORLD_PREMIER'
+                    ? 'Мир'
+                    : (normalizedCountry.compact || 'Премьера'),
                 date: String(pick(item, 'date', 'Date') || ''),
-                country: country,
+                country: normalizedCountry.display,
                 source: 'КиноПоиск',
                 icon: type === 'WORLD_PREMIER' ? 'public' : 'event',
                 reRelease: !!pick(item, 'reRelease', 'ReRelease')
             };
         }).filter(function (item) { return item.date; });
+    }
+
+    function isRussianRelease(item) {
+        return normalizeCountry(item.country).display === 'Россия'
+            && (item.type === 'PREMIERE' || item.type === 'COUNTRY_SPECIFIC');
+    }
+
+    function selectPrimaryKinopoiskDates(core) {
+        var dates = normalizeCoreReleaseDates(core).filter(function (item) {
+            return !item.reRelease;
+        });
+        var world = dates
+            .filter(function (item) { return item.type === 'WORLD_PREMIER'; })
+            .sort(function (left, right) { return left.date.localeCompare(right.date); })[0];
+        var russia = dates
+            .filter(isRussianRelease)
+            .sort(function (left, right) {
+                if (left.date !== right.date) {
+                    return left.date.localeCompare(right.date);
+                }
+                return left.type === 'PREMIERE' ? -1 : 1;
+            })[0];
+
+        var result = [];
+        if (world) {
+            result.push(Object.assign({}, world, {
+                label: 'Мировая премьера',
+                compactLabel: 'Мир'
+            }));
+        }
+        if (russia) {
+            result.push(Object.assign({}, russia, {
+                label: 'Премьера в России',
+                compactLabel: 'Россия'
+            }));
+        }
+        return deduplicateDates(result);
     }
 
     function getPreferredRegion() {
@@ -446,7 +524,9 @@
             return selected ? {
                 key: 'tmdb|' + bucket.kind + '|' + selected.release_date + '|' + selectedCountry,
                 kind: bucket.kind,
+                type: bucket.kind,
                 label: bucket.label,
+                compactLabel: bucket.label,
                 date: selected.release_date,
                 country: selectedCountry,
                 source: 'TMDB',
@@ -492,10 +572,19 @@
         return chip;
     }
 
+    function buildDateKey(item) {
+        if (item.source === 'КиноПоиск'
+            && (item.type === 'PREMIERE' || item.type === 'COUNTRY_SPECIFIC')
+            && item.country) {
+            return ['kp-country', item.country, item.date, item.reRelease].join('|');
+        }
+        return item.key || [item.label, item.date, item.country, item.source].join('|');
+    }
+
     function deduplicateDates(items) {
         var seen = new Set();
         return items.filter(function (item) {
-            var key = item.key || [item.label, item.date, item.country, item.source].join('|');
+            var key = buildDateKey(item);
             if (seen.has(key)) {
                 return false;
             }
@@ -538,9 +627,11 @@
                     createElement(
                         'div',
                         'kp-modal__date-meta',
-                        [item.country || 'Страна не указана', item.source, item.reRelease ? 'повторный прокат' : '']
-                            .filter(Boolean)
-                            .join(' · ')
+                        [
+                            item.country || 'Страна не указана',
+                            item.source,
+                            item.reRelease ? 'повторный прокат' : ''
+                        ].filter(Boolean).join(' · ')
                     )
                 );
                 row.append(left, createElement('div', '', formatDate(item.date)));
@@ -559,29 +650,32 @@
         close.focus();
     }
 
-    function enhanceReleaseChip(tmdbDates, allDates) {
+    function enhanceReleaseChip(displayDates, allDates, itemId) {
         var chip = document.querySelector('.mediaInfoItem-releaseDate');
-        if (!chip || chip.dataset.kinopoiskEnhanced === 'true') {
+        if (!chip || !displayDates.length) {
+            return;
+        }
+        if (chip.dataset.kinopoiskEnhancedItemId === itemId) {
             return;
         }
 
-        if (!tmdbDates.length) {
-            return;
-        }
-
-        chip.dataset.kinopoiskEnhanced = 'true';
+        chip.dataset.kinopoiskEnhancedItemId = itemId;
         chip.textContent = '';
         chip.style.display = 'flex';
         chip.style.alignItems = 'center';
         chip.style.gap = '.55em';
         chip.style.flexWrap = 'wrap';
 
-        tmdbDates.forEach(function (item) {
+        displayDates.forEach(function (item) {
             var span = createElement('span', 'kp-release-enhanced');
-            span.title = item.label + ' · ' + (item.country || 'страна не указана') + ' · TMDB';
+            span.title = item.label
+                + ' · '
+                + (item.country || 'страна не указана')
+                + ' · '
+                + item.source;
             span.append(
                 createElement('span', 'material-icons', item.icon),
-                createElement('span', 'kp-release-label', item.label),
+                createElement('span', 'kp-release-label', item.compactLabel || item.label),
                 createElement('span', '', formatDate(item.date))
             );
             chip.appendChild(span);
@@ -612,22 +706,55 @@
             if (!people.length) {
                 return;
             }
+
             var row = createElement('div', 'kp-row');
             var key = String(pick(group, 'key', 'Key') || 'UNKNOWN');
             var label = String(pick(group, 'label', 'Label') || professionLabels[key] || key);
-            row.appendChild(createElement('div', 'kp-row__label', label));
             var list = createElement('div', 'kp-person-list');
-            people.slice(0, key === 'ACTOR' ? 20 : 12).forEach(function (person) {
-                var name = String(pick(person, 'name', 'Name') || pick(person, 'originalName', 'OriginalName') || '');
-                if (name) {
-                    list.appendChild(createElement('span', 'kp-person', name));
+            var pageSize = 10;
+            var visibleCount = Math.min(pageSize, people.length);
+
+            function renderPeople() {
+                list.textContent = '';
+                people.slice(0, visibleCount).forEach(function (person) {
+                    var name = String(
+                        pick(person, 'name', 'Name')
+                        || pick(person, 'originalName', 'OriginalName')
+                        || ''
+                    );
+                    if (name) {
+                        list.appendChild(createElement('span', 'kp-person', name));
+                    }
+                });
+
+                if (people.length <= pageSize) {
+                    return;
                 }
-            });
-            if (people.length > (key === 'ACTOR' ? 20 : 12)) {
-                list.appendChild(createElement('span', 'kp-person', 'ещё ' + String(people.length - (key === 'ACTOR' ? 20 : 12))));
+
+                var remaining = people.length - visibleCount;
+                var expanded = remaining <= 0;
+                var button = createElement(
+                    'button',
+                    'kp-action kp-person-more',
+                    expanded
+                        ? 'Свернуть'
+                        : 'Показать ещё ' + String(Math.min(pageSize, remaining))
+                );
+                button.type = 'button';
+                button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                button.addEventListener('click', function () {
+                    visibleCount = expanded
+                        ? Math.min(pageSize, people.length)
+                        : Math.min(people.length, visibleCount + pageSize);
+                    renderPeople();
+                });
+                list.appendChild(button);
             }
+
+            row.appendChild(createElement('div', 'kp-row__label', label));
             row.appendChild(list);
             body.appendChild(row);
+            renderPeople();
         });
         details.appendChild(body);
         return body.childElementCount ? details : null;
@@ -659,7 +786,11 @@
                 image.referrerPolicy = 'no-referrer';
                 card.appendChild(image);
             }
-            var name = String(pick(relation, 'name', 'Name') || pick(relation, 'originalName', 'OriginalName') || 'Связанный фильм');
+            var name = String(
+                pick(relation, 'name', 'Name')
+                || pick(relation, 'originalName', 'OriginalName')
+                || 'Связанный фильм'
+            );
             var type = String(pick(relation, 'relationType', 'RelationType') || '');
             card.append(
                 createElement('span', 'kp-relation__name', name),
@@ -709,23 +840,39 @@
             return;
         }
 
-        var visible = items.filter(function (item) { return !pick(item, 'spoiler', 'Spoiler'); });
-        var spoilers = items.filter(function (item) { return !!pick(item, 'spoiler', 'Spoiler'); });
+        var visible = items.filter(function (item) {
+            return !pick(item, 'spoiler', 'Spoiler');
+        });
+        var spoilers = items.filter(function (item) {
+            return !!pick(item, 'spoiler', 'Spoiler');
+        });
         var list = createElement('ul', 'kp-list');
         visible.forEach(function (item) {
             var type = String(pick(item, 'type', 'Type') || 'FACT');
             var prefix = type === 'BLOOPER' ? 'Ошибка: ' : '';
-            list.appendChild(createElement('li', '', prefix + String(pick(item, 'text', 'Text') || '')));
+            list.appendChild(createElement(
+                'li',
+                '',
+                prefix + String(pick(item, 'text', 'Text') || '')
+            ));
         });
         body.appendChild(list);
 
         if (spoilers.length) {
-            var button = createElement('button', 'kp-action', 'Показать факты со спойлерами (' + spoilers.length + ')');
+            var button = createElement(
+                'button',
+                'kp-action',
+                'Показать факты со спойлерами (' + spoilers.length + ')'
+            );
             button.type = 'button';
             button.addEventListener('click', function () {
                 button.remove();
                 spoilers.forEach(function (item) {
-                    list.appendChild(createElement('li', '', String(pick(item, 'text', 'Text') || '')));
+                    list.appendChild(createElement(
+                        'li',
+                        '',
+                        String(pick(item, 'text', 'Text') || '')
+                    ));
                 });
             });
             body.appendChild(button);
@@ -763,12 +910,24 @@
             var nomination = String(pick(item, 'nominationName', 'NominationName') || '');
             var year = Number(pick(item, 'year', 'Year') || 0);
             var win = !!pick(item, 'win', 'Win');
-            var heading = createElement('div', 'kp-award__name' + (win ? ' kp-win' : ''), (win ? 'Победа · ' : 'Номинация · ') + name);
+            var heading = createElement(
+                'div',
+                'kp-award__name' + (win ? ' kp-win' : ''),
+                (win ? 'Победа · ' : 'Номинация · ') + name
+            );
             award.appendChild(heading);
-            award.appendChild(createElement('div', 'kp-award__meta', [nomination, year || ''].filter(Boolean).join(' · ')));
+            award.appendChild(createElement(
+                'div',
+                'kp-award__meta',
+                [nomination, year || ''].filter(Boolean).join(' · ')
+            ));
             var persons = asArray(pick(item, 'persons', 'Persons'))
                 .map(function (person) {
-                    return String(pick(person, 'name', 'Name') || pick(person, 'originalName', 'OriginalName') || '');
+                    return String(
+                        pick(person, 'name', 'Name')
+                        || pick(person, 'originalName', 'OriginalName')
+                        || ''
+                    );
                 })
                 .filter(Boolean);
             if (persons.length) {
@@ -784,12 +943,18 @@
             || document.querySelector('.detailPageContent');
     }
 
-    function renderPanel(itemId, item, core, tmdbDates) {
+    function renderPanel(itemId, core, tmdbDates) {
         ensureStyles();
         var existing = document.getElementById('kinopoiskEnhancedPresentationPanel');
+        var primaryDates = selectPrimaryKinopoiskDates(core);
+        var allDates = deduplicateDates(
+            tmdbDates.concat(normalizeCoreReleaseDates(core))
+        );
+        var barDates = tmdbDates.length ? tmdbDates : primaryDates;
+
         if (existing) {
             if (existing.dataset.itemId === itemId) {
-                enhanceReleaseChip(tmdbDates, deduplicateDates(tmdbDates.concat(normalizeCoreReleaseDates(core))));
+                enhanceReleaseChip(barDates, allDates, itemId);
                 return;
             }
             existing.remove();
@@ -807,22 +972,6 @@
 
         var header = createElement('div', 'kp-presentation__header');
         header.appendChild(createElement('div', 'kp-presentation__title', 'КиноПоиск'));
-        var links = createElement('div', 'kp-links');
-        var kinopoiskLink = createSafeLink(
-            String(pick(core, 'kinopoiskUrl', 'KinopoiskUrl') || ''),
-            'КиноПоиск ↗'
-        );
-        var imdbLink = createSafeLink(
-            String(pick(core, 'imdbUrl', 'ImdbUrl') || ''),
-            'IMDb ↗'
-        );
-        if (kinopoiskLink) {
-            links.appendChild(kinopoiskLink);
-        }
-        if (imdbLink) {
-            links.appendChild(imdbLink);
-        }
-        header.appendChild(links);
         panel.appendChild(header);
 
         var ratings = renderRatings(core);
@@ -830,15 +979,16 @@
             panel.appendChild(ratings);
         }
 
-        var allDates = deduplicateDates(tmdbDates.concat(normalizeCoreReleaseDates(core)));
-        if (allDates.length) {
+        if (primaryDates.length) {
             var dates = createElement('div', 'kp-date-list');
-            allDates.slice(0, 5).forEach(function (date) {
+            primaryDates.forEach(function (date) {
                 dates.appendChild(createDateChip(date, true));
             });
             var moreDates = createElement('button', 'kp-action', 'Все даты');
             moreDates.type = 'button';
-            moreDates.addEventListener('click', function () { showDatesDialog(allDates); });
+            moreDates.addEventListener('click', function () {
+                showDatesDialog(allDates);
+            });
             dates.appendChild(moreDates);
             panel.appendChild(dates);
         }
@@ -859,9 +1009,8 @@
         );
         panel.appendChild(sections);
         container.appendChild(panel);
-        lastRenderedItemId = itemId;
 
-        enhanceReleaseChip(tmdbDates, allDates);
+        enhanceReleaseChip(barDates, allDates, itemId);
     }
 
     function renderCurrentItem() {
@@ -885,12 +1034,14 @@
 
             Promise.all([
                 fetchCore(kinopoiskId),
-                itemType === 'Movie' ? fetchTmdbReleaseDates(item) : Promise.resolve([])
+                itemType === 'Movie'
+                    ? fetchTmdbReleaseDates(item)
+                    : Promise.resolve([])
             ]).then(function (values) {
                 if (getCurrentItemId() !== itemId) {
                     return;
                 }
-                renderPanel(itemId, item, values[0], values[1]);
+                renderPanel(itemId, values[0], values[1]);
             }).catch(function (error) {
                 console.warn('[КиноПоиск] Расширенная карточка не отображена.', error);
             });
