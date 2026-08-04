@@ -27,6 +27,7 @@
     <None Remove="Web\kinopoiskWidgetTrailerPlayer.js" />
     <None Remove="Web\kinopoiskEnhancedPresentation.js" />
     <None Remove="Web\kinopoiskReviewsIntegration.js" />
+    <None Remove="Web\kinopoiskTagLocalization.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
     </EmbeddedResource>
@@ -38,6 +39,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskReviewsIntegration.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskReviewsIntegration.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskTagLocalization.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskTagLocalization.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
