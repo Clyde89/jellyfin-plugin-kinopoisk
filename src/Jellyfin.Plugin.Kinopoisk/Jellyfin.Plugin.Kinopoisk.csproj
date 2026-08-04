@@ -26,6 +26,7 @@
     <None Remove="Configuration\runtimeStatusRefresh.html" />
     <None Remove="Web\kinopoiskWidgetTrailerPlayer.js" />
     <None Remove="Web\kinopoiskEnhancedPresentation.js" />
+    <None Remove="Web\kinopoiskReviewsIntegration.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
     </EmbeddedResource>
@@ -34,6 +35,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskEnhancedPresentation.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskReviewsIntegration.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskReviewsIntegration.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
