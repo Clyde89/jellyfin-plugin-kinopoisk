@@ -27,6 +27,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("scrollBy", script);
             Assert.Contains("scrollbar-width:none", script);
             Assert.Contains("KinopoiskTmdbResolver", script);
+            Assert.Contains("releaseCache.delete(itemId)", script);
             Assert.Contains("/release_dates", script);
             Assert.Contains("Кино", script);
             Assert.Contains("Цифра", script);
