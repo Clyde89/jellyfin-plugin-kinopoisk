@@ -306,6 +306,7 @@
         }
         var promise = resolveTmdbId(item).then(function (tmdbId) {
             if (!tmdbId) {
+                releaseCache.delete(itemId);
                 return [];
             }
             return fetchJson('/JellyfinEnhanced/tmdb/movie/' + encodeURIComponent(String(tmdbId)) + '/release_dates')
@@ -313,6 +314,7 @@
                     return resolveReleaseBuckets(asArray(data && data.results));
                 });
         }).catch(function (error) {
+            releaseCache.delete(itemId);
             console.warn('[КиноПоиск] Резервный бар дат не сформирован.', error);
             return [];
         });
