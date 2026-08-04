@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 namespace Jellyfin.Plugin.Kinopoisk.Presentation
 {
     /// <summary>
-    /// Загружает факты, бюджет, сборы и награды без передачи API-токена браузеру.
+    /// Загружены факты, бюджет, сборы и награды без передачи API-токена браузеру.
     /// </summary>
     public sealed class KinopoiskSupplementalApiClient
     {
@@ -202,17 +202,23 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             var source = JsonConvert.DeserializeObject<FactsWireResponse>(json)
                 ?? new FactsWireResponse();
             var items = source.Items
+                .Select(item => new
+                {
+                    Text = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.Text),
+                    Type = item.Type ?? string.Empty,
+                    item.Spoiler
+                })
                 .Where(item => !string.IsNullOrWhiteSpace(item.Text))
                 .Select(item => new KinopoiskFactInfo
                 {
-                    Text = item.Text!.Trim(),
-                    Type = item.Type ?? string.Empty,
+                    Text = item.Text,
+                    Type = item.Type,
                     Spoiler = item.Spoiler
                 })
                 .ToArray();
             return new KinopoiskFactsResponse
             {
-                Total = source.Total > 0 ? source.Total : items.Length,
+                Total = items.Length,
                 Items = items
             };
         }
@@ -247,8 +253,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                     || !string.IsNullOrWhiteSpace(item.NominationName))
                 .Select(item => new KinopoiskAwardInfo
                 {
-                    Name = item.Name ?? string.Empty,
-                    NominationName = item.NominationName ?? string.Empty,
+                    Name = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.Name),
+                    NominationName = KinopoiskPresentationTextSanitizer.NormalizePlainText(item.NominationName),
                     Year = item.Year,
                     Win = item.Win,
                     ImageUrl = item.ImageUrl ?? string.Empty,
@@ -256,9 +262,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                         .Select(person => new KinopoiskAwardPersonInfo
                         {
                             KinopoiskId = person.KinopoiskId,
-                            Name = person.NameRu ?? string.Empty,
-                            OriginalName = person.NameEn ?? string.Empty,
-                            Profession = person.Profession ?? string.Empty
+                            Name = KinopoiskPresentationTextSanitizer.NormalizePlainText(person.NameRu),
+                            OriginalName = KinopoiskPresentationTextSanitizer.NormalizePlainText(person.NameEn),
+                            Profession = KinopoiskPresentationTextSanitizer.NormalizePlainText(person.Profession)
                         })
                         .ToArray()
                 })
@@ -268,7 +274,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 .ToArray();
             return new KinopoiskAwardsResponse
             {
-                Total = source.Total > 0 ? source.Total : items.Length,
+                Total = items.Length,
                 Items = items
             };
         }
