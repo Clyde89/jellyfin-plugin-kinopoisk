@@ -40,7 +40,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.DoesNotContain("<", result);
             Assert.DoesNotContain(">", result);
             Assert.DoesNotContain("onerror", result);
-            Assert.Equal("Текстalert('x') продолжен.", result);
+            Assert.DoesNotContain("alert", result);
+            Assert.Equal("Текст продолжен.", result);
         }
 
         [Theory]
