@@ -17,15 +17,18 @@ using Newtonsoft.Json.Linq;
 namespace Jellyfin.Plugin.Kinopoisk.Services
 {
     /// <summary>
-    /// Регистрирует расширенную карточку КиноПоиска через JavaScript Injector.
+    /// Зарегистрирована расширенная карточка КиноПоиска через JavaScript Injector.
     /// </summary>
     public sealed class KinopoiskWebPresentationIntegrationService : IHostedService
     {
         private const string JavaScriptInjectorAssemblyName = "Jellyfin.Plugin.JavaScriptInjector";
         private const string JavaScriptInjectorInterfaceName =
             "Jellyfin.Plugin.JavaScriptInjector.PluginInterface";
-        private const string ResourceName =
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js";
+        private static readonly string[] ResourceNames =
+        {
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js",
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js"
+        };
         private const string RegistrationSuffix = "kinopoisk-enhanced-presentation";
 
         private readonly ILogger<KinopoiskWebPresentationIntegrationService> _logger;
@@ -87,7 +90,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 {
                     ["id"] = $"{plugin.Id:D}-{RegistrationSuffix}",
                     ["name"] = "Расширенная карточка КиноПоиска",
-                    ["script"] = ReadEmbeddedScript(),
+                    ["script"] = ReadEmbeddedScripts(),
                     ["enabled"] = true,
                     ["requiresAuthentication"] = true,
                     ["pluginId"] = plugin.Id.ToString("D"),
@@ -122,18 +125,26 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
         }
 
-        private static string ReadEmbeddedScript()
+        private static string ReadEmbeddedScripts()
         {
             var assembly = typeof(KinopoiskWebPresentationIntegrationService).Assembly;
-            using var stream = assembly.GetManifestResourceStream(ResourceName)
-                ?? throw new InvalidOperationException(
-                    $"Встроенный ресурс расширенной карточки не найден: {ResourceName}");
-            using var reader = new StreamReader(
-                stream,
-                Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true,
-                leaveOpen: false);
-            return reader.ReadToEnd();
+            var builder = new StringBuilder();
+            foreach (var resourceName in ResourceNames)
+            {
+                using var stream = assembly.GetManifestResourceStream(resourceName)
+                    ?? throw new InvalidOperationException(
+                        $"Встроенный ресурс расширенной карточки не найден: {resourceName}");
+                using var reader = new StreamReader(
+                    stream,
+                    Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: true,
+                    leaveOpen: false);
+                if (builder.Length > 0)
+                    builder.AppendLine().AppendLine();
+                builder.Append(reader.ReadToEnd());
+            }
+
+            return builder.ToString();
         }
 
         private void RecordFailure(Exception exception)
