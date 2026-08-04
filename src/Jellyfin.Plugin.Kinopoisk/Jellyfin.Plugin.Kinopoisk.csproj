@@ -31,6 +31,7 @@
     <None Remove="Web\kinopoiskElsewhereBridge.js" />
     <None Remove="Web\kinopoiskRecommendations.js" />
     <None Remove="Web\kinopoiskRuntimePolish.js" />
+    <None Remove="Web\kinopoiskCarouselRebind.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
     </EmbeddedResource>
@@ -54,6 +55,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRuntimePolish.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskCarouselRebind.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
