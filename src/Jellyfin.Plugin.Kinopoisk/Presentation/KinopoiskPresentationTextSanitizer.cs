@@ -21,7 +21,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             if (string.IsNullOrWhiteSpace(value))
                 return string.Empty;
 
-            var text = LineBreakTagRegex().Replace(value, "\n");
+            var text = ExecutableBlockRegex().Replace(value, string.Empty);
+            text = LineBreakTagRegex().Replace(text, "\n");
             text = BlockBoundaryTagRegex().Replace(text, "\n");
             text = HtmlTagRegex().Replace(text, string.Empty);
             text = WebUtility.HtmlDecode(text);
@@ -31,6 +32,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             text = ExcessiveLineBreakRegex().Replace(text, "\n\n");
             return text.Trim();
         }
+
+        [GeneratedRegex(
+            @"(?is)<\s*(?:script|style|template|noscript)\b[^>]*>.*?<\s*/\s*(?:script|style|template|noscript)\s*>",
+            RegexOptions.CultureInvariant)]
+        private static partial Regex ExecutableBlockRegex();
 
         [GeneratedRegex(@"(?is)<\s*br\s*/?\s*>", RegexOptions.CultureInvariant)]
         private static partial Regex LineBreakTagRegex();
