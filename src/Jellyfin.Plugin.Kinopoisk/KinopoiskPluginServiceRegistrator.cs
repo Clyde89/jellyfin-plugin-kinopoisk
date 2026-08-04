@@ -68,6 +68,13 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
                 sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>()
             ));
+            serviceCollection.AddSingleton((sp) => new KinopoiskSimilarApiClient(
+                Plugin.Instance.Configuration.ApiToken,
+                sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>()
+            ));
 
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
@@ -97,6 +104,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddHostedService<KinopoiskWebReviewsIntegrationService>();
             serviceCollection.AddHostedService<KinopoiskWebTagLocalizationService>();
             serviceCollection.AddHostedService<KinopoiskWebElsewhereBridgeService>();
+            serviceCollection.AddHostedService<KinopoiskWebRecommendationsService>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
