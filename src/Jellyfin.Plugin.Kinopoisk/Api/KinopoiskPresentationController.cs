@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Kinopoisk.Api
 {
     /// <summary>
-    /// Предоставляет браузеру нормализованные данные карточки без раскрытия API-токена.
+    /// Предоставлены нормализованные данные карточки без раскрытия API-токена.
     /// </summary>
     [ApiController]
     [Authorize]
@@ -103,6 +103,29 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
                 "награды",
                 token => _supplementalApiClient.GetAwards(kinopoiskId, token),
                 cancellationToken);
+
+        [HttpGet("{kinopoiskId:int}/reviews")]
+        [ProducesResponseType(typeof(KinopoiskReviewsResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public Task<ActionResult<KinopoiskReviewsResponse>> GetReviews(
+            int kinopoiskId,
+            [FromQuery] int page = 1,
+            [FromQuery] string? order = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (page is < 1 or > 50)
+                return Task.FromResult<ActionResult<KinopoiskReviewsResponse>>(BadRequest());
+
+            return ExecuteSupplemental(
+                kinopoiskId,
+                "рецензии",
+                token => _supplementalApiClient.GetReviews(
+                    kinopoiskId,
+                    page,
+                    order,
+                    token),
+                cancellationToken);
+        }
 
         private async Task<ActionResult<T>> ExecuteSupplemental<T>(
             int kinopoiskId,
