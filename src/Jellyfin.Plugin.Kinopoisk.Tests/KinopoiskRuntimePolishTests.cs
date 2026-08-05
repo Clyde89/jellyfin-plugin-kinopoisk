@@ -57,7 +57,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldCombineRuntimePolishWithPresentationRegistration()
+        public void ShouldCombineRuntimePolishWithStandaloneClient()
         {
             var source = File.ReadAllText(
                 Path.Combine(
@@ -68,7 +68,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
-                    "KinopoiskWebPresentationIntegrationService.cs"));
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains("kinopoiskEnhancedPresentation.js", source);
             Assert.Contains("kinopoiskRuntimePolish.js", source);
