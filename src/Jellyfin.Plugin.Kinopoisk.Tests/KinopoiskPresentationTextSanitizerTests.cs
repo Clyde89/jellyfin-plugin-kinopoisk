@@ -1,3 +1,5 @@
+#nullable enable
+
 using Jellyfin.Plugin.Kinopoisk.Presentation;
 using Xunit;
 
