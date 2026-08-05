@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -20,13 +19,13 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Kinopoisk.Services
 {
     /// <summary>
-    /// Устанавливает автономный веб-клиент КиноПоиска без обязательного внешнего JavaScript-инжектора.
+    /// Подключает автономный веб-клиент КиноПоиска без обязательного JavaScript-инжектора.
     /// </summary>
     public sealed class KinopoiskStandaloneWebClientService : IHostedService
     {
         internal const string BeginMarker = "<!-- KINOPOISK_WEB_CLIENT_BEGIN -->";
         internal const string EndMarker = "<!-- KINOPOISK_WEB_CLIENT_END -->";
-        internal const string ClientFileName = "kinopoisk-web-client.js";
+        internal const string WebClientPath = "../Kinopoisk/WebClient.js";
 
         private const string JavaScriptInjectorAssemblyName =
             "Jellyfin.Plugin.JavaScriptInjector";
@@ -36,21 +35,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private const string InitialIndexBackupName = "index.html.before-kinopoisk";
         private const string RollbackScriptName = "rollback.sh";
         private const string ManifestFileName = "manifest.json";
-
-        private static readonly string[] ResourceNames =
-        {
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskWidgetTrailerPlayer.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskReviewsIntegration.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskTagLocalization.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskElsewhereBridge.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js",
-            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationScrollbarStyle.js"
-        };
 
         private readonly IApplicationPaths _applicationPaths;
         private readonly ILogger<KinopoiskStandaloneWebClientService> _logger;
@@ -99,61 +83,45 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 var plugin = Plugin.Instance
                     ?? throw new InvalidOperationException(
                         "Экземпляр плагина КиноПоиск ещё не создан.");
-                var script = ReadEmbeddedScripts();
-                var digest = ComputeSha256(script);
-                var clientPath = Path.Combine(webPath, ClientFileName);
+                var digest = KinopoiskWebClientBundle.Sha256;
                 var originalIndex = File.ReadAllText(indexPath, Encoding.UTF8);
                 var cleanIndex = RemoveManagedBlock(originalIndex);
                 var updatedIndex = BuildManagedIndex(cleanIndex, digest);
-
-                CreateInitialBackup(plugin.DataFolderPath, cleanIndex);
-
-                var previousClientExists = File.Exists(clientPath);
-                var previousClient = previousClientExists
-                    ? File.ReadAllText(clientPath, Encoding.UTF8)
-                    : null;
-                var clientMatches = previousClientExists
-                    && string.Equals(
-                        ComputeFileSha256(clientPath),
-                        digest,
-                        StringComparison.Ordinal);
                 var indexMatches = string.Equals(
                     originalIndex,
                     updatedIndex,
                     StringComparison.Ordinal);
                 string? backupDirectory = null;
 
-                if (!clientMatches || !indexMatches)
+                if (!indexMatches)
                 {
+                    CreateInitialBackup(plugin.DataFolderPath, cleanIndex);
                     backupDirectory = CreateTransactionBackup(
                         plugin.DataFolderPath,
                         indexPath,
                         originalIndex,
-                        clientPath,
-                        previousClientExists,
-                        previousClient,
                         digest);
 
                     try
                     {
-                        WriteTextAtomically(clientPath, script);
                         WriteTextAtomically(indexPath, updatedIndex);
-                        VerifyInstallation(indexPath, updatedIndex, clientPath, digest);
+                        VerifyInstallation(indexPath, updatedIndex, digest);
                     }
-                    catch
+                    catch (Exception exception)
                     {
-                        RestorePreviousInstallation(
-                            indexPath,
-                            originalIndex,
-                            clientPath,
-                            previousClientExists,
-                            previousClient);
+                        TryRestorePreviousIndex(indexPath, originalIndex);
+                        if (exception is UnauthorizedAccessException or IOException)
+                        {
+                            RecordWriteUnavailable(exception, indexPath);
+                            return;
+                        }
+
                         throw;
                     }
                 }
                 else
                 {
-                    VerifyInstallation(indexPath, updatedIndex, clientPath, digest);
+                    VerifyInstallation(indexPath, updatedIndex, digest);
                 }
 
                 var removedLegacyRegistrations =
@@ -161,21 +129,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 KinopoiskWebTrailerIntegrationState.SetRegistered(true);
 
                 _logger.LogInformation(
-                    "Автономный веб-клиент КиноПоиска готов в {WebPath}; SHA-256 {Digest}; "
-                    + "удалено старых регистраций Injector: {RemovedCount}",
-                    webPath,
+                    "Автономный веб-клиент КиноПоиска готов; endpoint {Endpoint}; "
+                    + "SHA-256 {Digest}; удалено старых регистраций Injector: {RemovedCount}",
+                    WebClientPath,
                     digest,
                     removedLegacyRegistrations);
                 KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
                     LogLevel.Information,
                     GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
                     "web-client.standalone.installed",
-                    "Автономный веб-клиент КиноПоиска установлен и проверен.",
+                    "Автономный веб-клиент КиноПоиска подключён и проверен.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["digest"] = digest,
-                        ["resourceCount"] = ResourceNames.Length.ToString(CultureInfo.InvariantCulture),
-                        ["changed"] = (!clientMatches || !indexMatches).ToString(),
+                        ["resourceCount"] = KinopoiskWebClientBundle.ResourceCount
+                            .ToString(CultureInfo.InvariantCulture),
+                        ["delivery"] = "plugin-api",
+                        ["endpoint"] = WebClientPath,
+                        ["changed"] = (!indexMatches).ToString(),
                         ["legacyRegistrationsRemoved"] =
                             removedLegacyRegistrations.ToString(CultureInfo.InvariantCulture),
                         ["backupCreated"] = (backupDirectory is not null).ToString()
@@ -184,12 +155,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             catch (Exception exception)
             {
                 KinopoiskWebTrailerIntegrationState.SetRegistered(false);
-                _logger.LogError(exception, "Автономный веб-клиент КиноПоиска не установлен");
+                _logger.LogError(exception, "Автономный веб-клиент КиноПоиска не подключён");
                 KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
                     LogLevel.Error,
                     GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
                     "web-client.standalone.failed",
-                    "Автономный веб-клиент КиноПоиска не установлен.",
+                    "Автономный веб-клиент КиноПоиска не подключён.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["errorType"] = exception.GetType().Name
@@ -212,7 +183,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var scriptBlock = string.Join(
                 Environment.NewLine,
                 BeginMarker,
-                $"    <script src=\"{ClientFileName}?v={digest[..16]}\" defer></script>",
+                $"    <script src=\"{WebClientPath}?v={digest[..16]}\" defer></script>",
                 EndMarker);
             return cleanIndex.Insert(bodyEnd, scriptBlock + Environment.NewLine);
         }
@@ -236,65 +207,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             return value.Remove(start, end - start);
         }
 
-        internal static string ComputeSha256(string value)
-            => Convert.ToHexString(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(value)))
-                .ToLowerInvariant();
-
-        private static string ComputeFileSha256(string path)
-            => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))
-                .ToLowerInvariant();
-
-        private static string ReadEmbeddedScripts()
-        {
-            var assembly = typeof(KinopoiskStandaloneWebClientService).Assembly;
-            var builder = new StringBuilder();
-            foreach (var resourceName in ResourceNames)
-            {
-                using var stream = assembly.GetManifestResourceStream(resourceName)
-                    ?? throw new InvalidOperationException(
-                        $"Встроенный ресурс веб-клиента не найден: {resourceName}");
-                using var reader = new StreamReader(
-                    stream,
-                    Encoding.UTF8,
-                    detectEncodingFromByteOrderMarks: true,
-                    leaveOpen: false);
-                if (builder.Length > 0)
-                    builder.AppendLine().AppendLine();
-                builder.Append(reader.ReadToEnd());
-            }
-
-            return builder.ToString();
-        }
-
         private static void VerifyInstallation(
             string indexPath,
             string expectedIndex,
-            string clientPath,
             string expectedDigest)
         {
-            if (!File.Exists(clientPath))
-                throw new InvalidDataException("Файл автономного веб-клиента не создан.");
-
-            var actualDigest = ComputeFileSha256(clientPath);
-            if (!string.Equals(actualDigest, expectedDigest, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException(
-                    "Контрольная сумма автономного веб-клиента не совпала после записи.");
-            }
-
             var actualIndex = File.ReadAllText(indexPath, Encoding.UTF8);
             if (!string.Equals(actualIndex, expectedIndex, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
-                    "index.html не совпал с ожидаемым содержимым после записи.");
+                    "index.html не совпал с ожидаемым содержимым после подключения веб-клиента.");
             }
 
             if (CountOccurrences(actualIndex, BeginMarker) != 1
-                || CountOccurrences(actualIndex, EndMarker) != 1)
+                || CountOccurrences(actualIndex, EndMarker) != 1
+                || CountOccurrences(actualIndex, WebClientPath) != 1
+                || !actualIndex.Contains(
+                    string.Concat("?v=", expectedDigest[..16]),
+                    StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
-                    "Управляемые маркеры автономного веб-клиента установлены некорректно.");
+                    "Управляемый блок автономного веб-клиента установлен некорректно.");
             }
         }
 
@@ -324,9 +257,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             string dataFolderPath,
             string indexPath,
             string originalIndex,
-            string clientPath,
-            bool previousClientExists,
-            string? previousClient,
             string digest)
         {
             var backupRoot = Path.Combine(dataFolderPath, BackupDirectoryName);
@@ -347,29 +277,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             WriteTextAtomically(
                 Path.Combine(transactionDirectory, "index.html"),
                 originalIndex);
-            if (previousClientExists && previousClient is not null)
-            {
-                WriteTextAtomically(
-                    Path.Combine(transactionDirectory, ClientFileName),
-                    previousClient);
-                WriteTextAtomically(
-                    Path.Combine(transactionDirectory, "client.existed"),
-                    "true\n");
-            }
-            else
-            {
-                WriteTextAtomically(
-                    Path.Combine(transactionDirectory, "client.existed"),
-                    "false\n");
-            }
 
             var manifest = JsonSerializer.Serialize(
                 new
                 {
                     createdUtc = DateTimeOffset.UtcNow,
                     indexPath,
-                    clientPath,
-                    previousClientExists,
+                    delivery = "plugin-api",
+                    endpoint = WebClientPath,
                     targetDigest = digest
                 },
                 new JsonSerializerOptions
@@ -379,11 +294,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             WriteTextAtomically(
                 Path.Combine(transactionDirectory, ManifestFileName),
                 manifest + Environment.NewLine);
-            WriteRollbackScript(
-                transactionDirectory,
-                indexPath,
-                clientPath,
-                previousClientExists);
+            WriteRollbackScript(transactionDirectory, indexPath);
             WriteTextAtomically(
                 Path.Combine(backupRoot, "LATEST"),
                 transactionDirectory + Environment.NewLine);
@@ -392,12 +303,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
         private static void WriteRollbackScript(
             string transactionDirectory,
-            string indexPath,
-            string clientPath,
-            bool previousClientExists)
+            string indexPath)
         {
             var backupIndexPath = Path.Combine(transactionDirectory, "index.html");
-            var backupClientPath = Path.Combine(transactionDirectory, ClientFileName);
             var builder = new StringBuilder();
             builder.AppendLine("#!/bin/sh");
             builder.AppendLine("set -eu");
@@ -405,19 +313,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .Append(EscapeShellArgument(backupIndexPath))
                 .Append(' ')
                 .AppendLine(EscapeShellArgument(indexPath));
-            if (previousClientExists)
-            {
-                builder.Append("cp -- ")
-                    .Append(EscapeShellArgument(backupClientPath))
-                    .Append(' ')
-                    .AppendLine(EscapeShellArgument(clientPath));
-            }
-            else
-            {
-                builder.Append("rm -f -- ")
-                    .AppendLine(EscapeShellArgument(clientPath));
-            }
-
             builder.AppendLine("printf '%s\\n' 'Откат автономного веб-клиента КиноПоиска выполнен.'");
             var rollbackPath = Path.Combine(transactionDirectory, RollbackScriptName);
             WriteTextAtomically(rollbackPath, builder.ToString());
@@ -444,34 +339,33 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private static string EscapeShellArgument(string value)
             => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
-        private void RestorePreviousInstallation(
-            string indexPath,
-            string originalIndex,
-            string clientPath,
-            bool previousClientExists,
-            string? previousClient)
+        private void TryRestorePreviousIndex(string indexPath, string originalIndex)
         {
             try
             {
-                WriteTextAtomically(indexPath, originalIndex);
-                if (previousClientExists && previousClient is not null)
-                    WriteTextAtomically(clientPath, previousClient);
-                else if (File.Exists(clientPath))
-                    File.Delete(clientPath);
+                if (File.Exists(indexPath)
+                    && string.Equals(
+                        File.ReadAllText(indexPath, Encoding.UTF8),
+                        originalIndex,
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
 
+                WriteTextAtomically(indexPath, originalIndex);
                 _logger.LogWarning(
-                    "Неуспешная установка автономного веб-клиента КиноПоиска автоматически отменена");
+                    "Неуспешное подключение автономного веб-клиента КиноПоиска автоматически отменено");
             }
             catch (Exception rollbackException)
             {
                 _logger.LogCritical(
                     rollbackException,
-                    "Автоматический откат автономного веб-клиента КиноПоиска завершился ошибкой");
+                    "Автоматический откат index.html КиноПоиска завершился ошибкой");
                 KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
                     LogLevel.Critical,
                     GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
                     "web-client.standalone.rollback-failed",
-                    "Автоматический откат автономного веб-клиента КиноПоиска завершился ошибкой.",
+                    "Автоматический откат index.html КиноПоиска завершился ошибкой.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["errorType"] = rollbackException.GetType().Name
@@ -573,6 +467,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 if (File.Exists(temporaryPath))
                     File.Delete(temporaryPath);
             }
+        }
+
+        private void RecordWriteUnavailable(Exception exception, string indexPath)
+        {
+            KinopoiskWebTrailerIntegrationState.SetRegistered(false);
+            _logger.LogWarning(
+                exception,
+                "index.html Jellyfin Web недоступен для записи: {IndexPath}. "
+                + "Для защищённого контейнера требуется точечное bind-монтирование управляемого index.html",
+                indexPath);
+            KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
+                LogLevel.Warning,
+                GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
+                "web-client.standalone.index-write-unavailable",
+                "index.html Jellyfin Web недоступен для записи; серверные функции КиноПоиска продолжают работать.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["errorType"] = exception.GetType().Name,
+                    ["indexPath"] = indexPath,
+                    ["requiredAction"] = "bind-mount-managed-index"
+                });
         }
 
         private void RecordFailure(string reason, string message)
