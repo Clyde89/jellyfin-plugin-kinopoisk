@@ -3,12 +3,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -102,7 +101,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 }
 
                 var updatedIndex = cleanIndex.Insert(bodyEnd, scriptBlock + Environment.NewLine);
-                CreateInitialBackup(indexPath, originalIndex);
+                CreateInitialBackup(originalIndex);
                 WriteTextAtomically(indexPath, updatedIndex);
 
                 KinopoiskWebTrailerIntegrationState.SetRegistered(true);
@@ -175,7 +174,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             return value.Remove(start, end - start);
         }
 
-        private void CreateInitialBackup(string indexPath, string originalIndex)
+        private void CreateInitialBackup(string originalIndex)
         {
             var plugin = Plugin.Instance
                 ?? throw new InvalidOperationException("Экземпляр плагина КиноПоиск ещё не создан.");
