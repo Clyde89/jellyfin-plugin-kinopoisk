@@ -46,7 +46,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
-                    "KinopoiskWebPresentationIntegrationService.cs"));
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             var polishIndex = source.IndexOf(
                 "kinopoiskRuntimePolish.js",
