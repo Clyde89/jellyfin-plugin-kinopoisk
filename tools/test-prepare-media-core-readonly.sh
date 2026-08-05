@@ -89,12 +89,12 @@ export JELLYFIN_SERVICE_NAME="jellyfin"
 export JELLYFIN_CONTAINER_NAME="jellyfin"
 export JELLYFIN_WEB_OVERRIDE_ROOT="$OUTPUT_ROOT"
 
-plan_output="$($PREPARE_SCRIPT plan)"
+plan_output="$(bash "$PREPARE_SCRIPT" plan)"
 grep -Fq 'Режим plan: постоянные файловые и контейнерные изменения не выполнялись.' \
   <<< "$plan_output"
 [[ ! -e "$OUTPUT_ROOT" ]]
 
-prepare_output="$($PREPARE_SCRIPT prepare)"
+prepare_output="$(bash "$PREPARE_SCRIPT" prepare)"
 grep -Fq 'Подготовка завершена без изменения работающего контейнера.' \
   <<< "$prepare_output"
 
@@ -116,7 +116,7 @@ manifest_before="$(sha256sum "$backup_directory/LATEST.json")"
 override_before="$(sha256sum "$OVERRIDE_FILE")"
 managed_before="$(sha256sum "$managed_index")"
 
-$PREPARE_SCRIPT prepare >/dev/null
+bash "$PREPARE_SCRIPT" prepare >/dev/null
 
 backup_count_after="$(find "$backup_directory" -maxdepth 1 -type f -name '*.bak' | wc -l)"
 manifest_after="$(sha256sum "$backup_directory/LATEST.json")"
