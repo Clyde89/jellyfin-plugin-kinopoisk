@@ -24,5 +24,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
         public string PosterUrlPreview { get; set; } = string.Empty;
 
         public string KinopoiskUrl { get; set; } = string.Empty;
+
+        public int? Year { get; set; }
+
+        public double? RatingKinopoisk { get; set; }
+
+        public string Overview { get; set; } = string.Empty;
+
+        public string ImdbId { get; set; } = string.Empty;
+
+        public string MediaType { get; set; } = "movie";
     }
 }
