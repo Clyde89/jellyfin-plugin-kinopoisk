@@ -38,7 +38,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterHostedWebTrailerIntegrationService()
+        public void ShouldRegisterHostedStandaloneWebClientService()
         {
             var services = new ServiceCollection();
             new KinopoiskPluginServiceRegistrator().RegisterServices(services, null!);
@@ -47,7 +47,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 services,
                 descriptor => descriptor.ServiceType == typeof(IHostedService)
                     && descriptor.ImplementationType
-                        == typeof(KinopoiskWebTrailerIntegrationService));
+                        == typeof(KinopoiskStandaloneWebClientService));
         }
 
         [Fact]
