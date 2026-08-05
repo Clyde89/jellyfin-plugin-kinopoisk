@@ -8,6 +8,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_NOLOGO: 1
   NUGET_XMLDOC_MODE: skip
+  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
   build:
@@ -66,10 +67,12 @@ jobs:
         umask 077
 
         version="${{ steps.version.outputs.version }}"
-        short_sha="${GITHUB_SHA:0:12}"
+        source_sha="${PR_HEAD_SHA:-$GITHUB_SHA}"
+        short_sha="${source_sha:0:12}"
         package_name="kinopoisk-autonomous-web-client-${version}-${short_sha}"
         package_dir="artifacts/${package_name}"
         archive="artifacts/${package_name}.zip"
+        checksum="artifacts/${package_name}.zip.sha256"
 
         mkdir -p "$package_dir"
 
@@ -83,7 +86,8 @@ jobs:
         cat > "$package_dir/PACKAGE-INFO.txt" <<EOF
         Автономный тестовый кандидат плагина КиноПоиск
         Версия: ${version}
-        Commit: ${GITHUB_SHA}
+        HEAD ветки: ${source_sha}
+        Commit сборки: ${GITHUB_SHA}
 
         JavaScript Injector для работы не требуется.
         После запуска Jellyfin плагин самостоятельно:
@@ -114,7 +118,11 @@ jobs:
           zip -9 -r "../${package_name}.zip" .
         )
 
-        sha256sum "$archive" > "${archive}.sha256"
+        (
+          cd artifacts
+          sha256sum "${package_name}.zip" > "${package_name}.zip.sha256"
+          sha256sum -c "${package_name}.zip.sha256"
+        )
         unzip -t "$archive"
 
         test "$(unzip -Z1 "$archive" | grep -c '^Jellyfin.Plugin.Kinopoisk.dll$')" -eq 1
@@ -123,7 +131,7 @@ jobs:
         test "$(unzip -Z1 "$archive" | grep -c '^PACKAGE-INFO.txt$')" -eq 1
 
         echo "archive=$archive" >> "$GITHUB_OUTPUT"
-        echo "checksum=${archive}.sha256" >> "$GITHUB_OUTPUT"
+        echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
 
     - name: Публикация автономного пакета
       uses: actions/upload-artifact@v4
