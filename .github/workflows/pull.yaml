@@ -53,7 +53,7 @@ jobs:
         bash -n tools/test-prepare-media-core-readonly.sh
         bash -n tools/test-install-media-core-autonomous.sh
         bash tools/test-prepare-media-core-readonly.sh
-        bash tools/test-install-media-core-autonomous.sh
+        sudo bash tools/test-install-media-core-autonomous.sh
 
     - name: Определение версии плагина
       id: version
