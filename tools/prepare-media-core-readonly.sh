@@ -12,6 +12,7 @@ OUTPUT_ROOT="${JELLYFIN_WEB_OVERRIDE_ROOT:-/srv/media-core/appdata/jellyfin-web/
 MANAGED_INDEX="${OUTPUT_ROOT}/index.html"
 BACKUP_DIR="${OUTPUT_ROOT}/backups"
 STATE_FILE="${OUTPUT_ROOT}/deployment-state.env"
+TEMPORARY_DIRECTORY=""
 
 usage() {
   cat <<'EOF'
@@ -39,6 +40,13 @@ EOF
 fail() {
   printf 'ОШИБКА: %s\n' "$*" >&2
   exit 1
+}
+
+cleanup() {
+  if [[ -n "$TEMPORARY_DIRECTORY" && -d "$TEMPORARY_DIRECTORY" ]]; then
+    rm -rf -- "$TEMPORARY_DIRECTORY"
+  fi
+  TEMPORARY_DIRECTORY=""
 }
 
 require_command() {
@@ -119,11 +127,12 @@ EOF
 
 validate_compose() {
   local web_index_path="$1"
-  local rendered_json="$2"
+  local override_file="$2"
+  local rendered_json="$3"
 
   docker compose \
     -f "$COMPOSE_FILE" \
-    -f "$OVERRIDE_FILE" \
+    -f "$override_file" \
     config --format json > "$rendered_json"
 
   python3 - "$rendered_json" "$SERVICE_NAME" "$MANAGED_INDEX" "$web_index_path" <<'PY'
@@ -167,16 +176,17 @@ PY
 prepare() {
   local container_id="$1"
   local web_index_path="$2"
-  local temporary_directory temporary_override rendered_json original_index
+  local temporary_override rendered_json original_index previous_override
   local timestamp override_backup
 
   mkdir -p "$OUTPUT_ROOT" "$BACKUP_DIR" "$(dirname -- "$OVERRIDE_FILE")"
-  temporary_directory="$(mktemp -d)"
-  trap 'rm -rf -- "$temporary_directory"' RETURN
+  TEMPORARY_DIRECTORY="$(mktemp -d)"
+  trap cleanup EXIT
 
-  original_index="${temporary_directory}/index.original.html"
-  temporary_override="${temporary_directory}/compose.override.yaml"
-  rendered_json="${temporary_directory}/compose.rendered.json"
+  original_index="${TEMPORARY_DIRECTORY}/index.original.html"
+  temporary_override="${TEMPORARY_DIRECTORY}/compose.override.yaml"
+  rendered_json="${TEMPORARY_DIRECTORY}/compose.rendered.json"
+  previous_override="${TEMPORARY_DIRECTORY}/compose.previous.yaml"
 
   docker cp "${container_id}:${web_index_path}" "$original_index"
   python3 "$INDEX_TOOL" prepare \
@@ -186,16 +196,27 @@ prepare() {
   python3 "$INDEX_TOOL" check --input "$MANAGED_INDEX"
 
   write_override "$web_index_path" "$temporary_override"
+  validate_compose "$web_index_path" "$temporary_override" "$rendered_json"
 
-  if [[ -f "$OVERRIDE_FILE" ]] && ! cmp -s "$temporary_override" "$OVERRIDE_FILE"; then
-    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    override_backup="${BACKUP_DIR}/$(basename -- "$OVERRIDE_FILE").${timestamp}.bak"
-    cp -a -- "$OVERRIDE_FILE" "$override_backup"
-    printf 'Резервная копия предыдущего Compose override: %s\n' "$override_backup"
+  if [[ -f "$OVERRIDE_FILE" ]]; then
+    cp -a -- "$OVERRIDE_FILE" "$previous_override"
+    if ! cmp -s "$temporary_override" "$OVERRIDE_FILE"; then
+      timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+      override_backup="${BACKUP_DIR}/$(basename -- "$OVERRIDE_FILE").${timestamp}.bak"
+      cp -a -- "$OVERRIDE_FILE" "$override_backup"
+      printf 'Резервная копия предыдущего Compose override: %s\n' "$override_backup"
+    fi
   fi
 
   install -m 0644 "$temporary_override" "$OVERRIDE_FILE"
-  validate_compose "$web_index_path" "$rendered_json"
+  if ! validate_compose "$web_index_path" "$OVERRIDE_FILE" "$rendered_json"; then
+    if [[ -f "$previous_override" ]]; then
+      install -m 0644 "$previous_override" "$OVERRIDE_FILE"
+    else
+      rm -f -- "$OVERRIDE_FILE"
+    fi
+    fail "Установленный Compose override не прошёл повторную проверку; выполнен откат."
+  fi
 
   cat > "$STATE_FILE" <<EOF
 JELLYFIN_COMPOSE_FILE=$(printf '%q' "$COMPOSE_FILE")
@@ -206,6 +227,9 @@ JELLYFIN_WEB_INDEX_PATH=$(printf '%q' "$web_index_path")
 JELLYFIN_MANAGED_INDEX=$(printf '%q' "$MANAGED_INDEX")
 EOF
   chmod 0600 "$STATE_FILE"
+
+  cleanup
+  trap - EXIT
 
   cat <<EOF
 
