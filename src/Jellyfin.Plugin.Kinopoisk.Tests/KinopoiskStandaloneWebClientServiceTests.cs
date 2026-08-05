@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Xunit;
@@ -57,7 +58,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldNotAcceptExternalAttributeOutsideManagedBlock()
+        public void ShouldRejectExternalAttributeOutsideManagedBlock()
         {
             const string original =
                 "<html><body data-kinopoisk-managed=\"external\">"
@@ -65,8 +66,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 + "<script src=\"../Kinopoisk/WebClient.js\" defer></script>"
                 + "<!-- KINOPOISK_WEB_CLIENT_END -->"
                 + "</body></html>";
+            var method = typeof(KinopoiskStandaloneWebClientService).GetMethod(
+                "VerifyExternalManagedIndex",
+                BindingFlags.NonPublic | BindingFlags.Static);
 
-            Assert.False(KinopoiskStandaloneWebClientService.IsExternallyManagedIndex(original));
+            Assert.NotNull(method);
+            var exception = Assert.Throws<TargetInvocationException>(
+                () => method!.Invoke(null, new object[] { original }));
+            Assert.IsType<InvalidDataException>(exception.InnerException);
         }
 
         [Fact]
