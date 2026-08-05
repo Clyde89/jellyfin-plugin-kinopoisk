@@ -81,6 +81,7 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton((sp) => new KinopoiskSimilarApiClient(
                 Plugin.Instance.Configuration.ApiToken,
                 sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<IKinopoiskApiClient>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
                 sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>()
