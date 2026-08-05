@@ -26,6 +26,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         internal const string BeginMarker = "<!-- KINOPOISK_WEB_CLIENT_BEGIN -->";
         internal const string EndMarker = "<!-- KINOPOISK_WEB_CLIENT_END -->";
         internal const string WebClientPath = "../Kinopoisk/WebClient.js";
+        internal const string ExternalManagedAttribute =
+            "data-kinopoisk-managed=\"external\"";
 
         private const string JavaScriptInjectorAssemblyName =
             "Jellyfin.Plugin.JavaScriptInjector";
@@ -85,6 +87,19 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                         "Экземпляр плагина КиноПоиск ещё не создан.");
                 var digest = KinopoiskWebClientBundle.Sha256;
                 var originalIndex = File.ReadAllText(indexPath, Encoding.UTF8);
+
+                if (IsExternallyManagedIndex(originalIndex))
+                {
+                    VerifyExternalManagedIndex(originalIndex);
+                    CompleteRegistration(
+                        plugin,
+                        digest,
+                        changed: false,
+                        backupCreated: false,
+                        managedExternally: true);
+                    return;
+                }
+
                 var cleanIndex = RemoveManagedBlock(originalIndex);
                 var updatedIndex = BuildManagedIndex(cleanIndex, digest);
                 var indexMatches = string.Equals(
@@ -124,33 +139,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     VerifyInstallation(indexPath, updatedIndex, digest);
                 }
 
-                var removedLegacyRegistrations =
-                    TryRemoveLegacyInjectorRegistrations(plugin);
-                KinopoiskWebTrailerIntegrationState.SetRegistered(true);
-
-                _logger.LogInformation(
-                    "Автономный веб-клиент КиноПоиска готов; endpoint {Endpoint}; "
-                    + "SHA-256 {Digest}; удалено старых регистраций Injector: {RemovedCount}",
-                    WebClientPath,
+                CompleteRegistration(
+                    plugin,
                     digest,
-                    removedLegacyRegistrations);
-                KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
-                    LogLevel.Information,
-                    GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
-                    "web-client.standalone.installed",
-                    "Автономный веб-клиент КиноПоиска подключён и проверен.",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["digest"] = digest,
-                        ["resourceCount"] = KinopoiskWebClientBundle.ResourceCount
-                            .ToString(CultureInfo.InvariantCulture),
-                        ["delivery"] = "plugin-api",
-                        ["endpoint"] = WebClientPath,
-                        ["changed"] = (!indexMatches).ToString(),
-                        ["legacyRegistrationsRemoved"] =
-                            removedLegacyRegistrations.ToString(CultureInfo.InvariantCulture),
-                        ["backupCreated"] = (backupDirectory is not null).ToString()
-                    });
+                    changed: !indexMatches,
+                    backupCreated: backupDirectory is not null,
+                    managedExternally: false);
             }
             catch (Exception exception)
             {
@@ -170,23 +164,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
         internal static string BuildManagedIndex(string value, string digest)
         {
-            if (string.IsNullOrWhiteSpace(value))
-                throw new ArgumentException("Содержимое index.html не задано.", nameof(value));
             if (string.IsNullOrWhiteSpace(digest) || digest.Length < 16)
                 throw new ArgumentException("Некорректная контрольная сумма веб-клиента.", nameof(digest));
 
-            var cleanIndex = RemoveManagedBlock(value);
-            var bodyEnd = cleanIndex.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-            if (bodyEnd < 0)
-                throw new InvalidDataException("Закрывающий тег body в index.html не найден.");
-
-            var scriptBlock = string.Join(
-                Environment.NewLine,
-                BeginMarker,
-                $"    <script src=\"{WebClientPath}?v={digest[..16]}\" defer></script>",
-                EndMarker);
-            return cleanIndex.Insert(bodyEnd, scriptBlock + Environment.NewLine);
+            return InsertManagedBlock(
+                value,
+                $"    <script src=\"{WebClientPath}?v={digest[..16]}\" defer></script>");
         }
+
+        internal static string BuildExternallyManagedIndex(string value)
+            => InsertManagedBlock(
+                value,
+                $"    <script src=\"{WebClientPath}\" defer {ExternalManagedAttribute}></script>");
+
+        internal static bool IsExternallyManagedIndex(string value)
+            => CountOccurrences(value, BeginMarker) == 1
+                && CountOccurrences(value, EndMarker) == 1
+                && CountOccurrences(value, WebClientPath) == 1
+                && CountOccurrences(value, ExternalManagedAttribute) == 1;
 
         internal static string RemoveManagedBlock(string value)
         {
@@ -205,6 +200,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             while (end < value.Length && (value[end] == '\r' || value[end] == '\n'))
                 end++;
             return value.Remove(start, end - start);
+        }
+
+        private static string InsertManagedBlock(string value, string scriptElement)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new ArgumentException("Содержимое index.html не задано.", nameof(value));
+
+            var cleanIndex = RemoveManagedBlock(value);
+            var bodyEnd = cleanIndex.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            if (bodyEnd < 0)
+                throw new InvalidDataException("Закрывающий тег body в index.html не найден.");
+
+            var scriptBlock = string.Join(
+                Environment.NewLine,
+                BeginMarker,
+                scriptElement,
+                EndMarker);
+            return cleanIndex.Insert(bodyEnd, scriptBlock + Environment.NewLine);
         }
 
         private static void VerifyInstallation(
@@ -231,6 +244,31 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
         }
 
+        private static void VerifyExternalManagedIndex(string value)
+        {
+            if (!IsExternallyManagedIndex(value))
+            {
+                throw new InvalidDataException(
+                    "Внешне управляемый блок автономного веб-клиента установлен некорректно.");
+            }
+
+            var markerStart = value.IndexOf(BeginMarker, StringComparison.Ordinal);
+            var markerEnd = value.IndexOf(EndMarker, markerStart, StringComparison.Ordinal);
+            var scriptStart = value.IndexOf(WebClientPath, markerStart, StringComparison.Ordinal);
+            var attributeStart = value.IndexOf(
+                ExternalManagedAttribute,
+                markerStart,
+                StringComparison.Ordinal);
+            if (scriptStart < markerStart
+                || scriptStart > markerEnd
+                || attributeStart < markerStart
+                || attributeStart > markerEnd)
+            {
+                throw new InvalidDataException(
+                    "Endpoint или признак внешнего управления находятся вне управляемого блока.");
+            }
+        }
+
         private static int CountOccurrences(string value, string marker)
         {
             var count = 0;
@@ -242,6 +280,45 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
 
             return count;
+        }
+
+        private void CompleteRegistration(
+            Plugin plugin,
+            string digest,
+            bool changed,
+            bool backupCreated,
+            bool managedExternally)
+        {
+            var removedLegacyRegistrations =
+                TryRemoveLegacyInjectorRegistrations(plugin);
+            KinopoiskWebTrailerIntegrationState.SetRegistered(true);
+
+            _logger.LogInformation(
+                "Автономный веб-клиент КиноПоиска готов; endpoint {Endpoint}; "
+                + "SHA-256 {Digest}; внешнее управление index.html: {ManagedExternally}; "
+                + "удалено старых регистраций Injector: {RemovedCount}",
+                WebClientPath,
+                digest,
+                managedExternally,
+                removedLegacyRegistrations);
+            KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
+                LogLevel.Information,
+                GetType().FullName ?? nameof(KinopoiskStandaloneWebClientService),
+                "web-client.standalone.installed",
+                "Автономный веб-клиент КиноПоиска подключён и проверен.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["digest"] = digest,
+                    ["resourceCount"] = KinopoiskWebClientBundle.ResourceCount
+                        .ToString(CultureInfo.InvariantCulture),
+                    ["delivery"] = "plugin-api",
+                    ["endpoint"] = WebClientPath,
+                    ["changed"] = changed.ToString(),
+                    ["managedExternally"] = managedExternally.ToString(),
+                    ["legacyRegistrationsRemoved"] =
+                        removedLegacyRegistrations.ToString(CultureInfo.InvariantCulture),
+                    ["backupCreated"] = backupCreated.ToString()
+                });
         }
 
         private static void CreateInitialBackup(string dataFolderPath, string cleanIndex)
@@ -475,7 +552,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             _logger.LogWarning(
                 exception,
                 "index.html Jellyfin Web недоступен для записи: {IndexPath}. "
-                + "Для защищённого контейнера требуется точечное bind-монтирование управляемого index.html",
+                + "Для защищённого контейнера требуется read-only bind-монтирование внешне управляемого index.html",
                 indexPath);
             KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
                 LogLevel.Warning,
@@ -486,7 +563,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 {
                     ["errorType"] = exception.GetType().Name,
                     ["indexPath"] = indexPath,
-                    ["requiredAction"] = "bind-mount-managed-index"
+                    ["requiredAction"] = "bind-mount-external-index-read-only"
                 });
         }
 
