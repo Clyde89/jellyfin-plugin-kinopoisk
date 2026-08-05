@@ -37,22 +37,28 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterRecommendationsHostedService()
+        public void ShouldRegisterRecommendationsInStandaloneWebClient()
         {
-            var source = File.ReadAllText(
+            var projectDirectory = Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                "..",
+                "Jellyfin.Plugin.Kinopoisk");
+            var registrator = File.ReadAllText(
+                Path.Combine(projectDirectory, "KinopoiskPluginServiceRegistrator.cs"));
+            var webClient = File.ReadAllText(
                 Path.Combine(
-                    AppContext.BaseDirectory,
-                    "..",
-                    "..",
-                    "..",
-                    "..",
-                    "Jellyfin.Plugin.Kinopoisk",
-                    "KinopoiskPluginServiceRegistrator.cs"));
+                    projectDirectory,
+                    "Services",
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains(
-                "AddHostedService<KinopoiskWebRecommendationsService>()",
-                source);
-            Assert.Contains("new KinopoiskSimilarApiClient(", source);
+                "AddHostedService<KinopoiskStandaloneWebClientService>()",
+                registrator);
+            Assert.Contains("kinopoiskRecommendations.js", webClient);
+            Assert.Contains("new KinopoiskSimilarApiClient(", registrator);
         }
     }
 }
