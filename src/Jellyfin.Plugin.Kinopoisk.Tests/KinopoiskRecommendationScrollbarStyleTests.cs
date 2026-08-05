@@ -40,7 +40,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
-                    "KinopoiskStandaloneWebClientService.cs"));
+                    "KinopoiskWebClientBundle.cs"));
 
             var nativeIndex = source.IndexOf(
                 "kinopoiskRuntimeNativeStyle.js",
