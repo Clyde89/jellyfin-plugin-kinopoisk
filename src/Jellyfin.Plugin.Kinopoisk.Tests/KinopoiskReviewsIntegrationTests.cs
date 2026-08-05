@@ -43,7 +43,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterReviewsInStandaloneWebClient()
+        public void ShouldRegisterReviewsInAutonomousBundle()
         {
             var projectDirectory = Path.Combine(
                 AppContext.BaseDirectory,
@@ -54,16 +54,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 "Jellyfin.Plugin.Kinopoisk");
             var registrator = File.ReadAllText(
                 Path.Combine(projectDirectory, "KinopoiskPluginServiceRegistrator.cs"));
-            var webClient = File.ReadAllText(
+            var bundle = File.ReadAllText(
                 Path.Combine(
                     projectDirectory,
                     "Services",
-                    "KinopoiskStandaloneWebClientService.cs"));
+                    "KinopoiskWebClientBundle.cs"));
 
             Assert.Contains(
                 "AddHostedService<KinopoiskStandaloneWebClientService>()",
                 registrator);
-            Assert.Contains("kinopoiskReviewsIntegration.js", webClient);
+            Assert.Contains("kinopoiskReviewsIntegration.js", bundle);
             Assert.Contains("KinopoiskReviewCacheClient", registrator);
             Assert.Contains("cache", registrator);
             Assert.Contains("presentation", registrator);
