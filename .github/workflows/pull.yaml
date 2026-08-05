@@ -2,32 +2,131 @@ name: Pull Request Check
 
 on:
   pull_request:
-
   workflow_dispatch:
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  NUGET_XMLDOC_MODE: skip
 
 jobs:
   build:
+    name: Сборка автономного кандидата
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Получение исходного кода
       uses: actions/checkout@v6
 
-    - name: Setup .NET 9.0
+    - name: Настройка .NET 9.0
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 9.0.x
 
-    - name: Build project
-      run: dotnet build --configuration Release --property:Version=1.0.0.0 ./src
+    - name: Восстановление зависимостей
+      run: dotnet restore ./src
 
-    - name: Test project
-      run: dotnet test --configuration Release ./src
+    - name: Сборка без предупреждений
+      run: >-
+        dotnet build
+        --configuration Release
+        --no-restore
+        --property:TreatWarningsAsErrors=true
+        ./src
 
-    - name: Publish artifacts
+    - name: Выполнение тестов
+      run: >-
+        dotnet test
+        --configuration Release
+        --no-build
+        ./src
+
+    - name: Определение версии плагина
+      id: version
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        project_file="src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj"
+        version="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$project_file" | head -n 1)"
+
+        if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Некорректная версия плагина: ${version:-не определена}" >&2
+          exit 1
+        fi
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "Определена версия плагина: $version"
+
+    - name: Формирование автономного пакета
+      id: package
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        umask 077
+
+        version="${{ steps.version.outputs.version }}"
+        short_sha="${GITHUB_SHA:0:12}"
+        package_name="kinopoisk-autonomous-web-client-${version}-${short_sha}"
+        package_dir="artifacts/${package_name}"
+        archive="artifacts/${package_name}.zip"
+
+        mkdir -p "$package_dir"
+
+        cp -- \
+          src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll \
+          "$package_dir/"
+        cp -- \
+          src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll \
+          "$package_dir/"
+
+        cat > "$package_dir/PACKAGE-INFO.txt" <<EOF
+        Автономный тестовый кандидат плагина КиноПоиск
+        Версия: ${version}
+        Commit: ${GITHUB_SHA}
+
+        JavaScript Injector для работы не требуется.
+        После запуска Jellyfin плагин самостоятельно:
+        - собирает встроенные клиентские модули в kinopoisk-web-client.js;
+        - резервирует исходный index.html Jellyfin Web;
+        - подключает клиент через управляемые маркеры;
+        - проверяет SHA-256 и точное содержимое index.html;
+        - создаёт транзакционную резервную копию и rollback.sh;
+        - необязательно удаляет старые регистрации КиноПоиска из JavaScript Injector, когда он установлен.
+
+        Пакет не запускает Preview, Apply или обновление библиотек.
+        EOF
+
+        (
+          cd "$package_dir"
+          sha256sum \
+            Jellyfin.Plugin.Kinopoisk.dll \
+            KinopoiskUnofficialInfo.ApiClient.dll \
+            > SHA256SUMS
+        )
+
+        (
+          cd "$package_dir"
+          zip -9 -r "../${package_name}.zip" .
+        )
+
+        sha256sum "$archive" > "${archive}.sha256"
+        unzip -t "$archive"
+
+        test "$(unzip -Z1 "$archive" | grep -c '^Jellyfin.Plugin.Kinopoisk.dll$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^KinopoiskUnofficialInfo.ApiClient.dll$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^SHA256SUMS$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^PACKAGE-INFO.txt$')" -eq 1
+
+        echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        echo "checksum=${archive}.sha256" >> "$GITHUB_OUTPUT"
+
+    - name: Публикация автономного пакета
       uses: actions/upload-artifact@v4
       with:
-        name: my-artifact
+        name: kinopoisk-autonomous-web-client-${{ steps.version.outputs.version }}
         path: |
-          ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll
-          ./src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll
+          ${{ steps.package.outputs.archive }}
+          ${{ steps.package.outputs.checksum }}
+        if-no-files-found: error
+        retention-days: 14
