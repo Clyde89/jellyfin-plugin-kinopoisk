@@ -42,6 +42,14 @@ jobs:
         --no-build
         ./src
 
+    - name: Проверка инструментов развёртывания
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        python3 tools/prepare-kinopoisk-readonly-index.py self-test
+        python3 -m py_compile tools/prepare-kinopoisk-readonly-index.py
+        bash -n tools/prepare-media-core-readonly.sh
+
     - name: Определение версии плагина
       id: version
       shell: bash
@@ -82,6 +90,15 @@ jobs:
         cp -- \
           src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll \
           "$package_dir/"
+        cp -- \
+          tools/prepare-kinopoisk-readonly-index.py \
+          tools/prepare-media-core-readonly.sh \
+          tools/READONLY-DEPLOYMENT.md \
+          "$package_dir/"
+        chmod 0755 \
+          "$package_dir/prepare-kinopoisk-readonly-index.py" \
+          "$package_dir/prepare-media-core-readonly.sh"
+        chmod 0644 "$package_dir/READONLY-DEPLOYMENT.md"
 
         cat > "$package_dir/PACKAGE-INFO.txt" <<EOF
         Автономный тестовый кандидат плагина КиноПоиск
@@ -90,19 +107,24 @@ jobs:
         Commit сборки: ${GITHUB_SHA}
 
         JavaScript Injector для работы не требуется.
-        После запуска Jellyfin плагин самостоятельно:
-        - собирает встроенные клиентские модули внутри DLL;
-        - выдаёт их через Kinopoisk/WebClient.js с ETag и версией по SHA-256;
-        - резервирует исходный index.html Jellyfin Web;
-        - подключает endpoint через управляемые маркеры;
-        - проверяет точное содержимое index.html и версию bundle;
-        - создаёт транзакционную резервную копию и rollback.sh;
-        - необязательно удаляет старые регистрации КиноПоиска из JavaScript Injector, когда он установлен.
+        Клиентский JavaScript хранится внутри DLL и выдаётся через
+        Kinopoisk/WebClient.js с ETag и SHA-256.
 
-        Для контейнера с read_only: true требуется точечное writable bind-монтирование
-        управляемого index.html. Отдельный JavaScript-файл в Jellyfin Web не создаётся.
+        В обычной установке с доступным для записи Jellyfin Web плагин может
+        идемпотентно подключить endpoint к index.html самостоятельно.
 
-        Пакет не запускает Preview, Apply или обновление библиотек.
+        Для защищённого media-core с read_only: true используется внешний
+        управляемый index.html и точечный read-only bind mount. Подготовку без
+        перезапуска и без замены DLL выполняет:
+          ./prepare-media-core-readonly.sh plan
+          ./prepare-media-core-readonly.sh prepare
+
+        Корневой слой контейнера и смонтированный index.html остаются read-only.
+        Отдельный JavaScript-файл в Jellyfin Web не создаётся.
+
+        Пакет не запускает docker compose up, Preview, Apply или обновление библиотек.
+        Фактическая замена DLL и пересоздание Jellyfin выполняются отдельным
+        контролируемым этапом после резервного копирования.
         EOF
 
         (
@@ -110,7 +132,12 @@ jobs:
           sha256sum \
             Jellyfin.Plugin.Kinopoisk.dll \
             KinopoiskUnofficialInfo.ApiClient.dll \
+            prepare-kinopoisk-readonly-index.py \
+            prepare-media-core-readonly.sh \
+            READONLY-DEPLOYMENT.md \
+            PACKAGE-INFO.txt \
             > SHA256SUMS
+          sha256sum -c SHA256SUMS
         )
 
         (
@@ -127,8 +154,12 @@ jobs:
 
         test "$(unzip -Z1 "$archive" | grep -c '^Jellyfin.Plugin.Kinopoisk.dll$')" -eq 1
         test "$(unzip -Z1 "$archive" | grep -c '^KinopoiskUnofficialInfo.ApiClient.dll$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^prepare-kinopoisk-readonly-index.py$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^prepare-media-core-readonly.sh$')" -eq 1
+        test "$(unzip -Z1 "$archive" | grep -c '^READONLY-DEPLOYMENT.md$')" -eq 1
         test "$(unzip -Z1 "$archive" | grep -c '^SHA256SUMS$')" -eq 1
         test "$(unzip -Z1 "$archive" | grep -c '^PACKAGE-INFO.txt$')" -eq 1
+        test "$(unzip -Z1 "$archive" | wc -l)" -eq 7
 
         echo "archive=$archive" >> "$GITHUB_OUTPUT"
         echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
