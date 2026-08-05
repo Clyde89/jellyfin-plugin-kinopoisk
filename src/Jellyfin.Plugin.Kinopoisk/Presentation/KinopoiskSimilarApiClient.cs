@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 namespace Jellyfin.Plugin.Kinopoisk.Presentation
 {
     /// <summary>
-    /// Загружены похожие фильмы без передачи API-токена браузеру.
+    /// Загружены и обогащены похожие фильмы без передачи API-токена браузеру.
     /// </summary>
     public sealed class KinopoiskSimilarApiClient
     {
@@ -26,6 +26,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(250);
 
         private readonly HttpClient _httpClient;
+        private readonly IKinopoiskApiClient _apiClient;
         private readonly IMemoryCache _cache;
         private readonly KinopoiskDiagnostics _diagnostics;
         private readonly ILogger<KinopoiskSimilarApiClient> _logger;
@@ -35,6 +36,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
         public KinopoiskSimilarApiClient(
             string apiToken,
             IHttpClientFactory httpClientFactory,
+            IKinopoiskApiClient apiClient,
             IMemoryCache cache,
             KinopoiskDiagnostics diagnostics,
             ILogger<KinopoiskSimilarApiClient> logger)
@@ -43,6 +45,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 throw new ArgumentException("API-токен не должен быть пустым.", nameof(apiToken));
 
             ArgumentNullException.ThrowIfNull(httpClientFactory);
+            _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -109,7 +112,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                             response.StatusCode);
                     }
 
-                    var result = MapResponse(json, kinopoiskId);
+                    var mapped = MapResponse(json, kinopoiskId);
+                    var result = await EnrichResponse(mapped, cancellationToken)
+                        .ConfigureAwait(false);
                     _cache.Set(
                         cacheKey,
                         result,
@@ -167,6 +172,83 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             };
         }
 
+        internal static KinopoiskSimilarInfo MapDetails(
+            KinopoiskSimilarInfo item,
+            Film film)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(film);
+
+            var name = FirstNotEmpty(film.NameRu, film.NameOriginal, film.NameEn, item.Name);
+            var originalName = FirstNotEmpty(
+                film.NameOriginal,
+                film.NameEn,
+                item.OriginalName);
+            var overview = FirstNotEmpty(film.ShortDescription, film.Description);
+            var kinopoiskId = film.KinopoiskId > 0 ? film.KinopoiskId : item.KinopoiskId;
+
+            return new KinopoiskSimilarInfo
+            {
+                KinopoiskId = kinopoiskId,
+                Name = KinopoiskPresentationTextSanitizer.NormalizePlainText(name),
+                OriginalName = KinopoiskPresentationTextSanitizer.NormalizePlainText(originalName),
+                PosterUrl = FirstNotEmpty(film.PosterUrl, item.PosterUrl),
+                PosterUrlPreview = FirstNotEmpty(
+                    film.PosterUrlPreview,
+                    item.PosterUrlPreview,
+                    film.PosterUrl,
+                    item.PosterUrl),
+                KinopoiskUrl = $"https://www.kinopoisk.ru/film/{kinopoiskId}/",
+                Year = film.GetProductionYear(),
+                RatingKinopoisk = film.RatingKinopoisk > 0
+                    ? film.RatingKinopoisk
+                    : null,
+                Overview = KinopoiskPresentationTextSanitizer.NormalizePlainText(overview),
+                ImdbId = NormalizeImdbId(film.ImdbId),
+                MediaType = film.Serial ? "tv" : "movie"
+            };
+        }
+
+        private async Task<KinopoiskSimilarResponse> EnrichResponse(
+            KinopoiskSimilarResponse response,
+            CancellationToken cancellationToken)
+        {
+            var tasks = response.Items
+                .Select(item => EnrichItem(item, cancellationToken))
+                .ToArray();
+            var items = await Task.WhenAll(tasks).ConfigureAwait(false);
+            return new KinopoiskSimilarResponse
+            {
+                Total = items.Length,
+                Items = items
+            };
+        }
+
+        private async Task<KinopoiskSimilarInfo> EnrichItem(
+            KinopoiskSimilarInfo item,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var film = await _apiClient
+                    .GetSingleFilm(item.KinopoiskId, cancellationToken)
+                    .ConfigureAwait(false);
+                return MapDetails(item, film);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogDebug(
+                    exception,
+                    "Карточка похожего фильма Kinopoisk ID {KinopoiskId} не обогащена",
+                    item.KinopoiskId);
+                return item;
+            }
+        }
+
         private void RecordResult(int kinopoiskId, KinopoiskSimilarResponse result)
         {
             KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
@@ -178,9 +260,25 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 {
                     ["kinopoiskId"] = kinopoiskId.ToString(CultureInfo.InvariantCulture),
                     ["total"] = result.Total.ToString(CultureInfo.InvariantCulture),
-                    ["empty"] = (result.Total < 1).ToString(CultureInfo.InvariantCulture)
+                    ["empty"] = (result.Total < 1).ToString(CultureInfo.InvariantCulture),
+                    ["enriched"] = result.Items.Count(item => item.Year.HasValue)
+                        .ToString(CultureInfo.InvariantCulture)
                 });
         }
+
+        private static string NormalizeImdbId(string? value)
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            return normalized.Length > 2
+                && normalized.StartsWith("tt", StringComparison.OrdinalIgnoreCase)
+                && normalized.Skip(2).All(char.IsDigit)
+                    ? normalized
+                    : string.Empty;
+        }
+
+        private static string FirstNotEmpty(params string?[] values)
+            => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim()
+                ?? string.Empty;
 
         private sealed class SimilarWireResponse
         {
