@@ -132,6 +132,15 @@ def write_utf8_atomically(path: Path, value: str) -> None:
             os.fsync(stream.fileno())
         os.chmod(temporary_path, 0o644)
         os.replace(temporary_path, path)
+        try:
+            directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            directory_descriptor = None
+        if directory_descriptor is not None:
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -148,16 +157,18 @@ def prepare(input_path: Path, output_path: Path, backup_directory: Path) -> int:
     source = read_utf8(input_path)
     prepared = build_external_index(source)
 
-    input_backup = create_backup(input_path, backup_directory, "index.original")
-    output_backup: Path | None = None
     if output_path.exists():
         current = read_utf8(output_path)
         if current == prepared:
             validate_external_index(current)
             print(f"index.html уже актуален: {output_path}")
             print(f"SHA-256: {sha256_text(current)}")
-            print(f"Резервная копия источника: {input_backup}")
+            print("Новые резервные копии не создавались.")
             return 0
+
+    input_backup = create_backup(input_path, backup_directory, "index.original")
+    output_backup: Path | None = None
+    if output_path.exists():
         output_backup = create_backup(output_path, backup_directory, "index.previous")
 
     write_utf8_atomically(output_path, prepared)
@@ -240,6 +251,30 @@ def self_test() -> int:
         raise IndexPreparationError(
             "Самопроверка не отклонила повреждённый index.html."
         )
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        input_path = root / "source.html"
+        output_path = root / "managed" / "index.html"
+        backup_directory = root / "backups"
+        input_path.write_text(original, encoding="utf-8")
+
+        prepare(input_path, output_path, backup_directory)
+        first_backups = sorted(backup_directory.glob("*.bak"))
+        first_manifest = read_utf8(backup_directory / "LATEST.json")
+        prepare(input_path, output_path, backup_directory)
+        second_backups = sorted(backup_directory.glob("*.bak"))
+        second_manifest = read_utf8(backup_directory / "LATEST.json")
+
+        if first_backups != second_backups:
+            raise IndexPreparationError(
+                "Повторная подготовка создала лишнюю резервную копию."
+            )
+        if first_manifest != second_manifest:
+            raise IndexPreparationError(
+                "Повторная подготовка без изменений перезаписала манифест."
+            )
+        check(output_path)
 
     print("Самопроверка подготовки read-only index.html успешно пройдена.")
     return 0
