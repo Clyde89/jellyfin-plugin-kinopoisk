@@ -109,12 +109,7 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<ILogger<KinopoiskImageBinaryCache>>()
             ));
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
-            serviceCollection.AddHostedService<KinopoiskWebTrailerIntegrationService>();
-            serviceCollection.AddHostedService<KinopoiskWebPresentationIntegrationService>();
-            serviceCollection.AddHostedService<KinopoiskWebReviewsIntegrationService>();
-            serviceCollection.AddHostedService<KinopoiskWebTagLocalizationService>();
-            serviceCollection.AddHostedService<KinopoiskWebElsewhereBridgeService>();
-            serviceCollection.AddHostedService<KinopoiskWebRecommendationsService>();
+            serviceCollection.AddHostedService<KinopoiskStandaloneWebClientService>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
