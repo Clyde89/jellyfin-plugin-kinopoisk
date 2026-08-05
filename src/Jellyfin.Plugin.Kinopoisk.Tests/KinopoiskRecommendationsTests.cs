@@ -21,13 +21,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.Contains("Похожие и рекомендации", script);
             Assert.Contains("КиноПоиск", script);
-            Assert.Contains("Расширенная подборка", script);
+            Assert.Contains("The Movie Database", script);
+            Assert.DoesNotContain("Расширенная подборка", script, StringComparison.Ordinal);
             Assert.Contains("/similars", script);
             Assert.Contains("fetchSimilarMovies", script);
             Assert.Contains("fetchRecommendedMovies", script);
             Assert.Contains("fetchSimilarTvShows", script);
             Assert.Contains("fetchRecommendedTvShows", script);
+            Assert.Contains("fetchMovieDetails", script);
+            Assert.Contains("fetchTvShowDetails", script);
+            Assert.Contains("getKinopoiskCardData", script);
+            Assert.Contains("createKinopoiskFallbackCard", script);
+            Assert.Contains("customizeKinopoiskCard", script);
             Assert.Contains("createJellyseerrCard", script);
+            Assert.Contains("ratingKinopoisk", script);
+            Assert.Contains("overview", script);
+            Assert.Contains("imdbId", script);
+            Assert.Contains("mediaType", script);
+            Assert.Contains(".kp-recommendations-items>.card{width:12.4em", script);
             Assert.Contains("#similarCollapsible", script);
             Assert.Contains("removeLegacySeerrSections", script);
             Assert.Contains("KinopoiskTmdbResolver", script);
@@ -59,6 +70,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 registrator);
             Assert.Contains("kinopoiskRecommendations.js", bundle);
             Assert.Contains("new KinopoiskSimilarApiClient(", registrator);
+            Assert.Contains(
+                "sp.GetRequiredService<IKinopoiskApiClient>()",
+                registrator);
         }
     }
 }
