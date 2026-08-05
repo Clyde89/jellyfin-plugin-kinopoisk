@@ -49,7 +49,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
-                    "KinopoiskWebPresentationIntegrationService.cs"));
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             var correctionsIndex = source.IndexOf(
                 "kinopoiskRuntimeUiCorrections.js",
