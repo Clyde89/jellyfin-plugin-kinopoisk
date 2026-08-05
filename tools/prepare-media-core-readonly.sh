@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 INDEX_TOOL="${SCRIPT_DIR}/prepare-kinopoisk-readonly-index.py"
 
 COMPOSE_FILE="${JELLYFIN_COMPOSE_FILE:-/srv/media-core/compose/compose.jellyfin.yaml}"
+COMPOSE_PROJECT="${JELLYFIN_COMPOSE_PROJECT:-media-core-jellyfin}"
 OVERRIDE_FILE="${JELLYFIN_OVERRIDE_FILE:-/srv/media-core/compose/compose.jellyfin.kinopoisk-web.yaml}"
 SERVICE_NAME="${JELLYFIN_SERVICE_NAME:-jellyfin}"
 CONTAINER_NAME="${JELLYFIN_CONTAINER_NAME:-jellyfin}"
@@ -30,6 +31,7 @@ usage() {
 
 Переменные окружения:
   JELLYFIN_COMPOSE_FILE
+  JELLYFIN_COMPOSE_PROJECT
   JELLYFIN_OVERRIDE_FILE
   JELLYFIN_SERVICE_NAME
   JELLYFIN_CONTAINER_NAME
@@ -54,7 +56,7 @@ require_command() {
 }
 
 validate_base_compose() {
-  docker compose -f "$COMPOSE_FILE" config --format json \
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" config --format json \
     | python3 -c '
 import json
 import sys
@@ -75,7 +77,12 @@ print("Базовый Compose проверен: read_only: true включён."
 
 resolve_container_id() {
   local container_id
-  container_id="$(docker compose -f "$COMPOSE_FILE" ps -q "$SERVICE_NAME" 2>/dev/null || true)"
+  container_id="$(
+    docker compose \
+      -p "$COMPOSE_PROJECT" \
+      -f "$COMPOSE_FILE" \
+      ps -q "$SERVICE_NAME" 2>/dev/null || true
+  )"
   if [[ -z "$container_id" ]]; then
     container_id="$(docker ps --filter "name=^/${CONTAINER_NAME}$" --format '{{.ID}}' | head -n 1)"
   fi
@@ -108,6 +115,7 @@ print_plan() {
 
   cat <<EOF
 === План подготовки автономного веб-клиента КиноПоиска ===
+Compose-проект:        $COMPOSE_PROJECT
 Compose-файл:          $COMPOSE_FILE
 Compose override:      $OVERRIDE_FILE
 Сервис:                $SERVICE_NAME
@@ -118,6 +126,7 @@ Index в контейнере:    $web_index_path
 
 Защитные свойства:
 - базовый Compose-файл не изменяется;
+- используется существующий проект $COMPOSE_PROJECT;
 - read_only: true проверен и сохраняется;
 - index.html подключается в контейнер только для чтения;
 - отдельный JavaScript-файл в Jellyfin Web не создаётся;
@@ -151,6 +160,7 @@ validate_compose() {
   local rendered_json="$3"
 
   docker compose \
+    -p "$COMPOSE_PROJECT" \
     -f "$COMPOSE_FILE" \
     -f "$override_file" \
     config --format json > "$rendered_json"
@@ -239,6 +249,7 @@ prepare() {
   fi
 
   cat > "$STATE_FILE" <<EOF
+JELLYFIN_COMPOSE_PROJECT=$(printf '%q' "$COMPOSE_PROJECT")
 JELLYFIN_COMPOSE_FILE=$(printf '%q' "$COMPOSE_FILE")
 JELLYFIN_OVERRIDE_FILE=$(printf '%q' "$OVERRIDE_FILE")
 JELLYFIN_SERVICE_NAME=$(printf '%q' "$SERVICE_NAME")
@@ -256,10 +267,10 @@ EOF
 Подготовка завершена без изменения работающего контейнера.
 
 Следующая команда только показывает итоговую конфигурацию:
-  docker compose -f '$COMPOSE_FILE' -f '$OVERRIDE_FILE' config
+  docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' -f '$OVERRIDE_FILE' config
 
 Команда будущего применения после резервного копирования и замены DLL:
-  docker compose -f '$COMPOSE_FILE' -f '$OVERRIDE_FILE' up -d --no-deps --force-recreate '$SERVICE_NAME'
+  docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' -f '$OVERRIDE_FILE' up -d --no-deps --force-recreate '$SERVICE_NAME'
 
 Эта команда НЕ выполнялась.
 EOF
