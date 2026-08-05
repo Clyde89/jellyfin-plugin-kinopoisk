@@ -57,7 +57,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldCombineRuntimePolishWithStandaloneClient()
+        public void ShouldCombineRuntimePolishInEmbeddedBundle()
         {
             var source = File.ReadAllText(
                 Path.Combine(
@@ -68,12 +68,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
-                    "KinopoiskStandaloneWebClientService.cs"));
+                    "KinopoiskWebClientBundle.cs"));
 
             Assert.Contains("kinopoiskEnhancedPresentation.js", source);
             Assert.Contains("kinopoiskRuntimePolish.js", source);
             Assert.Contains("kinopoiskCarouselRebind.js", source);
-            Assert.Contains("ReadEmbeddedScripts", source);
+            Assert.Contains("CreateBundle", source);
         }
     }
 }
