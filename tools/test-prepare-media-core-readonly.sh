@@ -37,7 +37,14 @@ case "${1:-}" in
       exit 0
     fi
     if [[ "$arguments" == *" config --format json "* ]]; then
-      if [[ "$arguments" == *" ${JELLYFIN_OVERRIDE_FILE} "* ]]; then
+      compose_file_count=0
+      for argument in "$@"; do
+        if [[ "$argument" == "-f" ]]; then
+          compose_file_count=$((compose_file_count + 1))
+        fi
+      done
+
+      if (( compose_file_count >= 2 )); then
         source_json="$(json_string "$JELLYFIN_WEB_OVERRIDE_ROOT/index.html")"
         target_json="$(json_string "$FAKE_WEB_INDEX_PATH")"
         cat <<JSON
