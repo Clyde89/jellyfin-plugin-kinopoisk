@@ -33,21 +33,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterTagLocalizationHostedService()
+        public void ShouldRegisterTagLocalizationInStandaloneWebClient()
         {
-            var source = File.ReadAllText(
+            var projectDirectory = Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                "..",
+                "Jellyfin.Plugin.Kinopoisk");
+            var registrator = File.ReadAllText(
+                Path.Combine(projectDirectory, "KinopoiskPluginServiceRegistrator.cs"));
+            var webClient = File.ReadAllText(
                 Path.Combine(
-                    AppContext.BaseDirectory,
-                    "..",
-                    "..",
-                    "..",
-                    "..",
-                    "Jellyfin.Plugin.Kinopoisk",
-                    "KinopoiskPluginServiceRegistrator.cs"));
+                    projectDirectory,
+                    "Services",
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains(
-                "AddHostedService<KinopoiskWebTagLocalizationService>()",
-                source);
+                "AddHostedService<KinopoiskStandaloneWebClientService>()",
+                registrator);
+            Assert.Contains("kinopoiskTagLocalization.js", webClient);
         }
     }
 }
