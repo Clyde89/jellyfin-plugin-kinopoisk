@@ -40,6 +40,36 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldBuildExternallyManagedIndexIdempotently()
+        {
+            const string original = "<html><body><main>Jellyfin</main></body></html>";
+
+            var first = KinopoiskStandaloneWebClientService.BuildExternallyManagedIndex(original);
+            var second = KinopoiskStandaloneWebClientService.BuildExternallyManagedIndex(first);
+
+            Assert.Equal(first, second);
+            Assert.True(KinopoiskStandaloneWebClientService.IsExternallyManagedIndex(first));
+            Assert.Contains(
+                "../Kinopoisk/WebClient.js\" defer data-kinopoisk-managed=\"external\"",
+                first,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("?v=", first, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ShouldNotAcceptExternalAttributeOutsideManagedBlock()
+        {
+            const string original =
+                "<html><body data-kinopoisk-managed=\"external\">"
+                + "<!-- KINOPOISK_WEB_CLIENT_BEGIN -->"
+                + "<script src=\"../Kinopoisk/WebClient.js\" defer></script>"
+                + "<!-- KINOPOISK_WEB_CLIENT_END -->"
+                + "</body></html>";
+
+            Assert.False(KinopoiskStandaloneWebClientService.IsExternallyManagedIndex(original));
+        }
+
+        [Fact]
         public void ShouldRemoveManagedBlockWithoutChangingBaseDocument()
         {
             const string original = "<html><body><main>Jellyfin</main></body></html>";
@@ -118,13 +148,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains("VerifyInstallation", source);
+            Assert.Contains("VerifyExternalManagedIndex", source);
             Assert.Contains("TryRestorePreviousIndex", source);
             Assert.Contains("rollback.sh", source);
             Assert.Contains("manifest.json", source);
             Assert.Contains("UnregisterAllScriptsFromPlugin", source);
             Assert.Contains("AssemblyLoadContext.All", source);
             Assert.Contains("plugin-api", source);
-            Assert.Contains("bind-mount-managed-index", source);
+            Assert.Contains("bind-mount-external-index-read-only", source);
             Assert.DoesNotContain("kinopoisk-web-client.js", source, StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "using Jellyfin.Plugin.JavaScriptInjector",
