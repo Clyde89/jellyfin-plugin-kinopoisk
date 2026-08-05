@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Xunit;
 
@@ -27,9 +28,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains(KinopoiskStandaloneWebClientService.BeginMarker, first);
             Assert.Contains(KinopoiskStandaloneWebClientService.EndMarker, first);
             Assert.Contains(
-                "kinopoisk-web-client.js?v=0123456789abcdef",
+                "../Kinopoisk/WebClient.js?v=0123456789abcdef",
                 first,
                 StringComparison.Ordinal);
+            Assert.DoesNotContain("kinopoisk-web-client.js", first, StringComparison.Ordinal);
             Assert.True(
                 first.IndexOf(
                     KinopoiskStandaloneWebClientService.BeginMarker,
@@ -72,11 +74,19 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldCalculateStableSha256()
+        public void ShouldAssembleEmbeddedWebClientBundle()
         {
+            Assert.Equal(11, KinopoiskWebClientBundle.ResourceCount);
+            Assert.Equal(64, KinopoiskWebClientBundle.Sha256.Length);
             Assert.Equal(
-                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-                KinopoiskStandaloneWebClientService.ComputeSha256("abc"));
+                KinopoiskWebClientBundle.Sha256[..16],
+                KinopoiskWebClientBundle.VersionToken);
+            Assert.Equal(
+                Encoding.UTF8.GetBytes(KinopoiskWebClientBundle.Content),
+                KinopoiskWebClientBundle.Bytes);
+            Assert.Contains(".btnPlayTrailer", KinopoiskWebClientBundle.Content);
+            Assert.Contains("Похожие и рекомендации", KinopoiskWebClientBundle.Content);
+            Assert.Contains("kp-recommendations-scroller", KinopoiskWebClientBundle.Content);
         }
 
         [Fact]
@@ -94,7 +104,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldContainTransactionalProtectionAndLegacyMigration()
+        public void ShouldContainIndexProtectionAndLegacyMigration()
         {
             var source = File.ReadAllText(
                 Path.Combine(
@@ -108,11 +118,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains("VerifyInstallation", source);
-            Assert.Contains("RestorePreviousInstallation", source);
+            Assert.Contains("TryRestorePreviousIndex", source);
             Assert.Contains("rollback.sh", source);
             Assert.Contains("manifest.json", source);
             Assert.Contains("UnregisterAllScriptsFromPlugin", source);
             Assert.Contains("AssemblyLoadContext.All", source);
+            Assert.Contains("plugin-api", source);
+            Assert.Contains("bind-mount-managed-index", source);
+            Assert.DoesNotContain("kinopoisk-web-client.js", source, StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "using Jellyfin.Plugin.JavaScriptInjector",
                 source,
