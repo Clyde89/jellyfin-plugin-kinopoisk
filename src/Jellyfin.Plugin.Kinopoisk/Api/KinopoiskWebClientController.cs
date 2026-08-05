@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Linq;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
