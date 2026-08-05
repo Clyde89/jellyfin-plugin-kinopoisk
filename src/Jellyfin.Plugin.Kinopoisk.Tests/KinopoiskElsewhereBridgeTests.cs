@@ -36,21 +36,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterElsewhereBridgeHostedService()
+        public void ShouldRegisterElsewhereBridgeInStandaloneWebClient()
         {
-            var source = File.ReadAllText(
+            var projectDirectory = Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                "..",
+                "Jellyfin.Plugin.Kinopoisk");
+            var registrator = File.ReadAllText(
+                Path.Combine(projectDirectory, "KinopoiskPluginServiceRegistrator.cs"));
+            var webClient = File.ReadAllText(
                 Path.Combine(
-                    AppContext.BaseDirectory,
-                    "..",
-                    "..",
-                    "..",
-                    "..",
-                    "Jellyfin.Plugin.Kinopoisk",
-                    "KinopoiskPluginServiceRegistrator.cs"));
+                    projectDirectory,
+                    "Services",
+                    "KinopoiskStandaloneWebClientService.cs"));
 
             Assert.Contains(
-                "AddHostedService<KinopoiskWebElsewhereBridgeService>()",
-                source);
+                "AddHostedService<KinopoiskStandaloneWebClientService>()",
+                registrator);
+            Assert.Contains("kinopoiskElsewhereBridge.js", webClient);
         }
     }
 }
