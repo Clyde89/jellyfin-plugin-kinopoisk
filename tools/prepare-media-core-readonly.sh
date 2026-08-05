@@ -53,6 +53,26 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Не найдена команда: $1"
 }
 
+validate_base_compose() {
+  docker compose -f "$COMPOSE_FILE" config --format json \
+    | python3 -c '
+import json
+import sys
+
+service_name = sys.argv[1]
+config = json.load(sys.stdin)
+service = config.get("services", {}).get(service_name)
+if not isinstance(service, dict):
+    raise SystemExit(f"Сервис {service_name!r} отсутствует в базовом Compose.")
+if service.get("read_only") is not True:
+    raise SystemExit(
+        "Базовый сервис Jellyfin не содержит read_only: true; "
+        "подготовка защищённого режима остановлена."
+    )
+print("Базовый Compose проверен: read_only: true включён.")
+' "$SERVICE_NAME"
+}
+
 resolve_container_id() {
   local container_id
   container_id="$(docker compose -f "$COMPOSE_FILE" ps -q "$SERVICE_NAME" 2>/dev/null || true)"
@@ -98,7 +118,7 @@ Index в контейнере:    $web_index_path
 
 Защитные свойства:
 - базовый Compose-файл не изменяется;
-- read_only: true сохраняется;
+- read_only: true проверен и сохраняется;
 - index.html подключается в контейнер только для чтения;
 - отдельный JavaScript-файл в Jellyfin Web не создаётся;
 - Jellyfin не перезапускается и не пересоздаётся этой утилитой;
@@ -270,6 +290,7 @@ main() {
   [[ -f "$COMPOSE_FILE" ]] || fail "Compose-файл не найден: $COMPOSE_FILE"
   [[ -f "$INDEX_TOOL" ]] || fail "Утилита index.html не найдена: $INDEX_TOOL"
 
+  validate_base_compose
   container_id="$(resolve_container_id)"
   web_index_path="$(resolve_web_index_path "$container_id")"
   print_plan "$container_id" "$web_index_path"
@@ -277,7 +298,7 @@ main() {
   if [[ "$command_name" == "prepare" ]]; then
     prepare "$container_id" "$web_index_path"
   else
-    printf '\nРежим plan: файловые и контейнерные изменения не выполнялись.\n'
+    printf '\nРежим plan: постоянные файловые и контейнерные изменения не выполнялись.\n'
   fi
 }
 
