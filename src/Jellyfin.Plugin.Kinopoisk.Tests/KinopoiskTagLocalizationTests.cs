@@ -33,7 +33,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterTagLocalizationInStandaloneWebClient()
+        public void ShouldRegisterTagLocalizationInAutonomousBundle()
         {
             var projectDirectory = Path.Combine(
                 AppContext.BaseDirectory,
@@ -44,16 +44,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 "Jellyfin.Plugin.Kinopoisk");
             var registrator = File.ReadAllText(
                 Path.Combine(projectDirectory, "KinopoiskPluginServiceRegistrator.cs"));
-            var webClient = File.ReadAllText(
+            var bundle = File.ReadAllText(
                 Path.Combine(
                     projectDirectory,
                     "Services",
-                    "KinopoiskStandaloneWebClientService.cs"));
+                    "KinopoiskWebClientBundle.cs"));
 
             Assert.Contains(
                 "AddHostedService<KinopoiskStandaloneWebClientService>()",
                 registrator);
-            Assert.Contains("kinopoiskTagLocalization.js", webClient);
+            Assert.Contains("kinopoiskTagLocalization.js", bundle);
         }
     }
 }
