@@ -49,6 +49,8 @@ jobs:
         python3 tools/prepare-kinopoisk-readonly-index.py self-test
         python3 -m py_compile tools/prepare-kinopoisk-readonly-index.py
         bash -n tools/prepare-media-core-readonly.sh
+        bash -n tools/test-prepare-media-core-readonly.sh
+        bash tools/test-prepare-media-core-readonly.sh
 
     - name: Определение версии плагина
       id: version
