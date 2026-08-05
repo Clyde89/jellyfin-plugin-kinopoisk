@@ -144,17 +144,18 @@
             '.kp-recommendations-header{display:flex;align-items:center;gap:.8em;flex-wrap:wrap;padding-right:1em}',
             '.kp-recommendations-title{margin-right:auto}',
             '.kp-recommendations-tabs{display:flex;gap:.45em;flex-wrap:wrap}',
-            '.kp-recommendations-tab{border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.06);color:inherit;padding:.4em .72em;cursor:pointer;font:inherit}',
-            '.kp-recommendations-tab.is-active{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.34)}',
+            '.kp-recommendations-tab{border:1px solid rgba(255,255,255,.16)!important;border-radius:999px!important;background:rgba(255,255,255,.06)!important;color:inherit!important;padding:.4em .72em!important;cursor:pointer;font:inherit;min-width:0}',
+            '.kp-recommendations-tab.is-active{background:rgba(255,255,255,.18)!important;border-color:rgba(255,255,255,.34)!important}',
             '.kp-recommendations-status{padding:1em;opacity:.72}',
             '.kp-recommendations-scroller{overflow-x:auto;padding:.7em 0 1em;scrollbar-width:thin}',
-            '.kp-recommendations-items{display:flex;gap:.75em;padding:.25em 1em .5em .25em}',
-            '.kp-similar-card{width:9.5em;flex:0 0 9.5em;color:inherit;text-decoration:none;position:relative}',
-            '.kp-similar-card img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:.58em;background:rgba(255,255,255,.06)}',
-            '.kp-similar-card__name{display:block;margin-top:.45em;font-size:.92em;line-height:1.25;white-space:normal}',
-            '.kp-similar-card__source{display:inline-flex;margin-top:.3em;padding:.18em .42em;border-radius:.35em;background:rgba(255,255,255,.08);font-size:.76em;opacity:.78}',
-            '.kp-recommendations-items>.card{flex:0 0 auto}',
-            '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}}'
+            '.kp-recommendations-items{display:flex;gap:1em;padding:.25em 1em .5em .25em}',
+            '.kp-recommendations-items>.card{width:12.4em;flex:0 0 12.4em}',
+            '.kp-similar-card .cardImageContainer{background-position:center;background-size:cover}',
+            '.kp-similar-card__source{font-size:.86em;opacity:.86;white-space:nowrap}',
+            '.kp-similar-card__rating{display:flex;align-items:center;gap:.25em;color:#bdbdbd;white-space:nowrap}',
+            '.kp-similar-card__star{color:#ffd700;font-size:1.15em;line-height:1}',
+            '.kp-similar-card__fallback-button{opacity:.65;cursor:not-allowed}',
+            '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}.kp-recommendations-items>.card{width:10.8em;flex-basis:10.8em}}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -214,6 +215,22 @@
         return resolver.resolve(imdbId, itemType);
     }
 
+    function getSeerrStatus() {
+        var key = 'seerr:user-status';
+        if (!dataCache.has(key)) {
+            var enhanced = window.JellyfinEnhanced;
+            var request = enhanced
+                && enhanced.jellyseerrAPI
+                && typeof enhanced.jellyseerrAPI.checkUserStatus === 'function'
+                ? enhanced.jellyseerrAPI.checkUserStatus()
+                : Promise.resolve({ active: false, userFound: false });
+            dataCache.set(key, Promise.resolve(request).catch(function () {
+                return { active: false, userFound: false };
+            }));
+        }
+        return dataCache.get(key);
+    }
+
     function fetchExtendedItems(item) {
         var enhanced = window.JellyfinEnhanced;
         if (!enhanced
@@ -242,7 +259,7 @@
                 var status = values[0];
                 var tmdbId = values[1];
                 if (!status || !status.active || !tmdbId) {
-                    return { items: [], reason: 'Расширенная подборка временно недоступна.' };
+                    return { items: [], reason: 'Подборка The Movie Database временно недоступна.' };
                 }
 
                 var itemType = String(pick(item, 'Type', 'type') || '');
@@ -285,36 +302,165 @@
                 });
             }).catch(function (error) {
                 dataCache.delete(key);
-                console.warn('[КиноПоиск] Расширенная подборка не загружена.', error);
-                return { items: [], reason: 'Расширенная подборка временно недоступна.' };
+                console.warn('[КиноПоиск] Подборка The Movie Database не загружена.', error);
+                return { items: [], reason: 'Подборка The Movie Database временно недоступна.' };
             }));
         }
         return dataCache.get(key);
     }
 
-    function createKinopoiskCard(item) {
+    function getKinopoiskCardData(item) {
+        var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
+        var imdbId = String(pick(item, 'imdbId', 'ImdbId') || '').trim();
+        var mediaType = String(pick(item, 'mediaType', 'MediaType') || 'movie') === 'tv'
+            ? 'tv'
+            : 'movie';
+        var key = 'kp-card-data:' + kinopoiskId;
+        if (!/^\d+$/.test(kinopoiskId)
+            || !/^tt\d+$/.test(imdbId)
+            || dataCache.has(key)) {
+            return dataCache.get(key) || Promise.resolve(null);
+        }
+
+        var enhanced = window.JellyfinEnhanced;
+        var resolver = window.KinopoiskTmdbResolver;
+        if (!enhanced
+            || !enhanced.jellyseerrAPI
+            || !enhanced.jellyseerrUI
+            || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function'
+            || !resolver
+            || typeof resolver.resolve !== 'function') {
+            return Promise.resolve(null);
+        }
+
+        var itemType = mediaType === 'tv' ? 'Series' : 'Movie';
+        var request = Promise.all([
+            getSeerrStatus(),
+            resolver.resolve(imdbId, itemType)
+        ]).then(function (values) {
+            var status = values[0] || { active: false, userFound: false };
+            var tmdbId = String(values[1] || '');
+            if (!/^\d+$/.test(tmdbId)) {
+                return null;
+            }
+
+            var detailsRequest = Promise.resolve(null);
+            if (mediaType === 'movie'
+                && typeof enhanced.jellyseerrAPI.fetchMovieDetails === 'function') {
+                detailsRequest = enhanced.jellyseerrAPI.fetchMovieDetails(Number(tmdbId));
+            } else if (mediaType === 'tv'
+                && typeof enhanced.jellyseerrAPI.fetchTvShowDetails === 'function') {
+                detailsRequest = enhanced.jellyseerrAPI.fetchTvShowDetails(Number(tmdbId));
+            }
+
+            return Promise.resolve(detailsRequest).catch(function () {
+                return null;
+            }).then(function (details) {
+                var name = String(
+                    pick(item, 'name', 'Name')
+                    || pick(item, 'originalName', 'OriginalName')
+                    || 'Похожий фильм'
+                );
+                var year = Number(pick(item, 'year', 'Year') || 0);
+                var rating = Number(pick(item, 'ratingKinopoisk', 'RatingKinopoisk') || 0);
+                var overview = String(pick(item, 'overview', 'Overview') || '');
+                var result = Object.assign({}, details || {});
+                result.id = Number(tmdbId);
+                result.mediaType = mediaType;
+                result.title = name;
+                result.name = name;
+                result.overview = overview || result.overview || '';
+                result.voteAverage = rating > 0 ? rating : (result.voteAverage || 0);
+                if (mediaType === 'tv') {
+                    result.firstAirDate = year > 0
+                        ? String(year) + '-01-01'
+                        : (result.firstAirDate || '');
+                } else {
+                    result.releaseDate = year > 0
+                        ? String(year) + '-01-01'
+                        : (result.releaseDate || '');
+                }
+                return {
+                    item: result,
+                    active: status.active === true,
+                    userFound: status.userFound === true
+                };
+            });
+        }).catch(function (error) {
+            console.debug('[КиноПоиск] Карточка не сопоставлена с Seerr.', error);
+            return null;
+        });
+
+        dataCache.set(key, request);
+        return request;
+    }
+
+    function appendKinopoiskMeta(container, item) {
+        container.textContent = '';
+        var source = createElement('span', 'kp-similar-card__source', 'КиноПоиск');
+        var year = Number(pick(item, 'year', 'Year') || 0);
+        var rating = Number(pick(item, 'ratingKinopoisk', 'RatingKinopoisk') || 0);
+        container.appendChild(source);
+        if (year > 0) {
+            container.appendChild(createElement('bdi', '', String(year)));
+        }
+        if (rating > 0) {
+            var ratingNode = createElement('span', 'kp-similar-card__rating');
+            ratingNode.append(
+                createElement('span', 'kp-similar-card__star', '★'),
+                createElement('span', '', rating.toFixed(1))
+            );
+            container.appendChild(ratingNode);
+        }
+    }
+
+    function addFallbackOverview(cardScalable, item) {
+        var overview = null;
+        function removeOverview() {
+            if (overview && overview.parentNode) {
+                overview.remove();
+            }
+            overview = null;
+        }
+        function createOverview() {
+            if (overview) {
+                return;
+            }
+            overview = createElement('div', 'jellyseerr-overview');
+            var description = String(
+                pick(item, 'overview', 'Overview')
+                || 'Краткое описание отсутствует.'
+            );
+            overview.appendChild(createElement('div', 'content', description.slice(0, 500)));
+            var button = createElement(
+                'button',
+                'jellyseerr-request-button jellyseerr-button-offline kp-similar-card__fallback-button',
+                'Недоступно в Seerr'
+            );
+            button.type = 'button';
+            button.disabled = true;
+            overview.appendChild(button);
+            cardScalable.appendChild(overview);
+        }
+        cardScalable.addEventListener('mouseenter', createOverview);
+        cardScalable.addEventListener('mouseleave', removeOverview);
+        cardScalable.setAttribute('tabindex', '0');
+        cardScalable.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (overview) {
+                    removeOverview();
+                } else {
+                    createOverview();
+                }
+            }
+        });
+    }
+
+    function createKinopoiskFallbackCard(item) {
         var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
         if (!/^\d+$/.test(kinopoiskId)) {
             return null;
-        }
-        var link = document.createElement('a');
-        link.className = 'kp-similar-card';
-        link.href = 'https://www.kinopoisk.ru/film/' + kinopoiskId + '/';
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.referrerPolicy = 'strict-origin-when-cross-origin';
-
-        var imageUrl = normalizeImageUrl(
-            pick(item, 'posterUrlPreview', 'PosterUrlPreview')
-            || pick(item, 'posterUrl', 'PosterUrl')
-        );
-        if (imageUrl) {
-            var image = document.createElement('img');
-            image.src = imageUrl;
-            image.alt = '';
-            image.loading = 'lazy';
-            image.referrerPolicy = 'no-referrer';
-            link.appendChild(image);
         }
 
         var name = String(
@@ -322,11 +468,77 @@
             || pick(item, 'originalName', 'OriginalName')
             || 'Похожий фильм'
         );
-        link.append(
-            createElement('span', 'kp-similar-card__name', name),
-            createElement('span', 'kp-similar-card__source', 'КиноПоиск')
+        var mediaType = String(pick(item, 'mediaType', 'MediaType') || 'movie') === 'tv'
+            ? 'tv'
+            : 'movie';
+        var imageUrl = normalizeImageUrl(
+            pick(item, 'posterUrl', 'PosterUrl')
+            || pick(item, 'posterUrlPreview', 'PosterUrlPreview')
         );
-        return link;
+        var card = createElement(
+            'div',
+            'card overflowPortraitCard card-hoverable card-withuserdata jellyseerr-card kp-similar-card'
+        );
+        card.dataset.kinopoiskId = kinopoiskId;
+        var box = createElement('div', 'cardBox cardBox-bottompadded');
+        var scalable = createElement('div', 'cardScalable');
+        scalable.appendChild(createElement('div', 'cardPadder cardPadder-overflowPortrait'));
+        var image = createElement('div', 'cardImageContainer coveredImage cardContent');
+        if (imageUrl) {
+            image.style.backgroundImage = 'url("' + imageUrl + '")';
+        }
+        var badge = createElement(
+            'span',
+            'jellyseerr-media-badge '
+                + (mediaType === 'tv'
+                    ? 'jellyseerr-media-badge-series'
+                    : 'jellyseerr-media-badge-movie'),
+            mediaType === 'tv' ? 'СЕРИАЛ' : 'ФИЛЬМ'
+        );
+        image.appendChild(badge);
+        scalable.appendChild(image);
+        addFallbackOverview(scalable, item);
+        box.appendChild(scalable);
+
+        var title = createElement('div', 'cardText cardTextCentered cardText-first');
+        var link = createElement('a', 'jellyseerr-more-info-link', name);
+        link.href = 'https://www.kinopoisk.ru/film/' + kinopoiskId + '/';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.referrerPolicy = 'strict-origin-when-cross-origin';
+        title.appendChild(link);
+        box.appendChild(title);
+        var meta = createElement(
+            'div',
+            'cardText cardTextCentered cardText-secondary jellyseerr-meta'
+        );
+        appendKinopoiskMeta(meta, item);
+        box.appendChild(meta);
+        card.appendChild(box);
+        return card;
+    }
+
+    function customizeKinopoiskCard(card, item) {
+        if (!card) {
+            return null;
+        }
+        var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
+        card.classList.add('kp-similar-card');
+        card.dataset.kinopoiskId = kinopoiskId;
+
+        var imageUrl = normalizeImageUrl(
+            pick(item, 'posterUrl', 'PosterUrl')
+            || pick(item, 'posterUrlPreview', 'PosterUrlPreview')
+        );
+        var image = card.querySelector('.cardImageContainer');
+        if (image && imageUrl) {
+            image.style.backgroundImage = 'url("' + imageUrl + '")';
+        }
+        var meta = card.querySelector('.jellyseerr-meta');
+        if (meta) {
+            appendKinopoiskMeta(meta, item);
+        }
+        return card;
     }
 
     function renderKinopoisk(container, items) {
@@ -338,13 +550,33 @@
             ));
             return;
         }
+        var enhanced = window.JellyfinEnhanced;
         var scroller = createElement('div', 'kp-recommendations-scroller');
         var list = createElement('div', 'kp-recommendations-items');
         items.forEach(function (item) {
-            var card = createKinopoiskCard(item);
-            if (card) {
-                list.appendChild(card);
+            var fallback = createKinopoiskFallbackCard(item);
+            if (!fallback) {
+                return;
             }
+            list.appendChild(fallback);
+            getKinopoiskCardData(item).then(function (resolved) {
+                if (!resolved
+                    || !fallback.isConnected
+                    || !enhanced
+                    || !enhanced.jellyseerrUI
+                    || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function') {
+                    return;
+                }
+                var card = enhanced.jellyseerrUI.createJellyseerrCard(
+                    resolved.item,
+                    resolved.active,
+                    resolved.userFound
+                );
+                card = customizeKinopoiskCard(card, item);
+                if (card && fallback.isConnected) {
+                    fallback.replaceWith(card);
+                }
+            });
         });
         scroller.appendChild(list);
         container.appendChild(scroller);
@@ -358,7 +590,7 @@
                 'kp-recommendations-status',
                 result && result.reason
                     ? result.reason
-                    : 'Расширенная подборка не найдена.'
+                    : 'Подборка The Movie Database не найдена.'
             ));
             return;
         }
@@ -391,13 +623,14 @@
             'Похожие и рекомендации'
         ));
         var tabs = createElement('div', 'kp-recommendations-tabs');
+        tabs.setAttribute('role', 'tablist');
         var content = createElement('div', 'kp-recommendations-content');
         var activeSource = 'kinopoisk';
         var loaded = Object.create(null);
 
         var sources = [
             { key: 'kinopoisk', label: 'КиноПоиск' },
-            { key: 'extended', label: 'Расширенная подборка' }
+            { key: 'extended', label: 'The Movie Database' }
         ];
 
         function setActive(source) {
@@ -408,6 +641,7 @@
                     var active = button.dataset.source === source;
                     button.classList.toggle('is-active', active);
                     button.setAttribute('aria-selected', active ? 'true' : 'false');
+                    button.tabIndex = active ? 0 : -1;
                 }
             );
             content.textContent = '';
@@ -451,7 +685,11 @@
         }
 
         sources.forEach(function (source) {
-            var button = createElement('button', 'kp-recommendations-tab', source.label);
+            var button = createElement(
+                'button',
+                'emby-button kp-recommendations-tab',
+                source.label
+            );
             button.type = 'button';
             button.dataset.source = source.key;
             button.setAttribute('role', 'tab');
