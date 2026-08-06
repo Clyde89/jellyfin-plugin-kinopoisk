@@ -35,6 +35,7 @@
     <None Remove="Web\kinopoiskCarouselRebind.js" />
     <None Remove="Web\kinopoiskRuntimeUiCorrections.js" />
     <None Remove="Web\kinopoiskRuntimeNativeStyle.js" />
+    <None Remove="Web\kinopoiskRecommendationLifecycleGuard.js" />
     <None Remove="Web\kinopoiskRecommendationScrollbarStyle.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
@@ -71,6 +72,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRuntimeNativeStyle.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendationLifecycleGuard.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRecommendationScrollbarStyle.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationScrollbarStyle.js</LogicalName>
