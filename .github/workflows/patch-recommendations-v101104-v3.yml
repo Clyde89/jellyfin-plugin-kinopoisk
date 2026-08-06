@@ -1,0 +1,504 @@
+name: Окончательное исправление рекомендаций 10.11.0.4
+
+on:
+  push:
+    branches:
+      - feature/diagnostic-test-mode
+    paths:
+      - .github/workflows/patch-recommendations-v101104-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    name: Исправлены рендер и геометрия навигации
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/diagnostic-test-mode
+          fetch-depth: 0
+
+      - name: Исправлен основной жизненный цикл рекомендаций
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_between(source, start_marker, end_marker, replacement):
+              start = source.find(start_marker)
+              end = source.find(end_marker, start + len(start_marker))
+              if start < 0 or end < 0:
+                  raise SystemExit(
+                      f'Структурные границы не найдены: {start_marker} / {end_marker}'
+                  )
+              return source[:start] + replacement + source[end:]
+
+          old_vars = '    var dataCache = new Map();\n    var renderTimer = null;\n'
+          new_vars = '''    var dataCache = new Map();
+              var currentItemCache = new Map();
+              var renderTimer = null;
+              var retryTimers = [];
+              var renderGeneration = 0;
+              var activeItemId = null;
+              var retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000];
+          '''
+          if text.count(old_vars) != 1:
+              raise SystemExit('Блок переменных рекомендаций не найден однозначно.')
+          text = text.replace(old_vars, new_vars)
+
+          text = replace_between(
+              text,
+              '    function fetchCurrentItem(itemId) {',
+              '    function createElement(',
+              '''    function fetchCurrentItem(itemId) {
+              var apiClient = getApiClient();
+              if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
+                  return Promise.resolve(null);
+              }
+              if (!currentItemCache.has(itemId)) {
+                  var request = apiClient
+                      .getItem(apiClient.getCurrentUserId(), itemId)
+                      .catch(function (error) {
+                          currentItemCache.delete(itemId);
+                          console.warn('[КиноПоиск] Карточка для рекомендаций не загружена.', error);
+                          return null;
+                      });
+                  currentItemCache.set(itemId, request);
+                  if (currentItemCache.size > 50) {
+                      currentItemCache.delete(currentItemCache.keys().next().value);
+                  }
+              }
+              return currentItemCache.get(itemId);
+          }
+
+          ''',
+          )
+
+          text = replace_between(
+              text,
+              '    function getVisiblePage() {',
+              '    function removeLegacySeerrSections(',
+              '''    function getVisiblePage() {
+              var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+              for (var index = 0; index < pages.length; index++) {
+                  var page = pages[index];
+                  if (!page.isConnected || page.hidden || page.classList.contains('hide')) {
+                      continue;
+                  }
+                  var style = window.getComputedStyle(page);
+                  if (style.display !== 'none' && style.visibility !== 'hidden') {
+                      return page;
+                  }
+              }
+              return null;
+          }
+
+          ''',
+          )
+
+          lifecycle = '''    function sectionMatches(page, itemId) {
+              var section = page && page.querySelector('#kinopoiskRecommendationsSection');
+              return Boolean(section && section.isConnected && section.dataset.itemId === itemId);
+          }
+
+          function clearRetryTimers() {
+              retryTimers.forEach(function (timer) {
+                  clearTimeout(timer);
+              });
+              retryTimers = [];
+              if (renderTimer) {
+                  clearTimeout(renderTimer);
+                  renderTimer = null;
+              }
+          }
+
+          function renderCurrentItem(itemId, expectedGeneration) {
+              ensureStyles();
+              if (!itemId
+                  || expectedGeneration !== renderGeneration
+                  || getCurrentItemId() !== itemId) {
+                  return;
+              }
+
+              fetchCurrentItem(itemId).then(function (item) {
+                  if (!item
+                      || expectedGeneration !== renderGeneration
+                      || getCurrentItemId() !== itemId) {
+                      return;
+                  }
+
+                  var page = getVisiblePage();
+                  if (!page || !page.isConnected) {
+                      return;
+                  }
+
+                  var existing = page.querySelector('#kinopoiskRecommendationsSection');
+                  if (existing && existing.dataset.itemId === itemId) {
+                      clearRetryTimers();
+                      return;
+                  }
+                  if (existing) {
+                      existing.remove();
+                  }
+
+                  var itemType = String(pick(item, 'Type', 'type') || '');
+                  if (itemType !== 'Movie' && itemType !== 'Series') {
+                      return;
+                  }
+                  var kinopoiskId = String(getProviderId(item, 'kinopoisk') || '');
+                  if (!/^\\d+$/.test(kinopoiskId)) {
+                      return;
+                  }
+
+                  var anchor = findInsertionAnchor(page);
+                  if (!anchor
+                      || !anchor.isConnected
+                      || !anchor.parentNode
+                      || expectedGeneration !== renderGeneration
+                      || getCurrentItemId() !== itemId) {
+                      return;
+                  }
+
+                  removeLegacySeerrSections(page);
+                  anchor.parentNode.insertBefore(
+                      createSection(itemId, item, kinopoiskId),
+                      anchor.nextSibling
+                  );
+                  clearRetryTimers();
+              });
+          }
+
+          function queueRenderAttempt(itemId, expectedGeneration, delay) {
+              retryTimers.push(setTimeout(function () {
+                  renderCurrentItem(itemId, expectedGeneration);
+              }, delay));
+          }
+
+          function startRenderCycle() {
+              var itemId = getCurrentItemId();
+              renderGeneration += 1;
+              activeItemId = itemId;
+              clearRetryTimers();
+              if (!itemId) {
+                  return;
+              }
+              var expectedGeneration = renderGeneration;
+              retryDelays.forEach(function (delay) {
+                  queueRenderAttempt(itemId, expectedGeneration, delay);
+              });
+          }
+
+          function scheduleImmediateRender() {
+              var itemId = getCurrentItemId();
+              if (itemId !== activeItemId) {
+                  startRenderCycle();
+                  return;
+              }
+              if (!itemId || renderTimer) {
+                  return;
+              }
+              var expectedGeneration = renderGeneration;
+              renderTimer = setTimeout(function () {
+                  renderTimer = null;
+                  renderCurrentItem(itemId, expectedGeneration);
+              }, 90);
+          }
+
+          ensureStyles();
+          var observer = new MutationObserver(scheduleImmediateRender);
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+          window.addEventListener('hashchange', startRenderCycle);
+          window.addEventListener('popstate', startRenderCycle);
+          document.addEventListener('viewshow', startRenderCycle, true);
+          window.setInterval(function () {
+              var itemId = getCurrentItemId();
+              if (itemId !== activeItemId) {
+                  startRenderCycle();
+                  return;
+              }
+              if (!itemId) {
+                  return;
+              }
+              var page = getVisiblePage();
+              if (!sectionMatches(page, itemId)) {
+                  scheduleImmediateRender();
+              }
+          }, 2000);
+          startRenderCycle();
+          console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
+          }());'''
+
+          start = text.find('    function renderCurrentItem() {')
+          end = text.rfind('}());')
+          if start < 0 or end < start:
+              raise SystemExit('Границы финального жизненного цикла не найдены.')
+          text = text[:start] + lifecycle + text[end + len('}());'):]
+          path.write_text(text.rstrip() + '\n', encoding='utf-8')
+          PY
+
+      - name: Обновлено геометрическое выравнивание навигации
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js <<'EOF'
+          (function () {
+              'use strict';
+
+              if (window.__kinopoiskRecommendationLifecycleGuardInstalled) {
+                  return;
+              }
+              window.__kinopoiskRecommendationLifecycleGuardInstalled = true;
+              var alignTimer = null;
+
+              function isVisible(element) {
+                  if (!element || !element.isConnected || element.hidden) {
+                      return false;
+                  }
+                  var style = window.getComputedStyle(element);
+                  var rect = element.getBoundingClientRect();
+                  return style.display !== 'none'
+                      && style.visibility !== 'hidden'
+                      && rect.width > 0
+                      && rect.height > 0;
+              }
+
+              function getVisibleDetailPage() {
+                  var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+                  for (var index = 0; index < pages.length; index++) {
+                      if (isVisible(pages[index]) && !pages[index].classList.contains('hide')) {
+                          return pages[index];
+                      }
+                  }
+                  return null;
+              }
+
+              function findReferenceNavigation(section) {
+                  var previous = section.previousElementSibling;
+                  var direct = previous && previous.querySelector(
+                      '.emby-scrollbuttons:not(.kp-native-navigation)'
+                  );
+                  if (isVisible(direct)) {
+                      return direct;
+                  }
+                  var page = getVisibleDetailPage();
+                  if (!page) {
+                      return null;
+                  }
+                  var sectionTop = section.getBoundingClientRect().top;
+                  var candidates = Array.prototype.filter.call(
+                      page.querySelectorAll('.emby-scrollbuttons:not(.kp-native-navigation)'),
+                      function (candidate) {
+                          return !section.contains(candidate) && isVisible(candidate);
+                      }
+                  );
+                  candidates.sort(function (left, right) {
+                      var leftRect = left.getBoundingClientRect();
+                      var rightRect = right.getBoundingClientRect();
+                      var leftScore = (leftRect.top > sectionTop ? 100000 : 0)
+                          + Math.abs(sectionTop - leftRect.top);
+                      var rightScore = (rightRect.top > sectionTop ? 100000 : 0)
+                          + Math.abs(sectionTop - rightRect.top);
+                      return leftScore - rightScore;
+                  });
+                  return candidates[0] || null;
+              }
+
+              function alignSection(section) {
+                  var header = section.querySelector('.kp-recommendations-header');
+                  var navigation = section.querySelector('.kp-native-navigation');
+                  if (!header || !navigation || !isVisible(navigation)) {
+                      return;
+                  }
+                  var reference = findReferenceNavigation(section);
+                  if (!reference) {
+                      navigation.style.removeProperty('--kp-native-navigation-left');
+                      navigation.dataset.kpAlignmentSource = 'fallback';
+                      return;
+                  }
+                  var offset = Math.max(0, Math.round(
+                      reference.getBoundingClientRect().left
+                      - header.getBoundingClientRect().left
+                  ));
+                  navigation.style.setProperty(
+                      '--kp-native-navigation-left',
+                      String(offset) + 'px'
+                  );
+                  navigation.dataset.kpAlignmentSource = 'native-carousel';
+              }
+
+              function alignAll() {
+                  alignTimer = null;
+                  Array.prototype.forEach.call(
+                      document.querySelectorAll('.kp-recommendations-section'),
+                      alignSection
+                  );
+              }
+
+              function scheduleAlignment() {
+                  if (!alignTimer) {
+                      alignTimer = setTimeout(alignAll, 120);
+                  }
+              }
+
+              function ensureStyles() {
+                  if (document.getElementById('kinopoiskRecommendationLifecycleGuardStyles')) {
+                      return;
+                  }
+                  var style = document.createElement('style');
+                  style.id = 'kinopoiskRecommendationLifecycleGuardStyles';
+                  style.textContent = [
+                      '@media(max-width:900px){',
+                      '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
+                      'flex:0 0 100%!important;',
+                      'width:100%!important;',
+                      'box-sizing:border-box!important;',
+                      'margin:0!important;',
+                      'padding:0 0 0 var(--kp-native-navigation-left,2.5em)!important;',
+                      'display:flex!important;',
+                      'justify-content:flex-start!important;',
+                      'transform:none!important',
+                      '}',
+                      '}'
+                  ].join('');
+                  document.head.appendChild(style);
+              }
+
+              ensureStyles();
+              var observer = new MutationObserver(scheduleAlignment);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('resize', scheduleAlignment);
+              window.addEventListener('hashchange', scheduleAlignment);
+              window.addEventListener('popstate', scheduleAlignment);
+              document.addEventListener('viewshow', scheduleAlignment, true);
+              scheduleAlignment();
+              console.info('[КиноПоиск] Геометрическое выравнивание навигации зарегистрировано.');
+          }());
+          EOF
+
+      - name: Обновлены тесты и версия кандидата
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationLifecycleGuardTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskRecommendationLifecycleGuardTests
+              {
+                  [Fact]
+                  public void ShouldEmbedDirectBoundedLifecycleRecovery()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000]", script);
+                      Assert.Contains("expectedGeneration !== renderGeneration", script);
+                      Assert.Contains("currentItemCache", script);
+                      Assert.Contains("var page = getVisiblePage();", script);
+                      Assert.Contains("anchor.isConnected", script);
+                      Assert.Contains("scheduleImmediateRender", script);
+                      Assert.Contains("window.setInterval", script);
+                      Assert.Contains("2000", script);
+                      Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("setTimeout(renderCurrentItem, 350)", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldAlignNavigationFromNativeCarouselGeometry()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("findReferenceNavigation", script);
+                      Assert.Contains(".emby-scrollbuttons:not(.kp-native-navigation)", script);
+                      Assert.Contains("getBoundingClientRect().left", script);
+                      Assert.Contains("--kp-native-navigation-left", script);
+                      Assert.Contains("@media(max-width:900px)", script);
+                      Assert.Contains("justify-content:flex-start!important", script);
+                      Assert.DoesNotContain("margin-right:2.5em!important", script);
+                      Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
+                  }
+              }
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          tests = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationsTests.cs')
+          text = tests.read_text(encoding='utf-8')
+          marker = '            Assert.Contains("KinopoiskTmdbResolver", script);\n'
+          addition = (
+              marker
+              + '            Assert.Contains("retryDelays", script);\n'
+              + '            Assert.Contains("renderGeneration", script);\n'
+              + '            Assert.Contains("currentItemCache", script);\n'
+              + '            Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);\n'
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('Точка расширения теста рекомендаций не найдена.')
+          tests.write_text(text.replace(marker, addition), encoding='utf-8')
+
+          for path in [
+              Path('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj'),
+              Path('tools/install-media-core-autonomous.sh'),
+              Path('tools/test-install-media-core-autonomous.sh'),
+              Path('tools/READONLY-DEPLOYMENT.md'),
+          ]:
+              content = path.read_text(encoding='utf-8')
+              if '10.11.0.3' not in content:
+                  raise SystemExit(f'Версия 10.11.0.3 не найдена: {path}')
+              path.write_text(content.replace('10.11.0.3', '10.11.0.4'), encoding='utf-8')
+
+          changelog = Path('CHANGELOG.d/kinopoisk-recommendation-cards.md')
+          content = changelog.read_text(encoding='utf-8').rstrip() + '\n'
+          content += (
+              '- Исправлено повторное использование устаревшей DOM-страницы после асинхронной загрузки карточки.\n'
+              '- Добавлен прямой ограниченный цикл восстановления блока в основном модуле рекомендаций.\n'
+              '- Исключено бесконечное откладывание рендера непрерывными DOM-мутациями.\n'
+              '- Добавлено геометрическое выравнивание стрелок по ближайшей штатной карусели Jellyfin.\n'
+          )
+          changelog.write_text(content, encoding='utf-8')
+          PY
+
+      - name: Проверены и зафиксированы изменения
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --check src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js
+          node --check src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationLifecycleGuardTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationsTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            tools/install-media-core-autonomous.sh \
+            tools/test-install-media-core-autonomous.sh \
+            tools/READONLY-DEPLOYMENT.md \
+            CHANGELOG.d/kinopoisk-recommendation-cards.md
+          git commit -m 'Исправлены рендер рекомендаций и выравнивание навигации'
+          git push origin HEAD:feature/diagnostic-test-mode
