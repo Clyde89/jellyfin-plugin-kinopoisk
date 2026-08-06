@@ -20,6 +20,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskTagLocalization.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskElsewhereBridge.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js",
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationSeerrFallback.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js",
