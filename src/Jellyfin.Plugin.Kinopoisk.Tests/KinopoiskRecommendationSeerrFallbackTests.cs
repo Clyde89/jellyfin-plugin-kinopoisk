@@ -19,7 +19,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             using var reader = new StreamReader(stream!);
             var script = reader.ReadToEnd();
 
-            Assert.Contains("jellyseerrAPI.search", script);
+            Assert.Contains("var api = enhanced.jellyseerrAPI", script);
+            Assert.Contains("api.search(query", script);
             Assert.Contains("selectUniqueMatch", script);
             Assert.Contains("candidateYear !== source.year", script);
             Assert.Contains("matches[0].score === matches[1].score", script);
