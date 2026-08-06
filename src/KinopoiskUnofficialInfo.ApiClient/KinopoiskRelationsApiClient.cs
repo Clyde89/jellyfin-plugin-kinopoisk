@@ -7,11 +7,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
     /// <summary>
-    /// Загружает связи фильмов через Kinopoisk Unofficial API.
+    /// Загружает связи фильмов через актуальный endpoint Kinopoisk Unofficial API.
     /// </summary>
     public sealed class KinopoiskRelationsApiClient : IKinopoiskRelationsApiClient
     {
@@ -107,7 +108,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             int filmId,
             CancellationToken cancellationToken)
         {
-            var requestUri = $"{ApiBaseUrl}/api/v2.1/films/{filmId}/sequels_and_prequels";
+            var requestUri = $"{ApiBaseUrl}/api/v2.2/films/{filmId}/relations";
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
             request.Headers.Accept.ParseAdd("application/json");
 
@@ -120,6 +121,10 @@ namespace KinopoiskUnofficialInfo.ApiClient
             if (response.StatusCode == HttpStatusCode.NotFound)
                 return Array.Empty<FilmSequelsAndPrequelsResponse>();
 
+            var json = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+
             if (!response.IsSuccessStatusCode)
             {
                 var headers = response.Headers.ToDictionary(item => item.Key, item => item.Value);
@@ -129,18 +134,89 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 throw new ApiException(
                     "Сервер КиноПоиска вернул неожиданный HTTP-статус.",
                     (int)response.StatusCode,
-                    string.Empty,
+                    json,
                     headers,
                     null);
             }
 
-            var json = await response.Content
-                .ReadAsStringAsync(cancellationToken)
-                .ConfigureAwait(false);
-            return JsonConvert.DeserializeObject<ICollection<FilmSequelsAndPrequelsResponse>>(
-                    json,
-                    SerializerSettings)
-                ?? Array.Empty<FilmSequelsAndPrequelsResponse>();
+            var sourceItems = DeserializeRelationItems(json);
+            var result = sourceItems
+                .Select(MapRelation)
+                .Where(item => item is not null)
+                .ToArray();
+
+            _logger.LogDebug(
+                "Для Kinopoisk ID {KinopoiskId} получено связей: {ReceivedCount}, поддержано франшизных связей: {SelectedCount}",
+                filmId,
+                sourceItems.Count,
+                result.Length);
+
+            return result;
+        }
+
+        private static ICollection<RelationWireItem> DeserializeRelationItems(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return Array.Empty<RelationWireItem>();
+
+            var serializer = JsonSerializer.Create(SerializerSettings);
+            var token = JToken.Parse(json);
+
+            if (token.Type == JTokenType.Array)
+            {
+                return token.ToObject<ICollection<RelationWireItem>>(serializer)
+                    ?? Array.Empty<RelationWireItem>();
+            }
+
+            if (token.Type != JTokenType.Object)
+                return Array.Empty<RelationWireItem>();
+
+            return token.ToObject<RelationsWireResponse>(serializer)?.Items
+                ?? Array.Empty<RelationWireItem>();
+        }
+
+        private static FilmSequelsAndPrequelsResponse MapRelation(RelationWireItem source)
+        {
+            if (source is null || source.FilmId < 1)
+                return null;
+
+            if (!TryMapRelationType(source.RelationType, out var relationType))
+                return null;
+
+            return new FilmSequelsAndPrequelsResponse
+            {
+                FilmId = source.FilmId,
+                NameRu = source.NameRu ?? string.Empty,
+                NameEn = source.NameEn ?? string.Empty,
+                NameOriginal = source.NameOriginal ?? string.Empty,
+                PosterUrl = source.PosterUrl ?? string.Empty,
+                PosterUrlPreview = source.PosterUrlPreview ?? string.Empty,
+                RelationType = relationType
+            };
+        }
+
+        private static bool TryMapRelationType(
+            string value,
+            out FilmSequelsAndPrequelsResponseRelationType relationType)
+        {
+            relationType = FilmSequelsAndPrequelsResponseRelationType.UNKNOWN;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            switch (value.Trim().ToUpperInvariant())
+            {
+                case "SEQUEL":
+                    relationType = FilmSequelsAndPrequelsResponseRelationType.SEQUEL;
+                    return true;
+                case "PREQUEL":
+                    relationType = FilmSequelsAndPrequelsResponseRelationType.PREQUEL;
+                    return true;
+                case "REMAKE":
+                    relationType = FilmSequelsAndPrequelsResponseRelationType.REMAKE;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool IsTransientStatusCode(int statusCode)
@@ -201,6 +277,40 @@ namespace KinopoiskUnofficialInfo.ApiClient
             var delay = TimeSpan.FromMilliseconds(
                 (250 * Math.Pow(2, completedAttempt - 1)) + Random.Shared.Next(50, 151));
             return delay > MaximumRetryDelay ? MaximumRetryDelay : delay;
+        }
+
+        private sealed class RelationsWireResponse
+        {
+            [JsonProperty("total")]
+            public int Total { get; set; }
+
+            [JsonProperty("items")]
+            public ICollection<RelationWireItem> Items { get; set; }
+                = Array.Empty<RelationWireItem>();
+        }
+
+        private sealed class RelationWireItem
+        {
+            [JsonProperty("filmId")]
+            public int FilmId { get; set; }
+
+            [JsonProperty("nameRu")]
+            public string NameRu { get; set; }
+
+            [JsonProperty("nameEn")]
+            public string NameEn { get; set; }
+
+            [JsonProperty("nameOriginal")]
+            public string NameOriginal { get; set; }
+
+            [JsonProperty("posterUrl")]
+            public string PosterUrl { get; set; }
+
+            [JsonProperty("posterUrlPreview")]
+            public string PosterUrlPreview { get; set; }
+
+            [JsonProperty("relationType")]
+            public string RelationType { get; set; }
         }
     }
 }

@@ -3,19 +3,90 @@
 <head>
     <meta charset="utf-8">
     <title>КиноПоиск</title>
+    <style>
+        #KinopoiskConfigPage .kinopoiskTabs {
+            display: flex;
+            gap: .65em;
+            flex-wrap: wrap;
+            margin: 0 0 1.5em;
+        }
+
+        #KinopoiskConfigPage .kinopoiskTabButton[aria-selected="true"] {
+            background: #00a4dc;
+            color: #fff;
+        }
+
+        #KinopoiskConfigPage .kinopoiskTabPanel[hidden] {
+            display: none !important;
+        }
+
+        #KinopoiskConfigPage .kinopoiskExternalLink {
+            color: inherit;
+            background: rgba(0, 164, 220, 0.22);
+            border-radius: 0.25em;
+            font-weight: 700;
+            padding: 0.05em 0.3em;
+            text-decoration: underline;
+            text-decoration-color: #35c8ff;
+            text-decoration-thickness: 0.12em;
+            text-underline-offset: 0.14em;
+        }
+
+        #KinopoiskConfigPage .kinopoiskExternalLink:hover,
+        #KinopoiskConfigPage .kinopoiskExternalLink:focus-visible {
+            background: rgba(0, 164, 220, 0.42);
+            outline: 2px solid #35c8ff;
+            outline-offset: 2px;
+        }
+
+        #KinopoiskConfigPage .kinopoiskStatusCard {
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 0.45em;
+            margin: 1em 0;
+            padding: 1em;
+        }
+
+        #KinopoiskConfigPage .kinopoiskWarning {
+            border-left: 0.35em solid #ffb020;
+            padding-left: 0.9em;
+        }
+
+        #KinopoiskConfigPage .kinopoiskActions {
+            display: flex;
+            gap: .75em;
+            flex-wrap: wrap;
+            margin: 1em 0;
+        }
+
+        #KinopoiskConfigPage code {
+            overflow-wrap: anywhere;
+        }
+    </style>
 </head>
 <body>
-    <div id="KinopoiskConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
-        <div data-role="content">
-            <div class="content-primary">
-                <form id="KinopoiskConfigForm">
+<div id="KinopoiskConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <h1>КиноПоиск</h1>
+
+            <div class="kinopoiskTabs" role="tablist" aria-label="Разделы КиноПоиска">
+                <button id="KinopoiskSettingsTab" type="button" is="emby-button" class="raised emby-button kinopoiskTabButton" role="tab" aria-controls="KinopoiskSettingsPanel" aria-selected="true">
+                    <span>Основные параметры</span>
+                </button>
+                <button id="KinopoiskDiagnosticsTab" type="button" is="emby-button" class="raised emby-button kinopoiskTabButton" role="tab" aria-controls="KinopoiskDiagnosticsPanel" aria-selected="false">
+                    <span>Диагностика (Debug)</span>
+                </button>
+            </div>
+
+            <form id="KinopoiskConfigForm">
+                <section id="KinopoiskSettingsPanel" class="kinopoiskTabPanel" role="tabpanel" aria-labelledby="KinopoiskSettingsTab">
                     <h2>Подключение к API</h2>
                     <div class="inputContainer">
                         <label class="inputeLabel inputLabelUnfocused" for="ApiToken">Персональный API-токен</label>
                         <input id="ApiToken" name="ApiToken" type="password" autocomplete="new-password" is="emby-input" />
                         <div class="fieldDescription">
                             Токен выдаётся после регистрации на
-                            <a href="https://kinopoiskapiunofficial.tech" target="_blank" rel="noopener noreferrer">kinopoiskapiunofficial.tech</a>.
+                            <a class="kinopoiskExternalLink" href="https://kinopoiskapiunofficial.tech" target="_blank" rel="noopener noreferrer">kinopoiskapiunofficial.tech</a>.
                             Токен хранится в конфигурации Jellyfin и не выводится в журнал.
                         </div>
                     </div>
@@ -39,349 +110,387 @@
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableTrailers" type="checkbox" is="emby-checkbox" /><span>Трейлеры КиноПоиска</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">В штатный список трейлеров Jellyfin добавляются поддерживаемые ролики, полученные через API КиноПоиска. Трейлеры не сохраняются в долговременном или бинарном кэше.</div>
+                        <div class="fieldDescription checkboxFieldDescription">Поддерживаемые ролики добавляются в штатный список трейлеров Jellyfin.</div>
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableImages" type="checkbox" is="emby-checkbox" /><span>Удалённые изображения</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Постеры, обложки, прозрачные логотипы, фоны, кадры, изображения со съёмок, промоматериалы, концепт-арты и скриншоты.</div>
+                        <div class="fieldDescription checkboxFieldDescription">Постеры, обложки, прозрачные логотипы, фоны, кадры и изображения персон.</div>
                     </div>
 
                     <h2>Трейлеры КиноПоиска</h2>
-                    <div class="fieldDescription" style="margin-bottom: 1em;">
-                        Внутри штатного интерфейса Jellyfin воспроизводятся только безопасно распознанные YouTube-ролики, возвращённые API КиноПоиска.
-                        Источники KINOPOISK_WIDGET и Яндекс.Диск не являются прямыми медиапотоками и не подменяются неработающими ссылками воспроизведения.
-                    </div>
                     <div class="inputContainer">
                         <label class="inputeLabel inputLabelUnfocused" for="MaximumTrailers">Максимальное количество трейлеров</label>
                         <input id="MaximumTrailers" type="number" min="1" max="20" step="1" is="emby-input" />
-                        <div class="fieldDescription">Ограничивает число роликов в стандартной карточке Jellyfin. Рекомендуемое значение: 5.</div>
+                        <div class="fieldDescription">Рекомендуемое значение: 5.</div>
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="PreferOfficialTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет официальных трейлеров</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Официальные ролики поднимаются выше неофициальных, фанатских и концептуальных видео.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="PreferRussianTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет русскоязычных трейлеров</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Русские, дублированные и озвученные ролики располагаются выше остальных при одинаковом типе видео.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeTrailerTeasers" type="checkbox" is="emby-checkbox" /><span>Включать тизеры</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Тизеры добавляются после полноценных трейлеров, если не заняли более высокий приоритет по языку и официальности.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeAdditionalTrailerVideos" type="checkbox" is="emby-checkbox" /><span>Включать дополнительные ролики</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Разрешает фрагменты, интервью, материалы со съёмок, клипы и телевизионные ролики. По умолчанию отключено, чтобы карточка не перегружалась.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="PrefixTrailerNames" type="checkbox" is="emby-checkbox" /><span>Добавлять источник к названию</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">К названию ролика добавляется префикс «КиноПоиск —», чтобы источник был понятен в интерфейсе Jellyfin.</div>
-                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="PreferOfficialTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет официальных трейлеров</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="PreferRussianTrailers" type="checkbox" is="emby-checkbox" /><span>Приоритет русскоязычных трейлеров</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeTrailerTeasers" type="checkbox" is="emby-checkbox" /><span>Включать тизеры</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeAdditionalTrailerVideos" type="checkbox" is="emby-checkbox" /><span>Включать дополнительные ролики</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="PrefixTrailerNames" type="checkbox" is="emby-checkbox" /><span>Добавлять источник к названию</span></label></div>
 
                     <h2>Полнота стандартных метаданных</h2>
                     <div class="selectContainer">
                         <label class="selectLabel" for="CommunityRatingSource">Пользовательский рейтинг Jellyfin</label>
                         <select id="CommunityRatingSource" is="emby-select" class="emby-select-withcolor emby-select">
-                            <option value="0">КиноПоиск, затем IMDb</option>
-                            <option value="1">Только КиноПоиск</option>
-                            <option value="2">IMDb, затем КиноПоиск</option>
-                            <option value="3">Только IMDb</option>
-                            <option value="4">Не заполнять</option>
+                            <option value="KinopoiskWithImdbFallback">КиноПоиск, затем IMDb</option>
+                            <option value="KinopoiskOnly">Только КиноПоиск</option>
+                            <option value="ImdbWithKinopoiskFallback">IMDb, затем КиноПоиск</option>
+                            <option value="ImdbOnly">Только IMDb</option>
+                            <option value="Disabled">Не заполнять</option>
                         </select>
-                        <div class="fieldDescription">Определяет источник стандартного поля CommunityRating. Рейтинги сохраняются по десятибалльной шкале Jellyfin.</div>
                     </div>
                     <div class="selectContainer">
                         <label class="selectLabel" for="CriticRatingSource">Рейтинг критиков Jellyfin</label>
                         <select id="CriticRatingSource" is="emby-select" class="emby-select-withcolor emby-select">
-                            <option value="0">Критики России, затем мировые</option>
-                            <option value="1">Только критики России</option>
-                            <option value="2">Мировые критики, затем России</option>
-                            <option value="3">Только мировые критики</option>
-                            <option value="4">Не заполнять</option>
+                            <option value="RussianWithWorldFallback">Критики России, затем мировые</option>
+                            <option value="RussianOnly">Только критики России</option>
+                            <option value="WorldWithRussianFallback">Мировые критики, затем России</option>
+                            <option value="WorldOnly">Только мировые критики</option>
+                            <option value="Disabled">Не заполнять</option>
                         </select>
-                        <div class="fieldDescription">Рейтинг КиноПоиска преобразуется из десятибалльной шкалы в процентную шкалу CriticRating Jellyfin.</div>
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnablePrecisePremiereDate" type="checkbox" is="emby-checkbox" /><span>Точная дата премьеры</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Выполняется дополнительный кэшируемый запрос прокатных данных. Мировая премьера имеет приоритет, затем используется кинотеатральная премьера.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableRuntimeFallback" type="checkbox" is="emby-checkbox" /><span>Продолжительность из КиноПоиска</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Поле продолжительности заполняется из карточки КиноПоиска. После анализа локального файла Jellyfin может уточнить значение по фактическому медиапотоку.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableKinopoiskHomePage" type="checkbox" is="emby-checkbox" /><span>Домашняя страница КиноПоиска</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">В стандартное поле домашней страницы добавляется безопасная HTTP- или HTTPS-ссылка на карточку фильма или сериала.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableSeriesStatus" type="checkbox" is="emby-checkbox" /><span>Статус и диапазон лет сериала</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Заполняются год начала, дата завершения и стандартный статус Jellyfin: ожидается, продолжается или завершён.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableShortDescriptionFallback" type="checkbox" is="emby-checkbox" /><span>Краткое описание как резерв</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">При отсутствии полного описания используется краткое описание КиноПоиска. Существующее полное описание не заменяется кратким.</div>
-                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnablePrecisePremiereDate" type="checkbox" is="emby-checkbox" /><span>Точная дата премьеры</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableRuntimeFallback" type="checkbox" is="emby-checkbox" /><span>Продолжительность из КиноПоиска</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableKinopoiskHomePage" type="checkbox" is="emby-checkbox" /><span>Домашняя страница КиноПоиска</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableSeriesStatus" type="checkbox" is="emby-checkbox" /><span>Статус и диапазон лет сериала</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableShortDescriptionFallback" type="checkbox" is="emby-checkbox" /><span>Краткое описание как резерв</span></label></div>
 
                     <h2>Франшизы и связи</h2>
-                    <div class="fieldDescription" style="margin-bottom: 1em;">
-                        Текущий этап работает только в режиме предварительного просмотра. Откройте «Панель управления → Задачи по расписанию» и вручную запустите задачу «Предварительный просмотр франшиз КиноПоиска».
-                        Отчёт будет атомарно сохранён в каталоге данных плагина: <code>reports/franchise-preview-latest.json</code>. Коллекции Jellyfin не создаются и не изменяются.
+                    <div class="fieldDescription kinopoiskWarning" style="margin-bottom: 1em;">
+                        Текущий этап работает только в режиме предварительного просмотра. Write-режим скрыт и выключен. Коллекции Jellyfin не создаются и не изменяются.
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeSeriesInFranchises" type="checkbox" is="emby-checkbox" /><span>Включать сериалы</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">В предварительный план включаются локальные сериалы с сохранённым Kinopoisk ID. Сезоны и эпизоды не участвуют.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeFranchiseSequels" type="checkbox" is="emby-checkbox" /><span>Учитывать сиквелы</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Продолжения объединяются с другими локальными объектами одной связанной группы.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeFranchisePrequels" type="checkbox" is="emby-checkbox" /><span>Учитывать приквелы</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Предыстории объединяются с другими локальными объектами одной связанной группы.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="IncludeFranchiseRemakes" type="checkbox" is="emby-checkbox" /><span>Учитывать ремейки</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Ремейки могут относиться к самостоятельным интерпретациям, поэтому по умолчанию исключены.</div>
-                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeSeriesInFranchises" type="checkbox" is="emby-checkbox" /><span>Включать сериалы</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeFranchiseSequels" type="checkbox" is="emby-checkbox" /><span>Учитывать сиквелы</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeFranchisePrequels" type="checkbox" is="emby-checkbox" /><span>Учитывать приквелы</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeFranchiseRemakes" type="checkbox" is="emby-checkbox" /><span>Учитывать ремейки</span></label></div>
                     <div class="inputContainer">
                         <label class="inputeLabel inputLabelUnfocused" for="MinimumFranchiseItems">Минимальное количество локальных объектов</label>
                         <input id="MinimumFranchiseItems" type="number" min="2" max="1000" step="1" is="emby-input" />
-                        <div class="fieldDescription">Группа с меньшим количеством объектов не включается в отчёт. Рекомендуемое значение: 2.</div>
                     </div>
                     <div class="inputContainer">
                         <label class="inputeLabel inputLabelUnfocused" for="FranchiseCollectionNameSuffix">Суффикс предлагаемого названия</label>
-                        <input id="FranchiseCollectionNameSuffix" type="text" maxlength="80" is="emby-input" />
-                        <div class="fieldDescription">Добавляется к названию опорного фильма только в плане. Значение по умолчанию: « — коллекция».</div>
+                        <input id="FranchiseCollectionNameSuffix" type="text" is="emby-input" />
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="PreserveManualCollections" type="checkbox" is="emby-checkbox" disabled="disabled" /><span>Защищать ручные коллекции</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Параметр принудительно включён. Плагин никогда не должен переименовывать, очищать или удалять коллекции, не имеющие собственного маркера КиноПоиска.</div>
+                        <label><input id="PreserveManualCollections" type="checkbox" is="emby-checkbox" disabled /><span>Защищать ручные коллекции</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Параметр принудительно включён.</div>
                     </div>
 
                     <h2>Кэширование ответов API</h2>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnablePersistentCache" type="checkbox" is="emby-checkbox" /><span>Долговременный дисковый кэш ответов</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Ответы API сохраняются в каталоге данных плагина и используются после перезапуска Jellyfin. Трейлеры исключены.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="UseStaleCacheOnFailure" type="checkbox" is="emby-checkbox" /><span>Резерв устаревших ответов</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">При временной недоступности API или исчерпании квоты используется последний сохранённый ответ, даже если его обычный срок хранения завершён.</div>
-                    </div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="MetadataCacheHours">Основные метаданные, часов</label><input id="MetadataCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" /><div class="fieldDescription">Рекомендуемое значение: 168 часов.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImagesCacheHours">Списки изображений, часов</label><input id="ImagesCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" /><div class="fieldDescription">Кэшируются сведения и URL изображений, но не сами графические файлы. Рекомендуемое значение: 720 часов.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="SearchCacheMinutes">Результаты поиска, минут</label><input id="SearchCacheMinutes" type="number" min="1" max="10080" step="1" is="emby-input" /><div class="fieldDescription">Увеличенное значение уменьшает расход квоты при повторной идентификации.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NegativeCacheMinutes">Пустые результаты, минут</label><input id="NegativeCacheMinutes" type="number" min="1" max="1440" step="1" is="emby-input" /><div class="fieldDescription">Пустые ответы сохраняются ненадолго, чтобы исключить циклические повторные запросы.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="PersistentCacheMaximumMegabytes">Максимальный размер кэша ответов, МБ</label><input id="PersistentCacheMaximumMegabytes" type="number" min="64" max="8192" step="1" is="emby-input" /><div class="fieldDescription">При превышении ограничения первыми удаляются самые старые записи.</div></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnablePersistentCache" type="checkbox" is="emby-checkbox" /><span>Долговременный дисковый кэш ответов</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="UseStaleCacheOnFailure" type="checkbox" is="emby-checkbox" /><span>Резерв устаревших ответов</span></label></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="MetadataCacheHours">Основные метаданные, часов</label><input id="MetadataCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImagesCacheHours">Списки изображений, часов</label><input id="ImagesCacheHours" type="number" min="1" max="8760" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="SearchCacheMinutes">Результаты поиска, минут</label><input id="SearchCacheMinutes" type="number" min="1" max="10080" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NegativeCacheMinutes">Пустые результаты, минут</label><input id="NegativeCacheMinutes" type="number" min="1" max="1440" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="PersistentCacheMaximumMegabytes">Максимальный размер кэша ответов, МБ</label><input id="PersistentCacheMaximumMegabytes" type="number" min="64" max="8192" step="1" is="emby-input" /></div>
 
                     <h2>Локальный кэш файлов изображений</h2>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableImageBinaryCache" type="checkbox" is="emby-checkbox" /><span>Кэшировать фактические файлы изображений</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Jellyfin сохраняет загруженные постеры, фоны, логотипы, кадры и фотографии персон в каталоге данных плагина. Повторные обращения обслуживаются локально и не нагружают удалённые CDN. Трейлеры этой функцией не затрагиваются.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="UseStaleImageCacheOnFailure" type="checkbox" is="emby-checkbox" /><span>Использовать устаревшее изображение при ошибке</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Если удалённый сервер временно недоступен, Jellyfin продолжает отдавать последнюю сохранённую копию изображения.</div>
-                    </div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheDays">Срок актуальности изображения, дней</label><input id="ImageBinaryCacheDays" type="number" min="1" max="3650" step="1" is="emby-input" /><div class="fieldDescription">После завершения срока выполняется условная проверка ETag или Last-Modified. При отсутствии изменений файл не скачивается повторно. Рекомендуемое значение: 30 дней.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumMegabytes">Максимальный общий размер, МБ</label><input id="ImageBinaryCacheMaximumMegabytes" type="number" min="64" max="16384" step="1" is="emby-input" /><div class="fieldDescription">При превышении ограничения удаляются наименее недавно использованные изображения. Рекомендуемое значение: 2048 МБ.</div></div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumFileMegabytes">Максимальный размер одного файла, МБ</label><input id="ImageBinaryCacheMaximumFileMegabytes" type="number" min="1" max="100" step="1" is="emby-input" /><div class="fieldDescription">Слишком крупное изображение передаётся Jellyfin напрямую, но не сохраняется локально. Рекомендуемое значение: 25 МБ.</div></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableImageBinaryCache" type="checkbox" is="emby-checkbox" /><span>Кэшировать фактические файлы изображений</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="UseStaleImageCacheOnFailure" type="checkbox" is="emby-checkbox" /><span>Использовать устаревшее изображение при ошибке</span></label></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheDays">Срок актуальности изображения, дней</label><input id="ImageBinaryCacheDays" type="number" min="1" max="3650" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumMegabytes">Максимальный общий размер, МБ</label><input id="ImageBinaryCacheMaximumMegabytes" type="number" min="64" max="16384" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumFileMegabytes">Максимальный размер одного файла, МБ</label><input id="ImageBinaryCacheMaximumFileMegabytes" type="number" min="1" max="100" step="1" is="emby-input" /></div>
 
                     <h2>Контроль квоты</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableQuotaMonitoring" type="checkbox" is="emby-checkbox" /><span>Контроль API-ключа и квоты</span></label></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="QuotaCheckIntervalHours">Интервал проверки квоты, часов</label><input id="QuotaCheckIntervalHours" type="number" min="1" max="168" step="1" is="emby-input" /></div>
+
+                    <div class="kinopoiskStatusCard">
+                        <h3>Состояние поставщика</h3>
+                        <div><strong>Тип учётной записи:</strong> <span id="QuotaAccountType">ещё не проверялся</span></div>
+                        <div><strong>Суточная квота:</strong> <span id="QuotaDaily">ещё не проверялась</span></div>
+                        <div><strong>Общая квота:</strong> <span id="QuotaTotal">ещё не проверялась</span></div>
+                        <div><strong>Последняя проверка квоты:</strong> <span id="QuotaLastCheck">ещё не выполнялась</span></div>
+                        <div><strong>Запросы API:</strong> <span id="DiagApiRequests">0</span></div>
+                        <div><strong>Ошибки API:</strong> <span id="DiagApiFailures">0</span></div>
+                        <div><strong>Попадания в оперативный кэш:</strong> <span id="DiagMemoryHits">0</span></div>
+                        <div><strong>Попадания в дисковый кэш:</strong> <span id="DiagPersistentHits">0</span></div>
+                        <div><strong>Резерв устаревших ответов:</strong> <span id="DiagStaleHits">0</span></div>
+                        <div><strong>Записи в дисковый кэш:</strong> <span id="DiagPersistentWrites">0</span></div>
+                        <div><strong>Попадания в кэш изображений:</strong> <span id="DiagImageHits">0</span></div>
+                        <div><strong>Промахи кэша изображений:</strong> <span id="DiagImageMisses">0</span></div>
+                        <div><strong>Резерв устаревших изображений:</strong> <span id="DiagImageStaleHits">0</span></div>
+                        <div><strong>Записано файлов изображений:</strong> <span id="DiagImageWrites">0</span></div>
+                        <div><strong>Сохранено данных изображений:</strong> <span id="DiagImageBytes">0 байт</span></div>
+                    </div>
+                </section>
+
+                <section id="KinopoiskDiagnosticsPanel" class="kinopoiskTabPanel" role="tabpanel" aria-labelledby="KinopoiskDiagnosticsTab" hidden>
+                    <h2>Диагностическая сессия КиноПоиска</h2>
+                    <div class="fieldDescription kinopoiskWarning">
+                        Режим предназначен для контролируемого тестирования. Он не изменяет глобальный уровень журналирования Jellyfin, автоматически завершается и записывает только события КиноПоиска в отдельный JSONL-файл. API-токен и заголовки авторизации не сохраняются.
+                    </div>
+
                     <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label><input id="EnableQuotaMonitoring" type="checkbox" is="emby-checkbox" /><span>Контроль API-ключа и квоты</span></label>
-                        <div class="fieldDescription checkboxFieldDescription">Состояние ключа периодически проверяется без вывода токена в журнал. Полученные сведения используются для диагностики и защиты от лишних запросов.</div>
+                        <label><input id="EnableDiagnosticMode" type="checkbox" is="emby-checkbox" /><span>Включить диагностическую сессию</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Для принудительного запуска новой сессии используется кнопка ниже.</div>
                     </div>
-                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="QuotaCheckIntervalHours">Интервал проверки квоты, часов</label><input id="QuotaCheckIntervalHours" type="number" min="1" max="168" step="1" is="emby-input" /><div class="fieldDescription">Рекомендуемое значение: 6 часов. Сам запрос состояния ключа также учитывается внешним сервисом.</div></div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="DiagnosticLogLevel">Уровень диагностики</label>
+                        <select id="DiagnosticLogLevel" is="emby-select" class="emby-select-withcolor emby-select">
+                            <option value="Basic">Базовый</option>
+                            <option value="Detailed">Подробный</option>
+                            <option value="Trace">Трассировка</option>
+                        </select>
+                    </div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="DiagnosticSessionHours">Продолжительность сессии, часов</label><input id="DiagnosticSessionHours" type="number" min="1" max="24" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="DiagnosticMaximumFileMegabytes">Максимальный размер файла, МБ</label><input id="DiagnosticMaximumFileMegabytes" type="number" min="5" max="200" step="1" is="emby-input" /></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="DiagnosticRetentionFiles">Количество сохраняемых файлов</label><input id="DiagnosticRetentionFiles" type="number" min="1" max="20" step="1" is="emby-input" /></div>
 
-                    <h2>Состояние поставщика</h2>
-                    <div class="fieldDescription" style="line-height: 1.8;">
-                        <div><strong>Тип учётной записи:</strong> <span id="DiagnosticAccountType">не определён</span></div>
-                        <div><strong>Суточная квота:</strong> <span id="DiagnosticDailyQuota">ещё не проверялась</span></div>
-                        <div><strong>Общая квота:</strong> <span id="DiagnosticTotalQuota">ещё не проверялась</span></div>
-                        <div><strong>Последняя проверка квоты:</strong> <span id="DiagnosticLastQuotaCheck">ещё не выполнялась</span></div>
-                        <div><strong>Запросы API:</strong> <span id="DiagnosticApiRequests">0</span></div>
-                        <div><strong>Ошибки API:</strong> <span id="DiagnosticApiFailures">0</span></div>
-                        <div><strong>Попадания в оперативный кэш ответов:</strong> <span id="DiagnosticMemoryHits">0</span></div>
-                        <div><strong>Попадания в дисковый кэш ответов:</strong> <span id="DiagnosticPersistentHits">0</span></div>
-                        <div><strong>Резерв устаревших ответов:</strong> <span id="DiagnosticStaleHits">0</span></div>
-                        <div><strong>Записи в дисковый кэш ответов:</strong> <span id="DiagnosticPersistentWrites">0</span></div>
-                        <div><strong>Попадания в кэш файлов изображений:</strong> <span id="DiagnosticImageHits">0</span></div>
-                        <div><strong>Промахи кэша файлов изображений:</strong> <span id="DiagnosticImageMisses">0</span></div>
-                        <div><strong>Резерв устаревших изображений:</strong> <span id="DiagnosticImageStaleHits">0</span></div>
-                        <div><strong>Записано файлов изображений:</strong> <span id="DiagnosticImageWrites">0</span></div>
-                        <div><strong>Сохранено данных изображений:</strong> <span id="DiagnosticImageBytes">0 Б</span></div>
+                    <div class="kinopoiskStatusCard">
+                        <h3>Текущее состояние</h3>
+                        <div><strong>Статус:</strong> <span id="DiagnosticStatus">выключено</span></div>
+                        <div><strong>Session ID:</strong> <code id="DiagnosticSessionId">не создан</code></div>
+                        <div><strong>Начало:</strong> <span id="DiagnosticStarted">не задано</span></div>
+                        <div><strong>Автоматическое завершение:</strong> <span id="DiagnosticExpires">не задано</span></div>
+                        <div><strong>Относительный путь:</strong> <code id="DiagnosticPath">diagnostics/</code></div>
                     </div>
-                    <div style="margin-top: 1em;"><button id="RefreshDiagnostics" is="emby-button" type="button" class="raised emby-button"><span>Обновить показатели</span></button></div>
-                    <div class="fieldDescription" style="margin: 1.5em 0;">Параметры дисковых кэшей и контроля квоты применяются после перезапуска Jellyfin. Остальные параметры учитываются при следующих запросах метаданных.</div>
-                    <div><button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Сохранить</span></button></div>
-                </form>
-            </div>
+
+                    <div class="kinopoiskActions">
+                        <button id="StartDiagnosticSession" is="emby-button" type="button" class="raised emby-button"><span>Начать новую сессию</span></button>
+                        <button id="StopDiagnosticSession" is="emby-button" type="button" class="raised emby-button"><span>Остановить сессию</span></button>
+                        <button id="RefreshDiagnosticStatus" is="emby-button" type="button" class="raised emby-button"><span>Обновить состояние</span></button>
+                    </div>
+                </section>
+
+                <div><button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Сохранить параметры</span></button></div>
+            </form>
         </div>
-        <script type="text/javascript">
-            var KinopoiskPluginConfig = { pluginUniqueId: '33e6d249-648f-44cd-a9ce-497be06c08df' };
-
-            function readInteger(id, fallback) {
-                var value = parseInt(document.querySelector(id).value, 10);
-                return Number.isFinite(value) ? value : fallback;
-            }
-
-            function setCheckbox(id, value, fallback) {
-                $(id).prop('checked', value == null ? fallback : value).change();
-            }
-
-            function setValue(id, value, fallback) {
-                $(id).val(value == null ? fallback : value).change();
-            }
-
-            function formatQuota(used, value) {
-                return value ? String(used || 0) + ' из ' + String(value) : 'ещё не проверялась';
-            }
-
-            function formatDate(value) {
-                if (!value) return 'ещё не выполнялась';
-                var date = new Date(value);
-                return Number.isNaN(date.getTime()) ? 'неизвестно' : date.toLocaleString('ru-RU');
-            }
-
-            function formatBytes(value) {
-                var bytes = Number(value || 0);
-                if (bytes < 1024) return bytes.toFixed(0) + ' Б';
-                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КиБ';
-                if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' МиБ';
-                return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' ГиБ';
-            }
-
-            function renderDiagnostics(config) {
-                var d = config.Diagnostics || {};
-                $('#DiagnosticAccountType').text(d.AccountType || 'не определён');
-                $('#DiagnosticDailyQuota').text(formatQuota(d.DailyQuotaUsed, d.DailyQuotaValue));
-                $('#DiagnosticTotalQuota').text(formatQuota(d.TotalQuotaUsed, d.TotalQuotaValue));
-                $('#DiagnosticLastQuotaCheck').text(formatDate(d.LastQuotaCheckUtc));
-                $('#DiagnosticApiRequests').text(d.ApiRequests || 0);
-                $('#DiagnosticApiFailures').text(d.ApiFailures || 0);
-                $('#DiagnosticMemoryHits').text(d.MemoryCacheHits || 0);
-                $('#DiagnosticPersistentHits').text(d.PersistentCacheHits || 0);
-                $('#DiagnosticStaleHits').text(d.StaleCacheHits || 0);
-                $('#DiagnosticPersistentWrites').text(d.PersistentCacheWrites || 0);
-                $('#DiagnosticImageHits').text(d.ImageCacheHits || 0);
-                $('#DiagnosticImageMisses').text(d.ImageCacheMisses || 0);
-                $('#DiagnosticImageStaleHits').text(d.ImageCacheStaleHits || 0);
-                $('#DiagnosticImageWrites').text(d.ImageCacheWrites || 0);
-                $('#DiagnosticImageBytes').text(formatBytes(d.ImageCacheBytesWritten));
-            }
-
-            function loadConfiguration() {
-                return ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    $('#ApiToken').val(config.ApiToken || '').change();
-                    setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
-                    setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
-                    setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
-                    setCheckbox('#EnablePeopleMetadata', config.EnablePeopleMetadata, true);
-                    setCheckbox('#EnableTrailers', config.EnableTrailers, true);
-                    setCheckbox('#EnableImages', config.EnableImages, true);
-                    setValue('#MaximumTrailers', config.MaximumTrailers, 5);
-                    setCheckbox('#PreferOfficialTrailers', config.PreferOfficialTrailers, true);
-                    setCheckbox('#PreferRussianTrailers', config.PreferRussianTrailers, true);
-                    setCheckbox('#IncludeTrailerTeasers', config.IncludeTrailerTeasers, true);
-                    setCheckbox('#IncludeAdditionalTrailerVideos', config.IncludeAdditionalTrailerVideos, false);
-                    setCheckbox('#PrefixTrailerNames', config.PrefixTrailerNames, true);
-                    setValue('#CommunityRatingSource', config.CommunityRatingSource, 0);
-                    setValue('#CriticRatingSource', config.CriticRatingSource, 0);
-                    setCheckbox('#EnablePrecisePremiereDate', config.EnablePrecisePremiereDate, true);
-                    setCheckbox('#EnableRuntimeFallback', config.EnableRuntimeFallback, true);
-                    setCheckbox('#EnableKinopoiskHomePage', config.EnableKinopoiskHomePage, true);
-                    setCheckbox('#EnableSeriesStatus', config.EnableSeriesStatus, true);
-                    setCheckbox('#EnableShortDescriptionFallback', config.EnableShortDescriptionFallback, true);
-                    setCheckbox('#IncludeSeriesInFranchises', config.IncludeSeriesInFranchises, true);
-                    setCheckbox('#IncludeFranchiseSequels', config.IncludeFranchiseSequels, true);
-                    setCheckbox('#IncludeFranchisePrequels', config.IncludeFranchisePrequels, true);
-                    setCheckbox('#IncludeFranchiseRemakes', config.IncludeFranchiseRemakes, false);
-                    setValue('#MinimumFranchiseItems', config.MinimumFranchiseItems, 2);
-                    setValue('#FranchiseCollectionNameSuffix', config.FranchiseCollectionNameSuffix, ' — коллекция');
-                    setCheckbox('#PreserveManualCollections', true, true);
-                    setCheckbox('#EnablePersistentCache', config.EnablePersistentCache, true);
-                    setCheckbox('#UseStaleCacheOnFailure', config.UseStaleCacheOnFailure, true);
-                    setValue('#MetadataCacheHours', config.MetadataCacheHours, 168);
-                    setValue('#ImagesCacheHours', config.ImagesCacheHours, 720);
-                    setValue('#SearchCacheMinutes', config.SearchCacheMinutes, 60);
-                    setValue('#NegativeCacheMinutes', config.NegativeCacheMinutes, 15);
-                    setValue('#PersistentCacheMaximumMegabytes', config.PersistentCacheMaximumMegabytes, 512);
-                    setCheckbox('#EnableImageBinaryCache', config.EnableImageBinaryCache, true);
-                    setCheckbox('#UseStaleImageCacheOnFailure', config.UseStaleImageCacheOnFailure, true);
-                    setValue('#ImageBinaryCacheDays', config.ImageBinaryCacheDays, 30);
-                    setValue('#ImageBinaryCacheMaximumMegabytes', config.ImageBinaryCacheMaximumMegabytes, 2048);
-                    setValue('#ImageBinaryCacheMaximumFileMegabytes', config.ImageBinaryCacheMaximumFileMegabytes, 25);
-                    setCheckbox('#EnableQuotaMonitoring', config.EnableQuotaMonitoring, true);
-                    setValue('#QuotaCheckIntervalHours', config.QuotaCheckIntervalHours, 6);
-                    renderDiagnostics(config);
-                    return config;
-                });
-            }
-
-            $('#KinopoiskConfigPage').on('pageshow', function () {
-                Dashboard.showLoadingMsg();
-                loadConfiguration().then(function () { Dashboard.hideLoadingMsg(); });
-            });
-
-            $('#RefreshDiagnostics').on('click', function () {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    renderDiagnostics(config);
-                    Dashboard.hideLoadingMsg();
-                });
-            });
-
-            $('#KinopoiskConfigForm').on('submit', function () {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    config.ApiToken = $('#ApiToken').val().trim();
-                    config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
-                    config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
-                    config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');
-                    config.EnablePeopleMetadata = $('#EnablePeopleMetadata').prop('checked');
-                    config.EnableTrailers = $('#EnableTrailers').prop('checked');
-                    config.EnableImages = $('#EnableImages').prop('checked');
-                    config.MaximumTrailers = readInteger('#MaximumTrailers', 5);
-                    config.PreferOfficialTrailers = $('#PreferOfficialTrailers').prop('checked');
-                    config.PreferRussianTrailers = $('#PreferRussianTrailers').prop('checked');
-                    config.IncludeTrailerTeasers = $('#IncludeTrailerTeasers').prop('checked');
-                    config.IncludeAdditionalTrailerVideos = $('#IncludeAdditionalTrailerVideos').prop('checked');
-                    config.PrefixTrailerNames = $('#PrefixTrailerNames').prop('checked');
-                    config.CommunityRatingSource = readInteger('#CommunityRatingSource', 0);
-                    config.CriticRatingSource = readInteger('#CriticRatingSource', 0);
-                    config.EnablePrecisePremiereDate = $('#EnablePrecisePremiereDate').prop('checked');
-                    config.EnableRuntimeFallback = $('#EnableRuntimeFallback').prop('checked');
-                    config.EnableKinopoiskHomePage = $('#EnableKinopoiskHomePage').prop('checked');
-                    config.EnableSeriesStatus = $('#EnableSeriesStatus').prop('checked');
-                    config.EnableShortDescriptionFallback = $('#EnableShortDescriptionFallback').prop('checked');
-                    config.IncludeSeriesInFranchises = $('#IncludeSeriesInFranchises').prop('checked');
-                    config.IncludeFranchiseSequels = $('#IncludeFranchiseSequels').prop('checked');
-                    config.IncludeFranchisePrequels = $('#IncludeFranchisePrequels').prop('checked');
-                    config.IncludeFranchiseRemakes = $('#IncludeFranchiseRemakes').prop('checked');
-                    config.MinimumFranchiseItems = readInteger('#MinimumFranchiseItems', 2);
-                    config.FranchiseCollectionNameSuffix = $('#FranchiseCollectionNameSuffix').val();
-                    config.PreserveManualCollections = true;
-                    config.EnablePersistentCache = $('#EnablePersistentCache').prop('checked');
-                    config.UseStaleCacheOnFailure = $('#UseStaleCacheOnFailure').prop('checked');
-                    config.MetadataCacheHours = readInteger('#MetadataCacheHours', 168);
-                    config.ImagesCacheHours = readInteger('#ImagesCacheHours', 720);
-                    config.SearchCacheMinutes = readInteger('#SearchCacheMinutes', 60);
-                    config.NegativeCacheMinutes = readInteger('#NegativeCacheMinutes', 15);
-                    config.PersistentCacheMaximumMegabytes = readInteger('#PersistentCacheMaximumMegabytes', 512);
-                    config.EnableImageBinaryCache = $('#EnableImageBinaryCache').prop('checked');
-                    config.UseStaleImageCacheOnFailure = $('#UseStaleImageCacheOnFailure').prop('checked');
-                    config.ImageBinaryCacheDays = readInteger('#ImageBinaryCacheDays', 30);
-                    config.ImageBinaryCacheMaximumMegabytes = readInteger('#ImageBinaryCacheMaximumMegabytes', 2048);
-                    config.ImageBinaryCacheMaximumFileMegabytes = readInteger('#ImageBinaryCacheMaximumFileMegabytes', 25);
-                    config.EnableQuotaMonitoring = $('#EnableQuotaMonitoring').prop('checked');
-                    config.QuotaCheckIntervalHours = readInteger('#QuotaCheckIntervalHours', 6);
-
-                    ApiClient.updatePluginConfiguration(KinopoiskPluginConfig.pluginUniqueId, config).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
-                    });
-                });
-                return false;
-            });
-        </script>
     </div>
+
+    <script type="text/javascript">
+        var KinopoiskConfig = { pluginUniqueId: '33e6d249-648f-44cd-a9ce-497be06c08df' };
+
+        function setCheckbox(selector, value, fallback) {
+            $(selector).prop('checked', value === undefined || value === null ? fallback : !!value).change();
+        }
+
+        function setValue(selector, value, fallback) {
+            $(selector).val(value === undefined || value === null ? fallback : value).change();
+        }
+
+        function readInteger(selector, fallback) {
+            var value = parseInt($(selector).val(), 10);
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function formatDate(value) {
+            if (!value) return 'не задано';
+            var date = new Date(value);
+            return Number.isNaN(date.getTime()) ? 'неизвестно' : date.toLocaleString('ru-RU');
+        }
+
+        function formatQuota(used, value) {
+            var usedValue = Number(used || 0);
+            var limitValue = Number(value);
+            if (limitValue === -1) return String(usedValue) + '; общий предел не задан';
+            return Number.isFinite(limitValue) && limitValue > 0
+                ? String(usedValue) + ' из ' + String(limitValue)
+                : 'ещё не проверялась';
+        }
+
+        function formatBytes(value) {
+            var bytes = Number(value || 0);
+            if (bytes < 1024) return bytes + ' байт';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КиБ';
+            return (bytes / 1024 / 1024).toFixed(1) + ' МиБ';
+        }
+
+        function showTab(panelId) {
+            var diagnostics = panelId === 'KinopoiskDiagnosticsPanel';
+            $('#KinopoiskSettingsPanel').prop('hidden', diagnostics);
+            $('#KinopoiskDiagnosticsPanel').prop('hidden', !diagnostics);
+            $('#KinopoiskSettingsTab').attr('aria-selected', diagnostics ? 'false' : 'true');
+            $('#KinopoiskDiagnosticsTab').attr('aria-selected', diagnostics ? 'true' : 'false');
+            try { sessionStorage.setItem('kinopoisk.activeTab', panelId); } catch (_) { }
+        }
+
+        function applyConfiguration(config) {
+            setValue('#ApiToken', config.ApiToken, '');
+            setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
+            setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
+            setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
+            setCheckbox('#EnablePeopleMetadata', config.EnablePeopleMetadata, true);
+            setCheckbox('#EnableTrailers', config.EnableTrailers, true);
+            setCheckbox('#EnableImages', config.EnableImages, true);
+            setValue('#MaximumTrailers', config.MaximumTrailers, 5);
+            setCheckbox('#PreferOfficialTrailers', config.PreferOfficialTrailers, true);
+            setCheckbox('#PreferRussianTrailers', config.PreferRussianTrailers, true);
+            setCheckbox('#IncludeTrailerTeasers', config.IncludeTrailerTeasers, true);
+            setCheckbox('#IncludeAdditionalTrailerVideos', config.IncludeAdditionalTrailerVideos, false);
+            setCheckbox('#PrefixTrailerNames', config.PrefixTrailerNames, true);
+            setValue('#CommunityRatingSource', config.CommunityRatingSource, 'KinopoiskWithImdbFallback');
+            setValue('#CriticRatingSource', config.CriticRatingSource, 'RussianWithWorldFallback');
+            setCheckbox('#EnablePrecisePremiereDate', config.EnablePrecisePremiereDate, true);
+            setCheckbox('#EnableRuntimeFallback', config.EnableRuntimeFallback, true);
+            setCheckbox('#EnableKinopoiskHomePage', config.EnableKinopoiskHomePage, true);
+            setCheckbox('#EnableSeriesStatus', config.EnableSeriesStatus, true);
+            setCheckbox('#EnableShortDescriptionFallback', config.EnableShortDescriptionFallback, true);
+            setCheckbox('#IncludeSeriesInFranchises', config.IncludeSeriesInFranchises, true);
+            setCheckbox('#IncludeFranchiseSequels', config.IncludeFranchiseSequels, true);
+            setCheckbox('#IncludeFranchisePrequels', config.IncludeFranchisePrequels, true);
+            setCheckbox('#IncludeFranchiseRemakes', config.IncludeFranchiseRemakes, false);
+            setValue('#MinimumFranchiseItems', config.MinimumFranchiseItems, 2);
+            setValue('#FranchiseCollectionNameSuffix', config.FranchiseCollectionNameSuffix, ' — коллекция');
+            setCheckbox('#PreserveManualCollections', true, true);
+            setCheckbox('#EnablePersistentCache', config.EnablePersistentCache, true);
+            setCheckbox('#UseStaleCacheOnFailure', config.UseStaleCacheOnFailure, true);
+            setValue('#MetadataCacheHours', config.MetadataCacheHours, 168);
+            setValue('#ImagesCacheHours', config.ImagesCacheHours, 720);
+            setValue('#SearchCacheMinutes', config.SearchCacheMinutes, 60);
+            setValue('#NegativeCacheMinutes', config.NegativeCacheMinutes, 15);
+            setValue('#PersistentCacheMaximumMegabytes', config.PersistentCacheMaximumMegabytes, 512);
+            setCheckbox('#EnableImageBinaryCache', config.EnableImageBinaryCache, true);
+            setCheckbox('#UseStaleImageCacheOnFailure', config.UseStaleImageCacheOnFailure, true);
+            setValue('#ImageBinaryCacheDays', config.ImageBinaryCacheDays, 30);
+            setValue('#ImageBinaryCacheMaximumMegabytes', config.ImageBinaryCacheMaximumMegabytes, 2048);
+            setValue('#ImageBinaryCacheMaximumFileMegabytes', config.ImageBinaryCacheMaximumFileMegabytes, 25);
+            setCheckbox('#EnableQuotaMonitoring', config.EnableQuotaMonitoring, true);
+            setValue('#QuotaCheckIntervalHours', config.QuotaCheckIntervalHours, 6);
+            setCheckbox('#EnableDiagnosticMode', config.EnableDiagnosticMode, false);
+            setValue('#DiagnosticLogLevel', config.DiagnosticLogLevel, 'Detailed');
+            setValue('#DiagnosticSessionHours', config.DiagnosticSessionHours, 6);
+            setValue('#DiagnosticMaximumFileMegabytes', config.DiagnosticMaximumFileMegabytes, 25);
+            setValue('#DiagnosticRetentionFiles', config.DiagnosticRetentionFiles, 5);
+
+            var active = !!config.EnableDiagnosticMode
+                && !!config.DiagnosticSessionExpiresUtc
+                && new Date(config.DiagnosticSessionExpiresUtc).getTime() > Date.now();
+            $('#DiagnosticStatus').text(active ? 'активна' : (config.EnableDiagnosticMode ? 'истекла' : 'выключена'));
+            $('#DiagnosticSessionId').text(config.DiagnosticSessionId || 'не создан');
+            $('#DiagnosticStarted').text(formatDate(config.DiagnosticSessionStartedUtc));
+            $('#DiagnosticExpires').text(formatDate(config.DiagnosticSessionExpiresUtc));
+            $('#DiagnosticPath').text(config.DiagnosticSessionId
+                ? 'diagnostics/kinopoisk-diagnostic-' + config.DiagnosticSessionId + '.jsonl'
+                : 'diagnostics/');
+
+            var diagnostics = config.Diagnostics || {};
+            $('#QuotaAccountType').text(diagnostics.AccountType || 'ещё не проверялся');
+            $('#QuotaDaily').text(formatQuota(diagnostics.DailyQuotaUsed, diagnostics.DailyQuotaValue));
+            $('#QuotaTotal').text(formatQuota(diagnostics.TotalQuotaUsed, diagnostics.TotalQuotaValue));
+            $('#QuotaLastCheck').text(formatDate(diagnostics.LastQuotaCheckUtc));
+            $('#DiagApiRequests').text(diagnostics.ApiRequests || 0);
+            $('#DiagApiFailures').text(diagnostics.ApiFailures || 0);
+            $('#DiagMemoryHits').text(diagnostics.MemoryCacheHits || 0);
+            $('#DiagPersistentHits').text(diagnostics.PersistentCacheHits || 0);
+            $('#DiagStaleHits').text(diagnostics.StaleCacheHits || 0);
+            $('#DiagPersistentWrites').text(diagnostics.PersistentCacheWrites || 0);
+            $('#DiagImageHits').text(diagnostics.ImageCacheHits || 0);
+            $('#DiagImageMisses').text(diagnostics.ImageCacheMisses || 0);
+            $('#DiagImageStaleHits').text(diagnostics.ImageCacheStaleHits || 0);
+            $('#DiagImageWrites').text(diagnostics.ImageCacheWrites || 0);
+            $('#DiagImageBytes').text(formatBytes(diagnostics.ImageCacheBytesWritten));
+        }
+
+        function copyFormToConfiguration(config) {
+            config.ApiToken = $('#ApiToken').val();
+            config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
+            config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
+            config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');
+            config.EnablePeopleMetadata = $('#EnablePeopleMetadata').prop('checked');
+            config.EnableTrailers = $('#EnableTrailers').prop('checked');
+            config.EnableImages = $('#EnableImages').prop('checked');
+            config.MaximumTrailers = readInteger('#MaximumTrailers', 5);
+            config.PreferOfficialTrailers = $('#PreferOfficialTrailers').prop('checked');
+            config.PreferRussianTrailers = $('#PreferRussianTrailers').prop('checked');
+            config.IncludeTrailerTeasers = $('#IncludeTrailerTeasers').prop('checked');
+            config.IncludeAdditionalTrailerVideos = $('#IncludeAdditionalTrailerVideos').prop('checked');
+            config.PrefixTrailerNames = $('#PrefixTrailerNames').prop('checked');
+            config.CommunityRatingSource = $('#CommunityRatingSource').val();
+            config.CriticRatingSource = $('#CriticRatingSource').val();
+            config.EnablePrecisePremiereDate = $('#EnablePrecisePremiereDate').prop('checked');
+            config.EnableRuntimeFallback = $('#EnableRuntimeFallback').prop('checked');
+            config.EnableKinopoiskHomePage = $('#EnableKinopoiskHomePage').prop('checked');
+            config.EnableSeriesStatus = $('#EnableSeriesStatus').prop('checked');
+            config.EnableShortDescriptionFallback = $('#EnableShortDescriptionFallback').prop('checked');
+            config.IncludeSeriesInFranchises = $('#IncludeSeriesInFranchises').prop('checked');
+            config.IncludeFranchiseSequels = $('#IncludeFranchiseSequels').prop('checked');
+            config.IncludeFranchisePrequels = $('#IncludeFranchisePrequels').prop('checked');
+            config.IncludeFranchiseRemakes = $('#IncludeFranchiseRemakes').prop('checked');
+            config.MinimumFranchiseItems = readInteger('#MinimumFranchiseItems', 2);
+            config.FranchiseCollectionNameSuffix = $('#FranchiseCollectionNameSuffix').val();
+            config.PreserveManualCollections = true;
+            config.EnablePersistentCache = $('#EnablePersistentCache').prop('checked');
+            config.UseStaleCacheOnFailure = $('#UseStaleCacheOnFailure').prop('checked');
+            config.MetadataCacheHours = readInteger('#MetadataCacheHours', 168);
+            config.ImagesCacheHours = readInteger('#ImagesCacheHours', 720);
+            config.SearchCacheMinutes = readInteger('#SearchCacheMinutes', 60);
+            config.NegativeCacheMinutes = readInteger('#NegativeCacheMinutes', 15);
+            config.PersistentCacheMaximumMegabytes = readInteger('#PersistentCacheMaximumMegabytes', 512);
+            config.EnableImageBinaryCache = $('#EnableImageBinaryCache').prop('checked');
+            config.UseStaleImageCacheOnFailure = $('#UseStaleImageCacheOnFailure').prop('checked');
+            config.ImageBinaryCacheDays = readInteger('#ImageBinaryCacheDays', 30);
+            config.ImageBinaryCacheMaximumMegabytes = readInteger('#ImageBinaryCacheMaximumMegabytes', 2048);
+            config.ImageBinaryCacheMaximumFileMegabytes = readInteger('#ImageBinaryCacheMaximumFileMegabytes', 25);
+            config.EnableQuotaMonitoring = $('#EnableQuotaMonitoring').prop('checked');
+            config.QuotaCheckIntervalHours = readInteger('#QuotaCheckIntervalHours', 6);
+            config.EnableDiagnosticMode = $('#EnableDiagnosticMode').prop('checked');
+            config.DiagnosticLogLevel = $('#DiagnosticLogLevel').val();
+            config.DiagnosticSessionHours = readInteger('#DiagnosticSessionHours', 6);
+            config.DiagnosticMaximumFileMegabytes = readInteger('#DiagnosticMaximumFileMegabytes', 25);
+            config.DiagnosticRetentionFiles = readInteger('#DiagnosticRetentionFiles', 5);
+            return config;
+        }
+
+        function loadConfiguration() {
+            Dashboard.showLoadingMsg();
+            return ApiClient.getPluginConfiguration(KinopoiskConfig.pluginUniqueId).then(function (config) {
+                applyConfiguration(config);
+                Dashboard.hideLoadingMsg();
+                return config;
+            });
+        }
+
+        function saveConfiguration(config) {
+            return ApiClient.updatePluginConfiguration(KinopoiskConfig.pluginUniqueId, config).then(function (result) {
+                Dashboard.processPluginConfigurationUpdateResult(result);
+                return loadConfiguration();
+            });
+        }
+
+        $('#KinopoiskConfigPage').on('pageshow', function () {
+            var activeTab = 'KinopoiskSettingsPanel';
+            try { activeTab = sessionStorage.getItem('kinopoisk.activeTab') || activeTab; } catch (_) { }
+            showTab(activeTab);
+            loadConfiguration();
+        });
+
+        $('#KinopoiskSettingsTab').on('click', function () { showTab('KinopoiskSettingsPanel'); });
+        $('#KinopoiskDiagnosticsTab').on('click', function () { showTab('KinopoiskDiagnosticsPanel'); });
+        $('#RefreshDiagnosticStatus').on('click', loadConfiguration);
+
+        $('#StartDiagnosticSession').on('click', function () {
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(KinopoiskConfig.pluginUniqueId).then(function (config) {
+                copyFormToConfiguration(config);
+                config.EnableDiagnosticMode = true;
+                config.DiagnosticSessionId = '';
+                config.DiagnosticSessionStartedUtc = null;
+                config.DiagnosticSessionExpiresUtc = null;
+                return saveConfiguration(config);
+            });
+        });
+
+        $('#StopDiagnosticSession').on('click', function () {
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(KinopoiskConfig.pluginUniqueId).then(function (config) {
+                copyFormToConfiguration(config);
+                config.EnableDiagnosticMode = false;
+                return saveConfiguration(config);
+            });
+        });
+
+        $('#KinopoiskConfigForm').on('submit', function () {
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(KinopoiskConfig.pluginUniqueId).then(function (config) {
+                copyFormToConfiguration(config);
+                return saveConfiguration(config);
+            });
+            return false;
+        });
+    </script>
+</div>
 </body>
 </html>

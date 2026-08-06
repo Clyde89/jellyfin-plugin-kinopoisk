@@ -5,8 +5,8 @@
     "name": "КиноПоиск",
     "overview": "Надёжные метаданные КиноПоиска для Jellyfin",
     "owner": "Clyde89; LinFor; skrashevich",
-    "description": "Русскоязычный поставщик метаданных фильмов, сериалов, сезонов, эпизодов и персон. Добавлены безопасная идентификация, расширенные изображения, кэширование, повторные попытки и ограничение запросов. Документация: https://github.com/Clyde89/jellyfin-plugin-kinopoisk/blob/develop/README.md",
-    "imageUrl": "https://kinopoisk.userecho.com/s/attachments/28876/0/1/25f8c0315e6ccb2aa6c2642e48f2c9e9.png",
+    "description": "Русскоязычный поставщик метаданных фильмов, сериалов, сезонов, эпизодов и персон. Добавлены безопасная идентификация, расширенные изображения, кэширование, повторные попытки и ограничение запросов. Репозиторий: https://github.com/Clyde89/jellyfin-plugin-kinopoisk. Документация: https://github.com/Clyde89/jellyfin-plugin-kinopoisk/blob/develop/README.md",
+    "imageUrl": "https://raw.githubusercontent.com/Clyde89/jellyfin-plugin-kinopoisk/develop/assets/kinopoisk-plugin.svg",
     "versions": []
   }
 ]

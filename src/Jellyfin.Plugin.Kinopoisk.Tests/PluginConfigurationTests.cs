@@ -1,3 +1,4 @@
+using System;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
 using Xunit;
 
@@ -34,6 +35,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.EnableImageBinaryCache);
             Assert.True(configuration.UseStaleImageCacheOnFailure);
             Assert.True(configuration.EnableQuotaMonitoring);
+            Assert.False(configuration.EnableDiagnosticMode);
+            Assert.Equal(DiagnosticLogLevel.Detailed, configuration.DiagnosticLogLevel);
+            Assert.Equal(6, configuration.DiagnosticSessionHours);
+            Assert.Equal(25, configuration.DiagnosticMaximumFileMegabytes);
+            Assert.Equal(5, configuration.DiagnosticRetentionFiles);
             Assert.Equal(30, configuration.ImageBinaryCacheDays);
             Assert.Equal(2048, configuration.ImageBinaryCacheMaximumMegabytes);
             Assert.Equal(25, configuration.ImageBinaryCacheMaximumFileMegabytes);
@@ -53,6 +59,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 ApiToken = "  test-token  ",
                 CommunityRatingSource = (CommunityRatingSource)999,
                 CriticRatingSource = (CriticRatingSource)999,
+                DiagnosticLogLevel = (KinopoiskDiagnosticLevel)999,
                 MetadataCacheHours = 0,
                 ImagesCacheHours = 10000,
                 SearchCacheMinutes = 0,
@@ -61,7 +68,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 ImageBinaryCacheDays = 0,
                 ImageBinaryCacheMaximumMegabytes = 20000,
                 ImageBinaryCacheMaximumFileMegabytes = 1000,
-                QuotaCheckIntervalHours = 1000
+                QuotaCheckIntervalHours = 1000,
+                DiagnosticSessionHours = 100,
+                DiagnosticMaximumFileMegabytes = 1,
+                DiagnosticRetentionFiles = 100
             };
 
             configuration.Normalize();
@@ -73,6 +83,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(
                 CriticRatingSource.RussianWithWorldFallback,
                 configuration.CriticRatingSource);
+            Assert.Equal(DiagnosticLogLevel.Detailed, configuration.DiagnosticLogLevel);
             Assert.Equal(1, configuration.MetadataCacheHours);
             Assert.Equal(8760, configuration.ImagesCacheHours);
             Assert.Equal(1, configuration.SearchCacheMinutes);
@@ -82,6 +93,52 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(16384, configuration.ImageBinaryCacheMaximumMegabytes);
             Assert.Equal(100, configuration.ImageBinaryCacheMaximumFileMegabytes);
             Assert.Equal(168, configuration.QuotaCheckIntervalHours);
+            Assert.Equal(24, configuration.DiagnosticSessionHours);
+            Assert.Equal(5, configuration.DiagnosticMaximumFileMegabytes);
+            Assert.Equal(20, configuration.DiagnosticRetentionFiles);
+        }
+
+        [Fact]
+        public void ShouldCreateBoundedDiagnosticSession()
+        {
+            var before = DateTimeOffset.UtcNow;
+            var configuration = new PluginConfiguration
+            {
+                EnableDiagnosticMode = true,
+                DiagnosticSessionHours = 3,
+                DiagnosticSessionId = string.Empty,
+                DiagnosticSessionStartedUtc = null,
+                DiagnosticSessionExpiresUtc = null
+            };
+
+            configuration.Normalize();
+
+            Assert.True(configuration.EnableDiagnosticMode);
+            Assert.StartsWith("diag-", configuration.DiagnosticSessionId);
+            Assert.NotNull(configuration.DiagnosticSessionStartedUtc);
+            Assert.NotNull(configuration.DiagnosticSessionExpiresUtc);
+            Assert.True(configuration.DiagnosticSessionStartedUtc >= before);
+            Assert.Equal(
+                TimeSpan.FromHours(3),
+                configuration.DiagnosticSessionExpiresUtc.Value
+                    - configuration.DiagnosticSessionStartedUtc.Value);
+        }
+
+        [Fact]
+        public void ShouldDisableExpiredDiagnosticSession()
+        {
+            var configuration = new PluginConfiguration
+            {
+                EnableDiagnosticMode = true,
+                DiagnosticSessionId = "diag-expired",
+                DiagnosticSessionStartedUtc = DateTimeOffset.UtcNow.AddHours(-2),
+                DiagnosticSessionExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(-1)
+            };
+
+            configuration.Normalize();
+
+            Assert.False(configuration.EnableDiagnosticMode);
+            Assert.Equal("diag-expired", configuration.DiagnosticSessionId);
         }
     }
 }

@@ -1,14 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace KinopoiskUnofficialInfo.ApiClient
 {
-    /// <summary>
-    /// Собирает обезличенную статистику запросов, кэша и квоты.
-    /// </summary>
     public sealed class KinopoiskDiagnostics
     {
         private readonly object _quotaSync = new();
+        private readonly object _diagnosticSinkSync = new();
+        private IKinopoiskDiagnosticSink _diagnosticSink;
         private long _apiRequests;
         private long _apiFailures;
         private long _memoryCacheHits;
@@ -28,47 +29,209 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private long _totalQuotaValue;
         private long _totalQuotaUsed;
 
-        /// <summary>
-        /// Получает общий экземпляр диагностики текущего процесса Jellyfin.
-        /// </summary>
         public static KinopoiskDiagnostics Shared { get; } = new();
 
-        public void RecordApiRequest() => Interlocked.Increment(ref _apiRequests);
+        public void AttachDiagnosticSink(IKinopoiskDiagnosticSink diagnosticSink)
+        {
+            ArgumentNullException.ThrowIfNull(diagnosticSink);
 
-        public void RecordApiFailure() => Interlocked.Increment(ref _apiFailures);
+            lock (_diagnosticSinkSync)
+                _diagnosticSink = diagnosticSink;
+        }
 
-        public void RecordMemoryCacheHit() => Interlocked.Increment(ref _memoryCacheHits);
+        public void StartDiagnosticSession()
+        {
+            var sink = GetDiagnosticSink();
+            if (sink is null)
+                return;
 
-        public void RecordPersistentCacheHit() => Interlocked.Increment(ref _persistentCacheHits);
+            try
+            {
+                sink.BeginSession();
+                sink.Write(new KinopoiskDiagnosticEvent
+                {
+                    TimestampUtc = DateTimeOffset.UtcNow,
+                    Level = LogLevel.Information,
+                    Category = typeof(KinopoiskDiagnostics).FullName ?? nameof(KinopoiskDiagnostics),
+                    EventName = "diagnostic.session.started",
+                    Message = "Диагностическая сессия КиноПоиска начата прямым каналом событий."
+                });
+            }
+            catch
+            {
+            }
+        }
 
-        public void RecordStaleCacheHit() => Interlocked.Increment(ref _staleCacheHits);
+        public void StopDiagnosticSession()
+        {
+            RecordDiagnosticEvent(
+                LogLevel.Information,
+                typeof(KinopoiskDiagnostics).FullName ?? nameof(KinopoiskDiagnostics),
+                "diagnostic.session.stopped",
+                "Диагностическая сессия КиноПоиска остановлена.");
+        }
 
-        public void RecordPersistentCacheWrite() => Interlocked.Increment(ref _persistentCacheWrites);
+        public void RecordDiagnosticEvent(
+            LogLevel level,
+            string category,
+            string eventName,
+            string message,
+            IReadOnlyDictionary<string, string> fields = null)
+        {
+            var sink = GetDiagnosticSink();
+            if (sink is null)
+                return;
 
-        /// <summary>
-        /// Регистрирует попадание в бинарный кэш изображений.
-        /// </summary>
-        public void RecordImageCacheHit() => Interlocked.Increment(ref _imageCacheHits);
+            try
+            {
+                sink.Write(new KinopoiskDiagnosticEvent
+                {
+                    TimestampUtc = DateTimeOffset.UtcNow,
+                    Level = level,
+                    Category = category ?? string.Empty,
+                    EventName = eventName ?? string.Empty,
+                    Message = message ?? string.Empty,
+                    Fields = fields
+                });
+            }
+            catch
+            {
+            }
+        }
 
-        /// <summary>
-        /// Регистрирует отсутствие изображения в локальном кэше.
-        /// </summary>
-        public void RecordImageCacheMiss() => Interlocked.Increment(ref _imageCacheMisses);
+        public void RecordApiRequest()
+        {
+            var count = Interlocked.Increment(ref _apiRequests);
+            RecordDiagnosticEvent(
+                LogLevel.Debug,
+                "KinopoiskUnofficialInfo.ApiClient",
+                "api.request",
+                "Зарегистрирован запрос к API КиноПоиска.",
+                CreateCountFields(count));
+        }
 
-        /// <summary>
-        /// Регистрирует резервное использование устаревшего изображения.
-        /// </summary>
-        public void RecordImageCacheStaleHit() => Interlocked.Increment(ref _imageCacheStaleHits);
+        public void RecordApiFailure()
+        {
+            var count = Interlocked.Increment(ref _apiFailures);
+            RecordDiagnosticEvent(
+                LogLevel.Error,
+                "KinopoiskUnofficialInfo.ApiClient",
+                "api.failure",
+                "Зарегистрирована ошибка запроса к API КиноПоиска.",
+                CreateCountFields(count));
+        }
 
-        /// <summary>
-        /// Регистрирует успешную запись бинарного изображения.
-        /// </summary>
-        /// <param name="bytes">Количество сохранённых байтов.</param>
+        public void RecordMemoryCacheHit()
+        {
+            var count = Interlocked.Increment(ref _memoryCacheHits);
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.Cache",
+                "cache.memory.hit",
+                "Зарегистрировано попадание в оперативный кэш.",
+                CreateCountFields(count));
+        }
+
+        public void RecordPersistentCacheHit()
+        {
+            var count = Interlocked.Increment(ref _persistentCacheHits);
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.Cache",
+                "cache.persistent.hit",
+                "Зарегистрировано попадание в дисковый кэш.",
+                CreateCountFields(count));
+        }
+
+        public void RecordStaleCacheHit()
+        {
+            var count = Interlocked.Increment(ref _staleCacheHits);
+            RecordDiagnosticEvent(
+                LogLevel.Warning,
+                "KinopoiskUnofficialInfo.ApiClient.Cache",
+                "cache.stale.hit",
+                "Использован устаревший ответ из кэша.",
+                CreateCountFields(count));
+        }
+
+        public void RecordPersistentCacheWrite()
+        {
+            var count = Interlocked.Increment(ref _persistentCacheWrites);
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.Cache",
+                "cache.persistent.write",
+                "Ответ записан в дисковый кэш.",
+                CreateCountFields(count));
+        }
+
+        public void RecordImageCacheHit()
+        {
+            var count = Interlocked.Increment(ref _imageCacheHits);
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.ImageCache",
+                "image-cache.hit",
+                "Зарегистрировано попадание в кэш изображений.",
+                CreateCountFields(count));
+        }
+
+        public void RecordImageCacheMiss()
+        {
+            var count = Interlocked.Increment(ref _imageCacheMisses);
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.ImageCache",
+                "image-cache.miss",
+                "Зарегистрирован промах кэша изображений.",
+                CreateCountFields(count));
+        }
+
+        public void RecordImageCacheStaleHit()
+        {
+            var count = Interlocked.Increment(ref _imageCacheStaleHits);
+            RecordDiagnosticEvent(
+                LogLevel.Warning,
+                "KinopoiskUnofficialInfo.ApiClient.ImageCache",
+                "image-cache.stale.hit",
+                "Использовано устаревшее изображение из кэша.",
+                CreateCountFields(count));
+        }
+
         public void RecordImageCacheWrite(long bytes)
         {
-            Interlocked.Increment(ref _imageCacheWrites);
+            var count = Interlocked.Increment(ref _imageCacheWrites);
             if (bytes > 0)
                 Interlocked.Add(ref _imageCacheBytesWritten, bytes);
+
+            RecordDiagnosticEvent(
+                LogLevel.Trace,
+                "KinopoiskUnofficialInfo.ApiClient.ImageCache",
+                "image-cache.write",
+                "Файл изображения записан в кэш.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["count"] = count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["bytes"] = Math.Max(0, bytes).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                });
+        }
+
+        public void ResetRuntimeCounters()
+        {
+            Interlocked.Exchange(ref _apiRequests, 0);
+            Interlocked.Exchange(ref _apiFailures, 0);
+            Interlocked.Exchange(ref _memoryCacheHits, 0);
+            Interlocked.Exchange(ref _persistentCacheHits, 0);
+            Interlocked.Exchange(ref _staleCacheHits, 0);
+            Interlocked.Exchange(ref _persistentCacheWrites, 0);
+            Interlocked.Exchange(ref _imageCacheHits, 0);
+            Interlocked.Exchange(ref _imageCacheMisses, 0);
+            Interlocked.Exchange(ref _imageCacheStaleHits, 0);
+            Interlocked.Exchange(ref _imageCacheWrites, 0);
+            Interlocked.Exchange(ref _imageCacheBytesWritten, 0);
+
+            lock (_quotaSync)
+                _lastQuotaFailureUtc = null;
         }
 
         public void UpdateQuota(KinopoiskApiQuota quota)
@@ -84,16 +247,38 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 _totalQuotaUsed = quota.TotalQuota?.Used ?? 0;
                 _lastQuotaCheckUtc = DateTimeOffset.UtcNow;
             }
+
+            RecordDiagnosticEvent(
+                LogLevel.Information,
+                "KinopoiskUnofficialInfo.ApiClient.Quota",
+                "quota.updated",
+                "Состояние квоты КиноПоиска обновлено.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["accountType"] = quota.AccountType ?? string.Empty,
+                    ["dailyUsed"] = (quota.DailyQuota?.Used ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["dailyLimit"] = (quota.DailyQuota?.Value ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["totalUsed"] = (quota.TotalQuota?.Used ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["totalLimit"] = (quota.TotalQuota?.Value ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                });
         }
 
         public void RecordQuotaFailure()
         {
             lock (_quotaSync)
                 _lastQuotaFailureUtc = DateTimeOffset.UtcNow;
+
+            RecordDiagnosticEvent(
+                LogLevel.Warning,
+                "KinopoiskUnofficialInfo.ApiClient.Quota",
+                "quota.failure",
+                "Проверка квоты КиноПоиска завершилась ошибкой.");
         }
 
         public KinopoiskDiagnosticsSnapshot GetSnapshot()
         {
+            var sinkSnapshot = GetDiagnosticSinkSnapshot();
+
             lock (_quotaSync)
             {
                 return new KinopoiskDiagnosticsSnapshot
@@ -115,34 +300,151 @@ namespace KinopoiskUnofficialInfo.ApiClient
                     DailyQuotaValue = _dailyQuotaValue,
                     DailyQuotaUsed = _dailyQuotaUsed,
                     TotalQuotaValue = _totalQuotaValue,
-                    TotalQuotaUsed = _totalQuotaUsed
+                    TotalQuotaUsed = _totalQuotaUsed,
+                    DiagnosticSinkAttached = sinkSnapshot.Attached,
+                    DiagnosticEventsReceived = sinkSnapshot.EventsReceived,
+                    DiagnosticEventsWritten = sinkSnapshot.EventsWritten,
+                    DiagnosticWriteFailures = sinkSnapshot.WriteFailures,
+                    DiagnosticLastWriteUtc = sinkSnapshot.LastWriteUtc,
+                    DiagnosticCurrentFilePath = sinkSnapshot.CurrentFilePath,
+                    DiagnosticLastEventName = sinkSnapshot.LastEventName,
+                    DiagnosticLastError = sinkSnapshot.LastError
                 };
             }
         }
+
+        private IKinopoiskDiagnosticSink GetDiagnosticSink()
+        {
+            lock (_diagnosticSinkSync)
+                return _diagnosticSink;
+        }
+
+        private KinopoiskDiagnosticSinkSnapshot GetDiagnosticSinkSnapshot()
+        {
+            var sink = GetDiagnosticSink();
+            if (sink is null)
+                return new KinopoiskDiagnosticSinkSnapshot();
+
+            try
+            {
+                var snapshot = sink.GetSnapshot() ?? new KinopoiskDiagnosticSinkSnapshot();
+                snapshot.Attached = true;
+                return snapshot;
+            }
+            catch
+            {
+                return new KinopoiskDiagnosticSinkSnapshot
+                {
+                    Attached = true,
+                    LastError = "Не удалось получить состояние диагностического канала."
+                };
+            }
+        }
+
+        private static IReadOnlyDictionary<string, string> CreateCountFields(long count)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["count"] = count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            };
+        }
     }
 
-    /// <summary>
-    /// Содержит неизменяемый снимок диагностики плагина.
-    /// </summary>
+    public interface IKinopoiskDiagnosticSink
+    {
+        void BeginSession();
+
+        void Write(KinopoiskDiagnosticEvent diagnosticEvent);
+
+        KinopoiskDiagnosticSinkSnapshot GetSnapshot();
+    }
+
+    public sealed class KinopoiskDiagnosticEvent
+    {
+        public DateTimeOffset TimestampUtc { get; set; }
+
+        public LogLevel Level { get; set; }
+
+        public string Category { get; set; } = string.Empty;
+
+        public string EventName { get; set; } = string.Empty;
+
+        public string Message { get; set; } = string.Empty;
+
+        public IReadOnlyDictionary<string, string> Fields { get; set; }
+    }
+
+    public sealed class KinopoiskDiagnosticSinkSnapshot
+    {
+        public bool Attached { get; set; }
+
+        public long EventsReceived { get; set; }
+
+        public long EventsWritten { get; set; }
+
+        public long WriteFailures { get; set; }
+
+        public DateTimeOffset? LastWriteUtc { get; set; }
+
+        public string CurrentFilePath { get; set; } = string.Empty;
+
+        public string LastEventName { get; set; } = string.Empty;
+
+        public string LastError { get; set; } = string.Empty;
+    }
+
     public sealed class KinopoiskDiagnosticsSnapshot
     {
         public long ApiRequests { get; set; }
+
         public long ApiFailures { get; set; }
+
         public long MemoryCacheHits { get; set; }
+
         public long PersistentCacheHits { get; set; }
+
         public long StaleCacheHits { get; set; }
+
         public long PersistentCacheWrites { get; set; }
+
         public long ImageCacheHits { get; set; }
+
         public long ImageCacheMisses { get; set; }
+
         public long ImageCacheStaleHits { get; set; }
+
         public long ImageCacheWrites { get; set; }
+
         public long ImageCacheBytesWritten { get; set; }
+
         public DateTimeOffset? LastQuotaCheckUtc { get; set; }
+
         public DateTimeOffset? LastQuotaFailureUtc { get; set; }
+
         public string AccountType { get; set; } = string.Empty;
+
         public long DailyQuotaValue { get; set; }
+
         public long DailyQuotaUsed { get; set; }
+
         public long TotalQuotaValue { get; set; }
+
         public long TotalQuotaUsed { get; set; }
+
+        public bool DiagnosticSinkAttached { get; set; }
+
+        public long DiagnosticEventsReceived { get; set; }
+
+        public long DiagnosticEventsWritten { get; set; }
+
+        public long DiagnosticWriteFailures { get; set; }
+
+        public DateTimeOffset? DiagnosticLastWriteUtc { get; set; }
+
+        public string DiagnosticCurrentFilePath { get; set; } = string.Empty;
+
+        public string DiagnosticLastEventName { get; set; } = string.Empty;
+
+        public string DiagnosticLastError { get; set; } = string.Empty;
     }
 }

@@ -11,9 +11,9 @@ using Newtonsoft.Json;
 namespace KinopoiskUnofficialInfo.ApiClient
 {
     /// <summary>
-    /// Сохраняет сериализованные ответы API в каталоге данных плагина.
+    /// Сохранены сериализованные ответы API в каталоге данных плагина.
     /// </summary>
-    internal sealed class PersistentJsonCache
+    public sealed class PersistentJsonCache
     {
         private static readonly JsonSerializerSettings SerializerSettings
             = JsonTransformator.TransformSettings(new JsonSerializerSettings());
@@ -162,7 +162,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             }
             catch
             {
-                // Время последнего доступа используется только для необязательной ротации.
+                // Время последнего доступа использовано только для необязательной ротации.
             }
         }
 
@@ -174,7 +174,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
             }
             catch
             {
-                // Повреждённый файл будет повторно проигнорирован при следующем чтении.
+                // Повреждённый файл повторно проигнорирован при следующем чтении.
             }
         }
 
@@ -189,7 +189,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
     /// <summary>
     /// Содержит результат чтения долговременного кэша.
     /// </summary>
-    internal readonly struct PersistentCacheReadResult<T>
+    public readonly struct PersistentCacheReadResult<T>
     {
         public PersistentCacheReadResult(
             bool found,

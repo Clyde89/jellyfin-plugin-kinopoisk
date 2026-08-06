@@ -10,6 +10,7 @@ using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
@@ -34,6 +35,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         {
         }
 
+        [ActivatorUtilitiesConstructor]
         public PersonImageProvider(
             IKinopoiskApiClient kinopoiskApiClient,
             IProviderIdResolver<BaseItem> providerIdResolver,

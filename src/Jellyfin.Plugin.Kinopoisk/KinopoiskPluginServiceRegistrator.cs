@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using Jellyfin.Plugin.Kinopoisk.Presentation;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
@@ -14,9 +15,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk
 {
-    /// <summary>
-    /// Регистрирует сервисы плагина.
-    /// </summary>
     public class KinopoiskPluginServiceRegistrator : IPluginServiceRegistrator
     {
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
@@ -62,20 +60,46 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton<IKinopoiskRelationsApiClient>((sp) =>
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
 
-            var reportsPath = Path.Combine(Plugin.Instance.DataFolderPath, "reports");
+            serviceCollection.AddSingleton<KinopoiskPresentationService>();
+            serviceCollection.AddSingleton((sp) => new KinopoiskSupplementalApiClient(
+                Plugin.Instance.Configuration.ApiToken,
+                sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>()
+            ));
+            serviceCollection.AddSingleton((sp) => new PersistentJsonCache(
+                Path.Combine(
+                    Plugin.Instance.DataFolderPath,
+                    "cache",
+                    "presentation",
+                    "reviews"),
+                CreateCacheOptions().MaximumPersistentCacheBytes,
+                sp.GetRequiredService<ILogger<PersistentJsonCache>>()
+            ));
+            serviceCollection.AddSingleton<KinopoiskReviewCacheClient>();
+            serviceCollection.AddSingleton((sp) => new KinopoiskSimilarApiClient(
+                Plugin.Instance.Configuration.ApiToken,
+                sp.GetRequiredService<IHttpClientFactory>(),
+                sp.GetRequiredService<IKinopoiskApiClient>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<KinopoiskDiagnostics>(),
+                sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>()
+            ));
+
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
             serviceCollection.AddSingleton<KinopoiskFranchiseLibraryScanner>();
             serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseReportWriter(
-                reportsPath,
+                GetReportsPath(),
                 sp.GetRequiredService<ILogger<KinopoiskFranchiseReportWriter>>()
             ));
             serviceCollection.AddSingleton(_ => new KinopoiskFranchisePreviewReportReader(
-                reportsPath));
+                GetReportsPath()));
             serviceCollection.AddSingleton<IKinopoiskManagedCollectionGateway, KinopoiskManagedCollectionGateway>();
             serviceCollection.AddSingleton<KinopoiskFranchiseApplyService>();
             serviceCollection.AddSingleton((sp) => new KinopoiskFranchiseApplyReportWriter(
-                reportsPath,
+                GetReportsPath(),
                 sp.GetRequiredService<ILogger<KinopoiskFranchiseApplyReportWriter>>()
             ));
 
@@ -86,11 +110,19 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<ILogger<KinopoiskImageBinaryCache>>()
             ));
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
+            serviceCollection.AddHostedService<KinopoiskStandaloneWebClientService>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<PersonLookupInfo>, CommonResolver<PersonLookupInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<BaseItem>, CommonResolver<BaseItem>>();
+        }
+
+        private static string GetReportsPath()
+        {
+            var plugin = Plugin.Instance
+                ?? throw new InvalidOperationException("Экземпляр плагина КиноПоиск ещё не создан.");
+            return Path.Combine(plugin.DataFolderPath, "reports");
         }
 
         private static KinopoiskCacheOptions CreateCacheOptions()

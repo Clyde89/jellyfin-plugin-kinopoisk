@@ -18,7 +18,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         public async Task ShouldRequestExpectedRelationsEndpoint()
         {
             var handler = new RecordingHandler(_ => JsonResponse(
-                "[{\"filmId\":2,\"nameRu\":\"Сиквел\",\"nameEn\":\"Sequel\",\"nameOriginal\":\"Sequel\",\"posterUrl\":\"https://example.test/p.jpg\",\"posterUrlPreview\":\"https://example.test/pp.jpg\",\"relationType\":\"SEQUEL\"}]"));
+                "{\"total\":1,\"items\":[{\"filmId\":2,\"nameRu\":\"Сиквел\",\"nameEn\":\"Sequel\",\"nameOriginal\":\"Sequel\",\"posterUrl\":\"https://example.test/p.jpg\",\"posterUrlPreview\":\"https://example.test/pp.jpg\",\"relationType\":\"SEQUEL\"}]}"));
             var client = CreateClient(handler);
 
             var result = await client.GetRelations(1);
@@ -27,9 +27,21 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
             Assert.Equal(2, relation.FilmId);
             Assert.Equal(FilmSequelsAndPrequelsResponseRelationType.SEQUEL, relation.RelationType);
             Assert.Equal(
-                "https://kinopoiskapiunofficial.tech/api/v2.1/films/1/sequels_and_prequels",
+                "https://kinopoiskapiunofficial.tech/api/v2.2/films/1/relations",
                 handler.LastRequestUri?.ToString());
             Assert.Equal("test-token", handler.LastApiKey);
+        }
+
+        [Fact]
+        public async Task ShouldAcceptLegacyArrayRelationsResponse()
+        {
+            var handler = new RecordingHandler(_ => JsonResponse(
+                "[{\"filmId\":2,\"nameRu\":\"Сиквел\",\"nameEn\":\"Sequel\",\"nameOriginal\":\"Sequel\",\"posterUrl\":\"https://example.test/p.jpg\",\"posterUrlPreview\":\"https://example.test/pp.jpg\",\"relationType\":\"SEQUEL\"}]"));
+            var client = CreateClient(handler);
+
+            var result = await client.GetRelations(1);
+
+            Assert.Single(result);
         }
 
         [Fact]

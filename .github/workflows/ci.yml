@@ -93,6 +93,23 @@ jobs:
           --no-restore
           --verbosity normal
 
+      - name: Проверен синтаксис клиентских модулей
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mapfile -d '' scripts < <(
+            find src/Jellyfin.Plugin.Kinopoisk/Web \
+              -maxdepth 1 \
+              -type f \
+              -name '*.js' \
+              -print0 \
+              | sort -z
+          )
+          test "${#scripts[@]}" -gt 0
+          for script in "${scripts[@]}"; do
+            node --check "$script"
+          done
+
       - name: Рассчитаны контрольные суммы
         shell: bash
         run: |

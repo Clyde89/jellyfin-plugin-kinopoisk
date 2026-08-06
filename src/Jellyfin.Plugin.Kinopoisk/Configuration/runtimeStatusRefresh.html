@@ -1,0 +1,144 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+
+        var pluginUniqueId = '33e6d249-648f-44cd-a9ce-497be06c08df';
+        var refreshIntervalMilliseconds = 60000;
+        var refreshTimer = null;
+        var pageActive = false;
+        var refreshInProgress = false;
+
+        function isPageVisible() {
+            return pageActive && document.visibilityState !== 'hidden';
+        }
+
+        function setText(selector, value) {
+            var element = $(selector);
+            if (element.length) element.text(value);
+        }
+
+        function formatLocalDate(value) {
+            if (!value) return 'не задано';
+            var date = new Date(value);
+            return Number.isNaN(date.getTime()) ? 'неизвестно' : date.toLocaleString('ru-RU');
+        }
+
+        function formatLocalQuota(used, limit) {
+            var usedValue = Number(used || 0);
+            var limitValue = Number(limit);
+            if (limitValue === -1) return String(usedValue) + '; общий предел не задан';
+            return Number.isFinite(limitValue) && limitValue > 0
+                ? String(usedValue) + ' из ' + String(limitValue)
+                : 'ещё не проверялась';
+        }
+
+        function formatLocalBytes(value) {
+            var bytes = Number(value || 0);
+            if (bytes < 1024) return bytes + ' байт';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КиБ';
+            return (bytes / 1024 / 1024).toFixed(1) + ' МиБ';
+        }
+
+        function applyRuntimeStatus(config) {
+            var active = !!config.EnableDiagnosticMode
+                && !!config.DiagnosticSessionExpiresUtc
+                && new Date(config.DiagnosticSessionExpiresUtc).getTime() > Date.now();
+            setText('#DiagnosticStatus', active
+                ? 'активна'
+                : (config.EnableDiagnosticMode ? 'истекла' : 'выключена'));
+            setText('#DiagnosticSessionId', config.DiagnosticSessionId || 'не создан');
+            setText('#DiagnosticStarted', formatLocalDate(config.DiagnosticSessionStartedUtc));
+            setText('#DiagnosticExpires', formatLocalDate(config.DiagnosticSessionExpiresUtc));
+            setText('#DiagnosticPath', config.DiagnosticSessionId
+                ? 'diagnostics/kinopoisk-diagnostic-' + config.DiagnosticSessionId + '.jsonl'
+                : 'diagnostics/');
+
+            var diagnostics = config.Diagnostics || {};
+            setText('#QuotaAccountType', diagnostics.AccountType || 'ещё не проверялся');
+            setText('#QuotaDaily', formatLocalQuota(
+                diagnostics.DailyQuotaUsed,
+                diagnostics.DailyQuotaValue));
+            setText('#QuotaTotal', formatLocalQuota(
+                diagnostics.TotalQuotaUsed,
+                diagnostics.TotalQuotaValue));
+            setText('#QuotaLastCheck', formatLocalDate(diagnostics.LastQuotaCheckUtc));
+            setText('#DiagApiRequests', diagnostics.ApiRequests || 0);
+            setText('#DiagApiFailures', diagnostics.ApiFailures || 0);
+            setText('#DiagMemoryHits', diagnostics.MemoryCacheHits || 0);
+            setText('#DiagPersistentHits', diagnostics.PersistentCacheHits || 0);
+            setText('#DiagStaleHits', diagnostics.StaleCacheHits || 0);
+            setText('#DiagPersistentWrites', diagnostics.PersistentCacheWrites || 0);
+            setText('#DiagImageHits', diagnostics.ImageCacheHits || 0);
+            setText('#DiagImageMisses', diagnostics.ImageCacheMisses || 0);
+            setText('#DiagImageStaleHits', diagnostics.ImageCacheStaleHits || 0);
+            setText('#DiagImageWrites', diagnostics.ImageCacheWrites || 0);
+            setText('#DiagImageBytes', formatLocalBytes(diagnostics.ImageCacheBytesWritten));
+        }
+
+        function refreshRuntimeStatus() {
+            if (!isPageVisible() || refreshInProgress) return Promise.resolve();
+
+            refreshInProgress = true;
+            return ApiClient.getPluginConfiguration(pluginUniqueId)
+                .then(function (config) {
+                    if (isPageVisible()) applyRuntimeStatus(config);
+                    return config;
+                })
+                .catch(function () {
+                    return null;
+                })
+                .then(function (result) {
+                    refreshInProgress = false;
+                    return result;
+                });
+        }
+
+        function stopRuntimeStatusRefresh() {
+            if (refreshTimer !== null) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+        }
+
+        function startRuntimeStatusRefresh() {
+            stopRuntimeStatusRefresh();
+            if (!isPageVisible()) return;
+
+            refreshRuntimeStatus();
+            refreshTimer = setInterval(refreshRuntimeStatus, refreshIntervalMilliseconds);
+        }
+
+        var page = $('#KinopoiskConfigPage');
+        page.on('pageshow.kinopoiskRuntimeStatus', function () {
+            pageActive = true;
+            startRuntimeStatusRefresh();
+        });
+        page.on('pagehide.kinopoiskRuntimeStatus', function () {
+            pageActive = false;
+            stopRuntimeStatusRefresh();
+        });
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'hidden') {
+                stopRuntimeStatusRefresh();
+            } else if (pageActive) {
+                startRuntimeStatusRefresh();
+            }
+        });
+
+        $('#RefreshDiagnosticStatus')
+            .off('click')
+            .on('click', function (event) {
+                event.preventDefault();
+                refreshRuntimeStatus();
+            });
+
+        if (!$('#KinopoiskLocalStatusRefreshDescription').length) {
+            var providerStatusCard = $('#QuotaAccountType').closest('.kinopoiskStatusCard');
+            $('<div id="KinopoiskLocalStatusRefreshDescription" class="fieldDescription">' +
+                'Локальные счётчики обновляются раз в 60 секунд только при открытой странице. ' +
+                'Это обновление не обращается к внешнему API и не расходует квоту КиноПоиска.' +
+                '</div>').insertAfter(providerStatusCard.children('h3').first());
+        }
+    }());
+</script>

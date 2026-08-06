@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk.Services
 {
@@ -44,26 +46,46 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             "неофициаль", "фан", "fan made", "fan-made", "concept", "fake"
         };
 
+        private static readonly string[] KinopoiskWidgetHosts =
+        {
+            "widgets.kinopoisk.ru"
+        };
+
+        private static readonly string[] YandexDiskHosts =
+        {
+            "disk.yandex.ru",
+            "disk.yandex.com",
+            "yadi.sk"
+        };
+
         /// <summary>
         /// Возвращает поддерживаемые Jellyfin трейлеры в приоритетном порядке.
         /// </summary>
         /// <param name="response">Ответ API КиноПоиска.</param>
         /// <param name="options">Параметры отбора.</param>
-        /// <returns>Канонические YouTube-ссылки для стандартного плеера Jellyfin.</returns>
+        /// <returns>Безопасные ссылки поддерживаемых источников.</returns>
         public static IReadOnlyList<MediaUrl> Select(
             VideoResponse response,
             KinopoiskTrailerSelectionOptions options)
         {
             options ??= new KinopoiskTrailerSelectionOptions();
             var maximumTrailers = Math.Clamp(options.MaximumTrailers, 1, 20);
+            var items = response?.Items?.Where(item => item is not null).ToArray()
+                ?? Array.Empty<VideoResponse_items>();
 
-            if (response?.Items is null || response.Items.Count == 0)
+            if (items.Length == 0)
+            {
+                RecordSelectionDiagnostics(items, Array.Empty<TrailerCandidate>());
                 return Array.Empty<MediaUrl>();
+            }
 
-            return response.Items
+            var candidates = items
                 .Select((item, index) => CreateCandidate(item, index, options))
                 .Where(candidate => candidate is not null)
-                .GroupBy(candidate => candidate.VideoId, StringComparer.Ordinal)
+                .ToArray();
+
+            var selected = candidates
+                .GroupBy(candidate => candidate.Identity, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group
                     .OrderByDescending(candidate => candidate.Score)
                     .ThenBy(candidate => candidate.OriginalIndex)
@@ -71,6 +93,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .OrderByDescending(candidate => candidate.Score)
                 .ThenBy(candidate => candidate.OriginalIndex)
                 .Take(maximumTrailers)
+                .ToArray();
+
+            RecordSelectionDiagnostics(items, selected);
+
+            return selected
                 .Select(candidate => new MediaUrl
                 {
                     Name = candidate.DisplayName,
@@ -151,9 +178,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             int index,
             KinopoiskTrailerSelectionOptions options)
         {
-            if (item is null
-                || item.Site != VideoResponse_itemsSite.YOUTUBE
-                || !TryNormalizeYoutubeUrl(item.Url, out var videoId, out var canonicalUrl))
+            if (!TryNormalizeSupportedUrl(
+                    item,
+                    out var identity,
+                    out var canonicalUrl,
+                    out var sourcePriority))
             {
                 return null;
             }
@@ -171,7 +200,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             if (isNonTrailer && !options.IncludeAdditionalVideos)
                 return null;
 
-            var score = 0;
+            var score = sourcePriority;
             var isOfficial = ContainsAny(normalizedName, OfficialMarkers);
             var isRussian = ContainsAny(normalizedName, RussianMarkers)
                 || ContainsCyrillic(originalName);
@@ -201,11 +230,120 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 : originalName;
 
             return new TrailerCandidate(
-                videoId,
+                identity,
                 canonicalUrl,
                 displayName,
+                item.Site,
                 score,
                 index);
+        }
+
+        private static bool TryNormalizeSupportedUrl(
+            VideoResponse_items item,
+            out string identity,
+            out string canonicalUrl,
+            out int sourcePriority)
+        {
+            identity = null;
+            canonicalUrl = null;
+            sourcePriority = 0;
+
+            if (item is null || string.IsNullOrWhiteSpace(item.Url))
+                return false;
+
+            switch (item.Site)
+            {
+                case VideoResponse_itemsSite.YOUTUBE:
+                    if (!TryNormalizeYoutubeUrl(item.Url, out var videoId, out canonicalUrl))
+                        return false;
+
+                    identity = "youtube:" + videoId;
+                    sourcePriority = 300;
+                    return true;
+
+                case VideoResponse_itemsSite.KINOPOISK_WIDGET:
+                    if (!TryNormalizeAllowedHttpsUrl(
+                            item.Url,
+                            KinopoiskWidgetHosts,
+                            out canonicalUrl))
+                    {
+                        return false;
+                    }
+
+                    identity = "kinopoisk-widget:" + canonicalUrl;
+                    sourcePriority = 250;
+                    return true;
+
+                case VideoResponse_itemsSite.YANDEX_DISK:
+                    if (!TryNormalizeAllowedHttpsUrl(
+                            item.Url,
+                            YandexDiskHosts,
+                            out canonicalUrl))
+                    {
+                        return false;
+                    }
+
+                    identity = "yandex-disk:" + canonicalUrl;
+                    sourcePriority = 100;
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryNormalizeAllowedHttpsUrl(
+            string value,
+            IReadOnlyCollection<string> allowedHosts,
+            out string normalizedUrl)
+        {
+            normalizedUrl = null;
+            if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                || !string.IsNullOrEmpty(uri.UserInfo))
+            {
+                return false;
+            }
+
+            var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+            if (!allowedHosts.Contains(host, StringComparer.OrdinalIgnoreCase))
+                return false;
+
+            var builder = new UriBuilder(uri)
+            {
+                Scheme = Uri.UriSchemeHttps,
+                Port = -1,
+                Fragment = string.Empty
+            };
+            normalizedUrl = builder.Uri.AbsoluteUri;
+            return true;
+        }
+
+        private static void RecordSelectionDiagnostics(
+            IReadOnlyCollection<VideoResponse_items> sourceItems,
+            IReadOnlyCollection<TrailerCandidate> selected)
+        {
+            var youtube = sourceItems.Count(item => item.Site == VideoResponse_itemsSite.YOUTUBE);
+            var widget = sourceItems.Count(item => item.Site == VideoResponse_itemsSite.KINOPOISK_WIDGET);
+            var yandex = sourceItems.Count(item => item.Site == VideoResponse_itemsSite.YANDEX_DISK);
+            var unknown = sourceItems.Count - youtube - widget - yandex;
+
+            KinopoiskDiagnostics.Shared.RecordDiagnosticEvent(
+                LogLevel.Debug,
+                typeof(KinopoiskTrailerSelector).FullName ?? nameof(KinopoiskTrailerSelector),
+                "trailers.selection",
+                "Завершён отбор трейлеров КиноПоиска.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["received"] = sourceItems.Count.ToString(CultureInfo.InvariantCulture),
+                    ["selected"] = selected.Count.ToString(CultureInfo.InvariantCulture),
+                    ["youtube"] = youtube.ToString(CultureInfo.InvariantCulture),
+                    ["kinopoiskWidget"] = widget.ToString(CultureInfo.InvariantCulture),
+                    ["yandexDisk"] = yandex.ToString(CultureInfo.InvariantCulture),
+                    ["unknown"] = unknown.ToString(CultureInfo.InvariantCulture),
+                    ["rejected"] = Math.Max(0, sourceItems.Count - selected.Count)
+                        .ToString(CultureInfo.InvariantCulture)
+                });
         }
 
         private static string GetFirstPathSegment(string path)
@@ -272,9 +410,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private static partial Regex YoutubeVideoIdRegex();
 
         private sealed record TrailerCandidate(
-            string VideoId,
+            string Identity,
             string CanonicalUrl,
             string DisplayName,
+            VideoResponse_itemsSite Site,
             int Score,
             int OriginalIndex);
     }

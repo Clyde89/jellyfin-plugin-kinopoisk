@@ -3,12 +3,97 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <DebugType>portable</DebugType>
+    <Version>10.11.0.5</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <Authors>Clyde89; LinFor; skrashevich</Authors>
+    <Company>Clyde89; LinFor; skrashevich</Company>
+    <Product>КиноПоиск</Product>
+    <Description>Русскоязычный поставщик метаданных КиноПоиска для Jellyfin.</Description>
+    <RepositoryUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Clyde89/jellyfin-plugin-kinopoisk</PackageProjectUrl>
+    <GeneratedConfigPage>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/configPage.runtime.html</GeneratedConfigPage>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Configuration\configPage.html" />
-    <EmbeddedResource Include="Configuration\configPage.html" />
+    <InternalsVisibleTo Include="Jellyfin.Plugin.Kinopoisk.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Configuration\configPage.html" />
+    <None Remove="Configuration\runtimeStatusRefresh.html" />
+    <None Remove="Web\kinopoiskWidgetTrailerPlayer.js" />
+    <None Remove="Web\kinopoiskEnhancedPresentation.js" />
+    <None Remove="Web\kinopoiskReviewsIntegration.js" />
+    <None Remove="Web\kinopoiskTagLocalization.js" />
+    <None Remove="Web\kinopoiskElsewhereBridge.js" />
+    <None Remove="Web\kinopoiskRecommendations.js" />
+    <None Remove="Web\kinopoiskRecommendationSeerrFallback.js" />
+    <None Remove="Web\kinopoiskRuntimePolish.js" />
+    <None Remove="Web\kinopoiskCarouselRebind.js" />
+    <None Remove="Web\kinopoiskRuntimeUiCorrections.js" />
+    <None Remove="Web\kinopoiskRuntimeNativeStyle.js" />
+    <None Remove="Web\kinopoiskRecommendationLifecycleGuard.js" />
+    <None Remove="Web\kinopoiskRecommendationScrollbarStyle.js" />
+    <EmbeddedResource Include="$(GeneratedConfigPage)">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskWidgetTrailerPlayer.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskWidgetTrailerPlayer.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskEnhancedPresentation.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskReviewsIntegration.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskReviewsIntegration.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskTagLocalization.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskTagLocalization.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskElsewhereBridge.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskElsewhereBridge.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendations.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendationSeerrFallback.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationSeerrFallback.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRuntimePolish.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskCarouselRebind.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRuntimeUiCorrections.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRuntimeNativeStyle.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendationLifecycleGuard.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendationScrollbarStyle.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationScrollbarStyle.js</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <Target Name="GenerateRuntimeConfigPage" BeforeTargets="PrepareForBuild">
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(GeneratedConfigPage)'))" />
+    <Copy
+      SourceFiles="Configuration\configPage.html"
+      DestinationFiles="$(GeneratedConfigPage)" />
+    <ReadLinesFromFile File="Configuration\runtimeStatusRefresh.html">
+      <Output TaskParameter="Lines" ItemName="RuntimeStatusRefreshLines" />
+    </ReadLinesFromFile>
+    <WriteLinesToFile
+      File="$(GeneratedConfigPage)"
+      Lines="@(RuntimeStatusRefreshLines)"
+      Overwrite="false" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.Data" Version="10.11.11" />
@@ -16,6 +101,7 @@
     <PackageReference Include="Jellyfin.Common" Version="10.11.11" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.18" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>
 
   <ItemGroup>

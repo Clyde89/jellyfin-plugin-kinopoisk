@@ -102,10 +102,21 @@ namespace KinopoiskUnofficialInfo.ApiClient
                         null,
                         cancellationToken).ConfigureAwait(false);
                 }
+                catch (ApiException exception) when (
+                    exception.StatusCode is >= 200 and < 300
+                    && exception.InnerException is JsonException)
+                {
+                    _logger.LogError(
+                        exception.InnerException,
+                        "Запрос {MemberName} получил успешный HTTP-статус {StatusCode}, но ответ КиноПоиска не был разобран",
+                        memberName,
+                        exception.StatusCode);
+                    throw;
+                }
                 catch (ApiException exception)
                 {
                     _logger.LogError(
-                        "Запрос {MemberName} завершён ошибкой КиноПоиска со статусом {StatusCode}",
+                        "Запрос {MemberName} завершён ошибкой API КиноПоиска со статусом {StatusCode}",
                         memberName,
                         exception.StatusCode);
                     throw;

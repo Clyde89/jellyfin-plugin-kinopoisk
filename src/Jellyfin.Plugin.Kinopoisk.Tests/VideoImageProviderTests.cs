@@ -27,16 +27,38 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var images = (await provider.GetImages(new Movie(), CancellationToken.None)).ToArray();
 
             Assert.Equal(9, apiClient.RequestedTypes.Count);
-            Assert.Equal(2, images.Count(image => image.Type == ImageType.Primary));
-            Assert.Equal(4, images.Count(image => image.Type == ImageType.Backdrop));
-            Assert.Equal(3, images.Count(image => image.Type == ImageType.Screenshot));
+            Assert.Equal(1, images.Count(image => image.Type == ImageType.Primary));
+            Assert.Equal(6, images.Count(image => image.Type == ImageType.Backdrop));
+            Assert.Equal(2, images.Count(image => image.Type == ImageType.Thumb));
+            Assert.DoesNotContain(images, image => image.Type == ImageType.Screenshot);
             Assert.Equal(9, images.Select(image => image.Url).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        }
+
+        [Fact]
+        public async Task ShouldRequestAdditionalImagePages()
+        {
+            var apiClient = new RecordingApiClient(
+                pagedType: FilmImageType.STILL,
+                pagedTotalPages: 2);
+            var provider = CreateProvider(apiClient, new FixedResolver(true, 6638363));
+
+            var images = (await provider.GetImages(new Movie(), CancellationToken.None)).ToArray();
+
+            Assert.Contains(
+                apiClient.RequestedPages,
+                request => request.Type == FilmImageType.STILL && request.Page == 1);
+            Assert.Contains(
+                apiClient.RequestedPages,
+                request => request.Type == FilmImageType.STILL && request.Page == 2);
+            Assert.Equal(
+                2,
+                images.Count(image => image.Url.Contains("/STILL/", StringComparison.Ordinal)));
         }
 
         [Fact]
         public async Task ShouldPreserveAvailableCategoriesWhenOneRequestFails()
         {
-            var apiClient = new RecordingApiClient(FilmImageType.CONCEPT);
+            var apiClient = new RecordingApiClient(failedType: FilmImageType.CONCEPT);
             var provider = CreateProvider(apiClient, new FixedResolver(true, 430));
 
             var images = (await provider.GetImages(new Movie(), CancellationToken.None)).ToArray();
@@ -92,14 +114,23 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         private sealed class RecordingApiClient : IKinopoiskApiClient, IKinopoiskImageApiClient
         {
             private readonly FilmImageType? _failedType;
+            private readonly FilmImageType? _pagedType;
+            private readonly int _pagedTotalPages;
             private int _filmRequestCount;
 
-            public RecordingApiClient(FilmImageType? failedType = null)
+            public RecordingApiClient(
+                FilmImageType? failedType = null,
+                FilmImageType? pagedType = null,
+                int pagedTotalPages = 1)
             {
                 _failedType = failedType;
+                _pagedType = pagedType;
+                _pagedTotalPages = Math.Max(1, pagedTotalPages);
             }
 
             public ConcurrentBag<FilmImageType> RequestedTypes { get; } = new();
+
+            public ConcurrentBag<(FilmImageType Type, int Page)> RequestedPages { get; } = new();
 
             public int FilmRequestCount => Volatile.Read(ref _filmRequestCount);
 
@@ -123,19 +154,21 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 CancellationToken? cancellationToken = null)
             {
                 RequestedTypes.Add(type);
+                RequestedPages.Add((type, page));
                 if (_failedType == type)
                     throw new HttpRequestException("Временная ошибка тестовой категории изображений.");
 
+                var totalPages = _pagedType == type ? _pagedTotalPages : 1;
                 return Task.FromResult(new ImageResponse
                 {
-                    Total = 1,
-                    TotalPages = 1,
+                    Total = totalPages,
+                    TotalPages = totalPages,
                     Items = new[]
                     {
                         new ImageResponseItem
                         {
-                            ImageUrl = $"https://example.org/{filmId}/{type}.jpg",
-                            PreviewUrl = $"https://example.org/{filmId}/{type}-preview.jpg"
+                            ImageUrl = $"https://example.org/{filmId}/{type}/{page}.jpg",
+                            PreviewUrl = $"https://example.org/{filmId}/{type}/{page}-preview.jpg"
                         }
                     }
                 });
