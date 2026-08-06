@@ -46,7 +46,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("--kp-native-navigation-left", script);
             Assert.Contains("@media(max-width:900px)", script);
             Assert.Contains("justify-content:flex-start!important", script);
-            Assert.DoesNotContain("margin-right:2.5em!important", script);
+            Assert.False(
+                script.Contains(
+                    "margin-right:2.5em!important",
+                    StringComparison.Ordinal));
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
         }
     }
