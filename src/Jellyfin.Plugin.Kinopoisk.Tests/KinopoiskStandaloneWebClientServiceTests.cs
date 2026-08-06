@@ -113,7 +113,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldAssembleEmbeddedWebClientBundle()
         {
-            Assert.Equal(11, KinopoiskWebClientBundle.ResourceCount);
+            Assert.Equal(12, KinopoiskWebClientBundle.ResourceCount);
             Assert.Equal(64, KinopoiskWebClientBundle.Sha256.Length);
             Assert.Equal(
                 KinopoiskWebClientBundle.Sha256[..16],
@@ -124,6 +124,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains(".btnPlayTrailer", KinopoiskWebClientBundle.Content);
             Assert.Contains("Похожие и рекомендации", KinopoiskWebClientBundle.Content);
             Assert.Contains("kp-recommendations-scroller", KinopoiskWebClientBundle.Content);
+            Assert.Contains(
+                "Резервное сопоставление карточек через Seerr зарегистрировано",
+                KinopoiskWebClientBundle.Content);
         }
 
         [Fact]
