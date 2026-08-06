@@ -38,7 +38,14 @@ jobs:
           project='src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj'
           installer='tools/install-media-core-autonomous.sh'
           integration_test='tools/test-install-media-core-autonomous.sh'
-          allowed=("$project" "$installer" "$integration_test")
+          deployment_guide='tools/READONLY-DEPLOYMENT.md'
+          workflow='.github/workflows/bump-runtime-candidate-version.yml'
+          allowed=(
+            "$project"
+            "$installer"
+            "$integration_test"
+            "$deployment_guide"
+          )
 
           if grep -Fq "<Version>${new_version}</Version>" "$project"; then
             echo "Версия ${new_version} уже установлена; повторные изменения не выполнены."
@@ -50,13 +57,18 @@ jobs:
               --exclude-dir=.git \
               --exclude='*.dll' \
               --exclude='*.pdb' \
+              --exclude="$(basename "$workflow")" \
               -- "$old_version" . \
               | sed 's#^./##' \
               | sort
           )
 
           printf 'Найдены упоминания %s:\n' "$old_version"
-          printf '  %s\n' "${found[@]:-отсутствуют}"
+          if (( ${#found[@]} == 0 )); then
+            printf '  отсутствуют\n'
+          else
+            printf '  %s\n' "${found[@]}"
+          fi
 
           unexpected=()
           for path in "${found[@]}"; do
@@ -92,9 +104,10 @@ jobs:
           grep -Fq "TARGET_VERSION=\"${new_version}\"" "$installer"
           grep -Fq "КиноПоиск_${new_version}" "$integration_test"
           grep -Fq "Version=${new_version}" "$integration_test"
+          grep -Fq "$new_version" "$deployment_guide"
 
           git diff --check
-          git diff -- "$project" "$installer" "$integration_test"
+          git diff -- "${allowed[@]}"
 
       - name: Зафиксировано обновление версии
         shell: bash
@@ -111,6 +124,7 @@ jobs:
           git add \
             src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
             tools/install-media-core-autonomous.sh \
-            tools/test-install-media-core-autonomous.sh
+            tools/test-install-media-core-autonomous.sh \
+            tools/READONLY-DEPLOYMENT.md
           git commit -m 'Обновлена версия runtime-кандидата до 10.11.0.2'
           git push origin HEAD:feature/diagnostic-test-mode
