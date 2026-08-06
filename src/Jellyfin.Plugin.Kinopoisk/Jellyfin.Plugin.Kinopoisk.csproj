@@ -30,6 +30,7 @@
     <None Remove="Web\kinopoiskTagLocalization.js" />
     <None Remove="Web\kinopoiskElsewhereBridge.js" />
     <None Remove="Web\kinopoiskRecommendations.js" />
+    <None Remove="Web\kinopoiskRecommendationSeerrFallback.js" />
     <None Remove="Web\kinopoiskRuntimePolish.js" />
     <None Remove="Web\kinopoiskCarouselRebind.js" />
     <None Remove="Web\kinopoiskRuntimeUiCorrections.js" />
@@ -55,6 +56,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRecommendations.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskRecommendationSeerrFallback.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationSeerrFallback.js</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskRuntimePolish.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js</LogicalName>
