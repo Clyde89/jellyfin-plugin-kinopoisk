@@ -25,6 +25,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js",
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationScrollbarStyle.js"
         };
 
