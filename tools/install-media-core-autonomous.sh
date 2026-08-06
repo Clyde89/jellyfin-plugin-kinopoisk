@@ -7,7 +7,7 @@ PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-media-core-readonly.sh"
 INDEX_TOOL="${SCRIPT_DIR}/prepare-kinopoisk-readonly-index.py"
 CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS"
 
-TARGET_VERSION="10.11.0.4"
+TARGET_VERSION="10.11.0.5"
 EXPECTED_JELLYFIN_VERSION="10.11.11"
 COMPOSE_FILE="${JELLYFIN_COMPOSE_FILE:-/srv/media-core/compose/compose.jellyfin.yaml}"
 COMPOSE_PROJECT="${JELLYFIN_COMPOSE_PROJECT:-media-core-jellyfin}"

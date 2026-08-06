@@ -8,10 +8,8 @@
     window.__kinopoiskEnhancedPresentationInstalled = true;
 
     var coreCache = new Map();
-    var tmdbCache = new Map();
     var supplementalCache = new Map();
     var renderTimer = null;
-    var activeDatesDialog = null;
 
     var professionLabels = {
         DIRECTOR: 'Режиссёры',
@@ -38,16 +36,6 @@
         RUS: 'Сборы в России',
         USA: 'Сборы в США',
         WORLD: 'Сборы в мире'
-    };
-
-    var countryAliases = {
-        RU: { display: 'Россия', prepositional: 'России', compact: 'Россия' },
-        RUSSIA: { display: 'Россия', prepositional: 'России', compact: 'Россия' },
-        'РОССИЯ': { display: 'Россия', prepositional: 'России', compact: 'Россия' },
-        US: { display: 'США', prepositional: 'США', compact: 'США' },
-        USA: { display: 'США', prepositional: 'США', compact: 'США' },
-        'UNITED STATES': { display: 'США', prepositional: 'США', compact: 'США' },
-        'США': { display: 'США', prepositional: 'США', compact: 'США' }
     };
 
     function pick(object) {
@@ -178,26 +166,6 @@
         return supplementalCache.get(key);
     }
 
-    function formatDate(value) {
-        if (!value) {
-            return '';
-        }
-
-        var normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
-            ? value + 'T12:00:00'
-            : value;
-        var date = new Date(normalized);
-        if (Number.isNaN(date.getTime())) {
-            return value;
-        }
-
-        return date.toLocaleDateString('ru-RU', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-    }
-
     function formatVotes(value) {
         var number = Number(value || 0);
         return number > 0
@@ -292,37 +260,6 @@
         }
     }
 
-    function normalizeCountry(value) {
-        var raw = String(value || '').trim();
-        var alias = countryAliases[raw.toUpperCase()];
-        return alias || {
-            display: raw,
-            prepositional: raw,
-            compact: raw
-        };
-    }
-
-    function formatKinopoiskReleaseLabel(type, country) {
-        if (type === 'WORLD_PREMIER') {
-            return 'Мировая премьера';
-        }
-
-        if ((type === 'PREMIERE' || type === 'COUNTRY_SPECIFIC') && country) {
-            var normalized = normalizeCountry(country);
-            if (normalized.prepositional) {
-                return 'Премьера в ' + normalized.prepositional;
-            }
-        }
-
-        if (type === 'PREMIERE') {
-            return 'Премьера';
-        }
-        if (type === 'COUNTRY_SPECIFIC') {
-            return 'Начало проката';
-        }
-        return 'Дата релиза';
-    }
-
     function ensureStyles() {
         if (document.getElementById('kinopoiskEnhancedPresentationStyles')) {
             return;
@@ -341,9 +278,6 @@
             '.kp-rating__source{font-weight:600;opacity:.86}',
             '.kp-rating__value{font-size:1.28em;font-weight:800}',
             '.kp-rating__votes{font-size:.83em;opacity:.68}',
-            '.kp-date-list{display:flex;gap:.55em;flex-wrap:wrap;margin:.65em 0}',
-            '.kp-date-chip{display:inline-flex;align-items:center;gap:.38em;padding:.38em .58em;border-radius:.55em;background:rgba(255,255,255,.08)}',
-            '.kp-date-chip__label{font-weight:650}',
             '.kp-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(17em,1fr));gap:.75em;margin-top:.8em}',
             '.kp-details{border:1px solid rgba(255,255,255,.11);border-radius:.62em;background:rgba(255,255,255,.045);overflow:hidden}',
             '.kp-details>summary{cursor:pointer;padding:.72em .82em;font-weight:650;list-style:none}',
@@ -368,16 +302,7 @@
             '.kp-award__name{font-weight:650}',
             '.kp-award__meta{font-size:.86em;opacity:.72}',
             '.kp-win{color:#ffd55a}',
-            '.kp-release-enhanced{display:inline-flex;align-items:center;gap:.28em}',
-            '.kp-release-enhanced .kp-release-label{font-weight:650}',
-            '.kp-release-more{border:0;background:transparent;color:inherit;cursor:pointer;padding:.15em .3em;opacity:.82}',
-            '.kp-modal{position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:1em}',
-            '.kp-modal__card{width:min(42em,100%);max-height:min(80vh,48em);overflow:auto;border-radius:.8em;background:#151824;color:#fff;padding:1em;box-shadow:0 1.2em 4em rgba(0,0,0,.55)}',
-            '.kp-modal__header{display:flex;align-items:center;gap:.7em;margin-bottom:.7em}',
-            '.kp-modal__title{font-size:1.25em;font-weight:700;margin-right:auto}',
-            '.kp-modal__date{display:grid;grid-template-columns:minmax(9em,1fr) auto;gap:.6em;padding:.6em 0;border-top:1px solid rgba(255,255,255,.1)}',
-            '.kp-modal__date-meta{font-size:.85em;opacity:.7}',
-            '@media(max-width:600px){.kp-presentation{padding:.8em}.kp-release-label{display:none}.kp-row{grid-template-columns:1fr}.kp-ratings{gap:.4em}.kp-rating{flex:1 1 9em}.kp-modal__date{grid-template-columns:1fr}}'
+            '@media(max-width:600px){.kp-presentation{padding:.8em}.kp-row{grid-template-columns:1fr}.kp-ratings{gap:.4em}.kp-rating{flex:1 1 9em}}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -411,285 +336,6 @@
         ].filter(Boolean);
         cards.forEach(function (card) { container.appendChild(card); });
         return cards.length ? container : null;
-    }
-
-    function normalizeCoreReleaseDates(core) {
-        return asArray(pick(core, 'releaseDates', 'ReleaseDates')).map(function (item) {
-            var type = String(pick(item, 'type', 'Type') || '');
-            var country = String(pick(item, 'country', 'Country') || '').trim();
-            var normalizedCountry = normalizeCountry(country);
-            return {
-                key: 'kp|' + type + '|' + String(pick(item, 'date', 'Date') || '') + '|' + normalizedCountry.display,
-                kind: 'kinopoisk',
-                type: type,
-                label: formatKinopoiskReleaseLabel(type, country),
-                compactLabel: type === 'WORLD_PREMIER'
-                    ? 'Мир'
-                    : (normalizedCountry.compact || 'Премьера'),
-                date: String(pick(item, 'date', 'Date') || ''),
-                country: normalizedCountry.display,
-                source: 'КиноПоиск',
-                icon: type === 'WORLD_PREMIER' ? 'public' : 'event',
-                reRelease: !!pick(item, 'reRelease', 'ReRelease')
-            };
-        }).filter(function (item) { return item.date; });
-    }
-
-    function isRussianRelease(item) {
-        return normalizeCountry(item.country).display === 'Россия'
-            && (item.type === 'PREMIERE' || item.type === 'COUNTRY_SPECIFIC');
-    }
-
-    function selectPrimaryKinopoiskDates(core) {
-        var dates = normalizeCoreReleaseDates(core).filter(function (item) {
-            return !item.reRelease;
-        });
-        var world = dates
-            .filter(function (item) { return item.type === 'WORLD_PREMIER'; })
-            .sort(function (left, right) { return left.date.localeCompare(right.date); })[0];
-        var russia = dates
-            .filter(isRussianRelease)
-            .sort(function (left, right) {
-                if (left.date !== right.date) {
-                    return left.date.localeCompare(right.date);
-                }
-                return left.type === 'PREMIERE' ? -1 : 1;
-            })[0];
-
-        var result = [];
-        if (world) {
-            result.push(Object.assign({}, world, {
-                label: 'Мировая премьера',
-                compactLabel: 'Мир'
-            }));
-        }
-        if (russia) {
-            result.push(Object.assign({}, russia, {
-                label: 'Премьера в России',
-                compactLabel: 'Россия'
-            }));
-        }
-        return deduplicateDates(result);
-    }
-
-    function getPreferredRegion() {
-        var enhanced = window.JellyfinEnhanced;
-        return String(
-            enhanced && enhanced.pluginConfig && enhanced.pluginConfig.DEFAULT_REGION
-                ? enhanced.pluginConfig.DEFAULT_REGION
-                : 'RU'
-        ).toUpperCase();
-    }
-
-    function earliestOfBucket(releaseDates, types) {
-        var matches = asArray(releaseDates).filter(function (item) {
-            return types.indexOf(Number(item.type)) >= 0 && item.release_date;
-        });
-        if (!matches.length) {
-            return null;
-        }
-        matches.sort(function (left, right) {
-            return String(left.release_date).localeCompare(String(right.release_date));
-        });
-        return matches[0];
-    }
-
-    function resolveTmdbBuckets(results) {
-        var region = getPreferredRegion();
-        var preferred = [region, 'US'].filter(function (value, index, array) {
-            return value && array.indexOf(value) === index;
-        });
-        var buckets = [
-            { kind: 'cinema', label: 'Кино', types: [1, 2, 3], icon: 'local_movies' },
-            { kind: 'digital', label: 'Цифра', types: [4], icon: 'ondemand_video' },
-            { kind: 'physical', label: 'Носитель', types: [5], icon: 'album' }
-        ];
-
-        return buckets.map(function (bucket) {
-            var selected = null;
-            var selectedCountry = '';
-            for (var preferredIndex = 0; preferredIndex < preferred.length && !selected; preferredIndex++) {
-                var entry = results.find(function (candidate) {
-                    return candidate.iso_3166_1 === preferred[preferredIndex];
-                });
-                selected = entry && earliestOfBucket(entry.release_dates, bucket.types);
-                selectedCountry = selected ? preferred[preferredIndex] : '';
-            }
-            if (!selected) {
-                for (var resultIndex = 0; resultIndex < results.length && !selected; resultIndex++) {
-                    selected = earliestOfBucket(results[resultIndex].release_dates, bucket.types);
-                    selectedCountry = selected ? results[resultIndex].iso_3166_1 : '';
-                }
-            }
-            return selected ? {
-                key: 'tmdb|' + bucket.kind + '|' + selected.release_date + '|' + selectedCountry,
-                kind: bucket.kind,
-                type: bucket.kind,
-                label: bucket.label,
-                compactLabel: bucket.label,
-                date: selected.release_date,
-                country: selectedCountry,
-                source: 'TMDB',
-                icon: bucket.icon,
-                reRelease: false
-            } : null;
-        }).filter(Boolean);
-    }
-
-    function fetchTmdbReleaseDates(item) {
-        var tmdbId = getProviderId(item, 'tmdb');
-        if (!tmdbId) {
-            return Promise.resolve([]);
-        }
-
-        var key = String(tmdbId);
-        if (!tmdbCache.has(key)) {
-            tmdbCache.set(
-                key,
-                fetchJson('/JellyfinEnhanced/tmdb/movie/' + encodeURIComponent(key) + '/release_dates')
-                    .then(function (data) {
-                        return resolveTmdbBuckets(asArray(data && data.results));
-                    })
-                    .catch(function (error) {
-                        console.warn('[КиноПоиск] Даты TMDB не загружены.', error);
-                        return [];
-                    })
-            );
-        }
-        return tmdbCache.get(key);
-    }
-
-    function createDateChip(item, includeSource) {
-        var chip = createElement('span', 'kp-date-chip');
-        chip.title = item.label
-            + (item.country ? ' · ' + item.country : '')
-            + (includeSource ? ' · ' + item.source : '');
-        chip.append(
-            createElement('span', 'material-icons', item.icon || 'event'),
-            createElement('span', 'kp-date-chip__label', item.label),
-            createElement('span', '', formatDate(item.date))
-        );
-        return chip;
-    }
-
-    function buildDateKey(item) {
-        if (item.source === 'КиноПоиск'
-            && (item.type === 'PREMIERE' || item.type === 'COUNTRY_SPECIFIC')
-            && item.country) {
-            return ['kp-country', item.country, item.date, item.reRelease].join('|');
-        }
-        return item.key || [item.label, item.date, item.country, item.source].join('|');
-    }
-
-    function deduplicateDates(items) {
-        var seen = new Set();
-        return items.filter(function (item) {
-            var key = buildDateKey(item);
-            if (seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        }).sort(function (left, right) {
-            return String(left.date).localeCompare(String(right.date));
-        });
-    }
-
-    function closeDatesDialog() {
-        if (activeDatesDialog) {
-            activeDatesDialog.remove();
-            activeDatesDialog = null;
-        }
-    }
-
-    function showDatesDialog(items) {
-        closeDatesDialog();
-        var overlay = createElement('div', 'kp-modal');
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        var card = createElement('div', 'kp-modal__card');
-        var header = createElement('div', 'kp-modal__header');
-        var title = createElement('div', 'kp-modal__title', 'Все даты релиза');
-        var close = createElement('button', 'kp-action', 'Закрыть');
-        close.type = 'button';
-        close.addEventListener('click', closeDatesDialog);
-        header.append(title, close);
-        card.appendChild(header);
-
-        if (!items.length) {
-            card.appendChild(createElement('div', 'kp-empty', 'Даты релиза не найдены.'));
-        } else {
-            items.forEach(function (item) {
-                var row = createElement('div', 'kp-modal__date');
-                var left = createElement('div');
-                left.append(
-                    createElement('div', '', item.label),
-                    createElement(
-                        'div',
-                        'kp-modal__date-meta',
-                        [
-                            item.country || 'Страна не указана',
-                            item.source,
-                            item.reRelease ? 'повторный прокат' : ''
-                        ].filter(Boolean).join(' · ')
-                    )
-                );
-                row.append(left, createElement('div', '', formatDate(item.date)));
-                card.appendChild(row);
-            });
-        }
-
-        overlay.appendChild(card);
-        overlay.addEventListener('click', function (event) {
-            if (event.target === overlay) {
-                closeDatesDialog();
-            }
-        });
-        document.body.appendChild(overlay);
-        activeDatesDialog = overlay;
-        close.focus();
-    }
-
-    function enhanceReleaseChip(displayDates, allDates, itemId) {
-        var chip = document.querySelector('.mediaInfoItem-releaseDate');
-        if (!chip || !displayDates.length) {
-            return;
-        }
-        if (chip.dataset.kinopoiskEnhancedItemId === itemId) {
-            return;
-        }
-
-        chip.dataset.kinopoiskEnhancedItemId = itemId;
-        chip.textContent = '';
-        chip.style.display = 'flex';
-        chip.style.alignItems = 'center';
-        chip.style.gap = '.55em';
-        chip.style.flexWrap = 'wrap';
-
-        displayDates.forEach(function (item) {
-            var span = createElement('span', 'kp-release-enhanced');
-            span.title = item.label
-                + ' · '
-                + (item.country || 'страна не указана')
-                + ' · '
-                + item.source;
-            span.append(
-                createElement('span', 'material-icons', item.icon),
-                createElement('span', 'kp-release-label', item.compactLabel || item.label),
-                createElement('span', '', formatDate(item.date))
-            );
-            chip.appendChild(span);
-        });
-
-        var more = createElement('button', 'kp-release-more material-icons', 'calendar_month');
-        more.type = 'button';
-        more.title = 'Показать все даты релиза';
-        more.addEventListener('click', function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            showDatesDialog(allDates);
-        });
-        chip.appendChild(more);
     }
 
     function renderProfessionDetails(core) {
@@ -943,110 +589,81 @@
             || document.querySelector('.detailPageContent');
     }
 
-    function renderPanel(itemId, core, tmdbDates) {
-        ensureStyles();
-        var existing = document.getElementById('kinopoiskEnhancedPresentationPanel');
-        var primaryDates = selectPrimaryKinopoiskDates(core);
-        var allDates = deduplicateDates(
-            tmdbDates.concat(normalizeCoreReleaseDates(core))
-        );
-        var barDates = tmdbDates.length ? tmdbDates : primaryDates;
-
-        if (existing) {
-            if (existing.dataset.itemId === itemId) {
-                enhanceReleaseChip(barDates, allDates, itemId);
-                return;
-            }
-            existing.remove();
-        }
-
-        var container = findPanelContainer();
-        if (!container) {
+    function renderPanel(itemId, core) {
+    ensureStyles();
+    var existing = document.getElementById('kinopoiskEnhancedPresentationPanel');
+    if (existing) {
+        if (existing.dataset.itemId === itemId) {
             return;
         }
-
-        var kinopoiskId = Number(pick(core, 'kinopoiskId', 'KinopoiskId') || 0);
-        var panel = createElement('section', 'kp-presentation');
-        panel.id = 'kinopoiskEnhancedPresentationPanel';
-        panel.dataset.itemId = itemId;
-
-        var header = createElement('div', 'kp-presentation__header');
-        header.appendChild(createElement('div', 'kp-presentation__title', 'КиноПоиск'));
-        panel.appendChild(header);
-
-        var ratings = renderRatings(core);
-        if (ratings) {
-            panel.appendChild(ratings);
-        }
-
-        if (primaryDates.length) {
-            var dates = createElement('div', 'kp-date-list');
-            primaryDates.forEach(function (date) {
-                dates.appendChild(createDateChip(date, true));
-            });
-            var moreDates = createElement('button', 'kp-action', 'Все даты');
-            moreDates.type = 'button';
-            moreDates.addEventListener('click', function () {
-                showDatesDialog(allDates);
-            });
-            dates.appendChild(moreDates);
-            panel.appendChild(dates);
-        }
-
-        var sections = createElement('div', 'kp-sections');
-        var professions = renderProfessionDetails(core);
-        var relations = renderRelations(core);
-        if (professions) {
-            sections.appendChild(professions);
-        }
-        if (relations) {
-            sections.appendChild(relations);
-        }
-        sections.append(
-            createLazyDetails('Факты и интересные детали', 'facts', renderFacts, kinopoiskId),
-            createLazyDetails('Бюджет и сборы', 'box-office', renderBoxOffice, kinopoiskId),
-            createLazyDetails('Награды и номинации', 'awards', renderAwards, kinopoiskId)
-        );
-        panel.appendChild(sections);
-        container.appendChild(panel);
-
-        enhanceReleaseChip(barDates, allDates, itemId);
+        existing.remove();
     }
+
+    var container = findPanelContainer();
+    if (!container) {
+        return;
+    }
+
+    var kinopoiskId = Number(pick(core, 'kinopoiskId', 'KinopoiskId') || 0);
+    var panel = createElement('section', 'kp-presentation');
+    panel.id = 'kinopoiskEnhancedPresentationPanel';
+    panel.dataset.itemId = itemId;
+
+    var header = createElement('div', 'kp-presentation__header');
+    header.appendChild(createElement('div', 'kp-presentation__title', 'КиноПоиск'));
+    panel.appendChild(header);
+
+    var ratings = renderRatings(core);
+    if (ratings) {
+        panel.appendChild(ratings);
+    }
+
+    var sections = createElement('div', 'kp-sections');
+    var professions = renderProfessionDetails(core);
+    var relations = renderRelations(core);
+    if (professions) {
+        sections.appendChild(professions);
+    }
+    if (relations) {
+        sections.appendChild(relations);
+    }
+    sections.append(
+        createLazyDetails('Факты и интересные детали', 'facts', renderFacts, kinopoiskId),
+        createLazyDetails('Бюджет и сборы', 'box-office', renderBoxOffice, kinopoiskId),
+        createLazyDetails('Награды и номинации', 'awards', renderAwards, kinopoiskId)
+    );
+    panel.appendChild(sections);
+    container.appendChild(panel);
+}
 
     function renderCurrentItem() {
-        var itemId = getCurrentItemId();
-        if (!itemId) {
+    var itemId = getCurrentItemId();
+    if (!itemId) {
+        return;
+    }
+
+    fetchCurrentItem(itemId).then(function (item) {
+        if (!item || getCurrentItemId() !== itemId) {
+            return;
+        }
+        var itemType = String(pick(item, 'Type', 'type') || '');
+        if (itemType !== 'Movie' && itemType !== 'Series') {
+            return;
+        }
+        var kinopoiskId = getProviderId(item, 'kinopoisk');
+        if (!kinopoiskId || !/^\d+$/.test(String(kinopoiskId))) {
             return;
         }
 
-        fetchCurrentItem(itemId).then(function (item) {
-            if (!item || getCurrentItemId() !== itemId) {
-                return;
+        fetchCore(kinopoiskId).then(function (core) {
+            if (getCurrentItemId() === itemId) {
+                renderPanel(itemId, core);
             }
-            var itemType = String(pick(item, 'Type', 'type') || '');
-            if (itemType !== 'Movie' && itemType !== 'Series') {
-                return;
-            }
-            var kinopoiskId = getProviderId(item, 'kinopoisk');
-            if (!kinopoiskId || !/^\d+$/.test(String(kinopoiskId))) {
-                return;
-            }
-
-            Promise.all([
-                fetchCore(kinopoiskId),
-                itemType === 'Movie'
-                    ? fetchTmdbReleaseDates(item)
-                    : Promise.resolve([])
-            ]).then(function (values) {
-                if (getCurrentItemId() !== itemId) {
-                    return;
-                }
-                renderPanel(itemId, values[0], values[1]);
-            }).catch(function (error) {
-                console.warn('[КиноПоиск] Расширенная карточка не отображена.', error);
-            });
+        }).catch(function (error) {
+            console.warn('[КиноПоиск] Расширенная карточка не отображена.', error);
         });
-    }
+    });
+}
 
     function scheduleRender() {
         clearTimeout(renderTimer);
@@ -1062,11 +679,6 @@
     window.addEventListener('hashchange', scheduleRender);
     window.addEventListener('popstate', scheduleRender);
     document.addEventListener('viewshow', scheduleRender, true);
-    document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape') {
-            closeDatesDialog();
-        }
-    }, true);
     scheduleRender();
     console.info('[КиноПоиск] Расширенная карточка КиноПоиска зарегистрирована.');
 }());

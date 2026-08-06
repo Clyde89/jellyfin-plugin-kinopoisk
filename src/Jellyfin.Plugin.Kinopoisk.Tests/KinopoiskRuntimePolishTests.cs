@@ -7,12 +7,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class KinopoiskRuntimePolishTests
     {
         [Fact]
-        public void ShouldEmbedRuntimePolishScript()
+        public void ShouldEmbedCarouselOnlyRuntimePolishScript()
         {
             const string resourceName =
                 "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js";
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
-
             Assert.Contains(resourceName, assembly.GetManifestResourceNames());
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
@@ -26,14 +25,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("ArrowRight", script);
             Assert.Contains("scrollBy", script);
             Assert.Contains("scrollbar-width:none", script);
-            Assert.Contains("KinopoiskTmdbResolver", script);
-            Assert.Contains("releaseCache.delete(itemId)", script);
-            Assert.Contains("/release_dates", script);
-            Assert.Contains("Кино", script);
-            Assert.Contains("Цифра", script);
-            Assert.Contains("Носитель", script);
-            Assert.Contains("mediaInfoItem-releaseDate", script);
-            Assert.DoesNotContain("ProviderIds.Tmdb =", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("releaseCache", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("KinopoiskTmdbResolver", script, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -42,7 +38,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             const string resourceName =
                 "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js";
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
-
             Assert.Contains(resourceName, assembly.GetManifestResourceNames());
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
@@ -62,10 +57,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var source = File.ReadAllText(
                 Path.Combine(
                     AppContext.BaseDirectory,
-                    "..",
-                    "..",
-                    "..",
-                    "..",
+                    "..", "..", "..", "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
                     "KinopoiskWebClientBundle.cs"));

@@ -7,15 +7,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class KinopoiskPresentationScriptPolishTests
     {
         [Fact]
-        public void ShouldRenderOnlyPrimaryPremieresInMainPresentation()
+        public void ShouldLeaveReleaseDatePresentationToJellyfinEnhanced()
         {
             var script = ReadPresentationScript();
 
-            Assert.Contains("selectPrimaryKinopoiskDates", script);
-            Assert.Contains("Мировая премьера", script);
-            Assert.Contains("Премьера в России", script);
-            Assert.Contains("Все даты", script);
-            Assert.Contains("barDates = tmdbDates.length ? tmdbDates : primaryDates", script);
+            Assert.DoesNotContain("fetchTmdbReleaseDates", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("showDatesDialog", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("kp-date-list", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("Все даты", script, StringComparison.Ordinal);
         }
 
         [Fact]

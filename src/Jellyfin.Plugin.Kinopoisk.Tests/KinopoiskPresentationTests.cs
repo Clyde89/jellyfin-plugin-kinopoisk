@@ -77,9 +77,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var script = reader.ReadToEnd();
 
             Assert.Contains("/KinopoiskPresentation/", script);
-            Assert.Contains("Кино", script);
-            Assert.Contains("Цифра", script);
-            Assert.Contains("Носитель", script);
+            Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
             Assert.Contains("Факты и интересные детали", script);
             Assert.Contains("Бюджет и сборы", script);
             Assert.Contains("Награды и номинации", script);

@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldAlignNavigationFromNativeCarouselGeometry()
+        public void ShouldAlignNavigationOnDesktopAndMobile()
         {
             const string resourceName =
                 "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js";
@@ -44,14 +44,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.Contains("findReferenceNavigation", script);
             Assert.Contains(".emby-scrollbuttons:not(.kp-native-navigation)", script);
-            Assert.Contains("getBoundingClientRect().left", script);
-            Assert.Contains("--kp-native-navigation-left", script);
+            Assert.Contains("getBoundingClientRect()", script);
+            Assert.Contains("headerRect.right - referenceRect.right", script);
+            Assert.Contains("referenceRect.left - headerRect.left", script);
+            Assert.Contains("--kp-native-navigation-right-offset", script);
+            Assert.Contains("--kp-native-navigation-left-offset", script);
+            Assert.Contains("margin-right:var(--kp-native-navigation-right-offset,0px)!important", script);
             Assert.Contains("@media(max-width:900px)", script);
             Assert.Contains("justify-content:flex-start!important", script);
-            Assert.False(
-                script.Contains(
-                    "margin-right:2.5em!important",
-                    StringComparison.Ordinal));
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
         }
     }

@@ -68,17 +68,29 @@
         }
         var reference = findReferenceNavigation(section);
         if (!reference) {
-            navigation.style.removeProperty('--kp-native-navigation-left');
+            navigation.style.removeProperty('--kp-native-navigation-left-offset');
+            navigation.style.removeProperty('--kp-native-navigation-right-offset');
             navigation.dataset.kpAlignmentSource = 'fallback';
             return;
         }
-        var offset = Math.max(0, Math.round(
-            reference.getBoundingClientRect().left
-            - header.getBoundingClientRect().left
-        ));
+
+        var headerRect = header.getBoundingClientRect();
+        var referenceRect = reference.getBoundingClientRect();
+        var leftOffset = Math.max(
+            0,
+            Math.min(240, Math.round(referenceRect.left - headerRect.left))
+        );
+        var rightOffset = Math.max(
+            0,
+            Math.min(240, Math.round(headerRect.right - referenceRect.right))
+        );
         navigation.style.setProperty(
-            '--kp-native-navigation-left',
-            String(offset) + 'px'
+            '--kp-native-navigation-left-offset',
+            String(leftOffset) + 'px'
+        );
+        navigation.style.setProperty(
+            '--kp-native-navigation-right-offset',
+            String(rightOffset) + 'px'
         );
         navigation.dataset.kpAlignmentSource = 'native-carousel';
     }
@@ -104,13 +116,18 @@
         var style = document.createElement('style');
         style.id = 'kinopoiskRecommendationLifecycleGuardStyles';
         style.textContent = [
+            '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
+            'margin-left:auto!important;',
+            'margin-right:var(--kp-native-navigation-right-offset,0px)!important;',
+            'transform:none!important',
+            '}',
             '@media(max-width:900px){',
             '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
             'flex:0 0 100%!important;',
             'width:100%!important;',
             'box-sizing:border-box!important;',
             'margin:0!important;',
-            'padding:0 0 0 var(--kp-native-navigation-left,2.5em)!important;',
+            'padding:0 0 0 var(--kp-native-navigation-left-offset,2.5em)!important;',
             'display:flex!important;',
             'justify-content:flex-start!important;',
             'transform:none!important',

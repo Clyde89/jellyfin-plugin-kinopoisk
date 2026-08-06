@@ -7,12 +7,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class KinopoiskRuntimeNativeStyleTests
     {
         [Fact]
-        public void ShouldEmbedNativeRuntimeStyle()
+        public void ShouldEmbedCarouselOnlyNativeRuntimeStyle()
         {
             const string resourceName =
                 "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js";
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
-
             Assert.Contains(resourceName, assembly.GetManifestResourceNames());
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
@@ -27,14 +26,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("navigation.hidden = !hasOverflow", script);
             Assert.Contains("maximum > 20", script);
             Assert.DoesNotContain("@media(hover:hover)", script, StringComparison.Ordinal);
-            Assert.Contains("background:transparent!important", script);
-            Assert.Contains("border:0!important", script);
-            Assert.Contains("источник: TMDB", script);
-            Assert.Contains("источники: TMDB и КиноПоиск", script);
-            Assert.Contains("calendar.classList.remove('material-icons')", script);
-            Assert.Contains("'calendar_month'", script);
-            Assert.Contains("calendar.appendChild(calendarIcon)", script);
-            Assert.Contains("kp-runtime-release-date-more>.material-icons", script);
+            Assert.DoesNotContain("kp-runtime-release", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -43,10 +37,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var source = File.ReadAllText(
                 Path.Combine(
                     AppContext.BaseDirectory,
-                    "..",
-                    "..",
-                    "..",
-                    "..",
+                    "..", "..", "..", "..",
                     "Jellyfin.Plugin.Kinopoisk",
                     "Services",
                     "KinopoiskWebClientBundle.cs"));
