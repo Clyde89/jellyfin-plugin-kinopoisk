@@ -94,19 +94,20 @@ jobs:
               )
           text = text.replace(old_message, new_message)
 
-          marker = '''            Assert.Contains(
-              "Объединённый блок рекомендаций зарегистрирован",
-              KinopoiskWebClientBundle.Content);
-          '''
-          addition = marker + '''            Assert.Contains(
-              "Геометрическое выравнивание навигации зарегистрировано",
-              KinopoiskWebClientBundle.Content);
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit(
-                  'Точка расширения проверки web-клиента не найдена.'
-              )
-          path.write_text(text.replace(marker, addition), encoding='utf-8')
+          message_index = text.index(new_message)
+          assertion_end = text.index(
+              'KinopoiskWebClientBundle.Content);',
+              message_index,
+          )
+          line_end = text.find('\n', assertion_end)
+          if line_end < 0:
+              line_end = len(text)
+          insertion = '''
+              Assert.Contains(
+                  "Геометрическое выравнивание навигации зарегистрировано",
+                  KinopoiskWebClientBundle.Content);'''
+          text = text[:line_end] + insertion + text[line_end:]
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Усилены проверки сценария рекомендаций
