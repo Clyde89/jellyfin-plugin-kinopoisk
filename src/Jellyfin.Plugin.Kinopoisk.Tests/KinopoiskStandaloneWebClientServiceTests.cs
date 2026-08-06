@@ -128,8 +128,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 "Резервное сопоставление карточек через Seerr зарегистрировано",
                 KinopoiskWebClientBundle.Content);
             Assert.Contains(
-                "Защита жизненного цикла рекомендаций зарегистрирована",
+                "Объединённый блок рекомендаций зарегистрирован",
                 KinopoiskWebClientBundle.Content);
+    Assert.Contains(
+        "Геометрическое выравнивание навигации зарегистрировано",
+        KinopoiskWebClientBundle.Content);
         }
 
         [Fact]

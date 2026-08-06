@@ -21,6 +21,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("expectedGeneration !== renderGeneration", script);
             Assert.Contains("currentItemCache", script);
             Assert.Contains("var page = getVisiblePage();", script);
+            Assert.Contains("function findInsertionAnchor(page)", script);
+            Assert.Contains("var anchor = findInsertionAnchor(page);", script);
             Assert.Contains("anchor.isConnected", script);
             Assert.Contains("scheduleImmediateRender", script);
             Assert.Contains("window.setInterval", script);

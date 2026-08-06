@@ -189,6 +189,11 @@
     return null;
 }
 
+    function findInsertionAnchor(page) {
+    return page.querySelector('#similarCollapsible')
+        || page.querySelector('.similarCollapsible');
+}
+
     function removeLegacySeerrSections(page) {
         Array.prototype.forEach.call(
             page.querySelectorAll('.jellyseerr-details-section'),

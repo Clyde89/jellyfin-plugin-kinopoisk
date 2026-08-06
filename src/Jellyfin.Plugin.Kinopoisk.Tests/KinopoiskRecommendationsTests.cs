@@ -39,7 +39,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("imdbId", script);
             Assert.Contains("mediaType", script);
             Assert.Contains(".kp-recommendations-items>.card{width:12.4em", script);
-            Assert.Contains("#similarCollapsible", script);
+            Assert.Contains("function findInsertionAnchor(page)", script);
+            Assert.Contains("page.querySelector('#similarCollapsible')", script);
+            Assert.Contains("page.querySelector('.similarCollapsible')", script);
             Assert.Contains("removeLegacySeerrSections", script);
             Assert.Contains("KinopoiskTmdbResolver", script);
             Assert.Contains("retryDelays", script);
