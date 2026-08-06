@@ -1,0 +1,1403 @@
+name: Подготовка runtime-кандидата 10.11.0.5
+
+on:
+  push:
+    branches:
+      - feature/diagnostic-test-mode
+    paths:
+      - .github/workflows/patch-runtime-v101105.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    name: Удалены даты и выровнена навигация
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/diagnostic-test-mode
+          fetch-depth: 0
+
+      - name: Удалено вмешательство расширенной карточки в даты релиза
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskEnhancedPresentation.js')
+          text = path.read_text(encoding='utf-8')
+
+          def remove_between(source: str, start_marker: str, end_marker: str) -> str:
+              start = source.find(start_marker)
+              end = source.find(end_marker, start + len(start_marker))
+              if start < 0 or end < 0:
+                  raise SystemExit(
+                      f'Границы блока не найдены: {start_marker!r} / {end_marker!r}'
+                  )
+              return source[:start] + source[end:]
+
+          def replace_between(
+              source: str,
+              start_marker: str,
+              end_marker: str,
+              replacement: str,
+          ) -> str:
+              start = source.find(start_marker)
+              end = source.find(end_marker, start + len(start_marker))
+              if start < 0 or end < 0:
+                  raise SystemExit(
+                      f'Границы замены не найдены: {start_marker!r} / {end_marker!r}'
+                  )
+              return source[:start] + replacement + source[end:]
+
+          required_replacements = {
+              '    var tmdbCache = new Map();\n': '',
+              '    var activeDatesDialog = null;\n': '',
+          }
+          for old, new in required_replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'Ожидаемая строка не найдена однозначно: {old!r}')
+              text = text.replace(old, new)
+
+          text = remove_between(text, '    var countryAliases = {', '    function pick(')
+          text = remove_between(text, '    function formatDate(', '    function formatVotes(')
+          text = remove_between(text, '    function normalizeCountry(', '    function ensureStyles(')
+
+          old_mobile = (
+              "            '@media(max-width:600px){.kp-presentation{padding:.8em}"
+              ".kp-release-label{display:none}.kp-row{grid-template-columns:1fr}"
+              ".kp-ratings{gap:.4em}.kp-rating{flex:1 1 9em}"
+              ".kp-modal__date{grid-template-columns:1fr}}'\n"
+          )
+          new_mobile = (
+              "            '@media(max-width:600px){.kp-presentation{padding:.8em}"
+              ".kp-row{grid-template-columns:1fr}.kp-ratings{gap:.4em}"
+              ".kp-rating{flex:1 1 9em}}'\n"
+          )
+          if text.count(old_mobile) != 1:
+              raise SystemExit('Мобильный CSS расширенной карточки не найден.')
+          text = text.replace(old_mobile, new_mobile)
+
+          forbidden_style_tokens = (
+              "'.kp-date-",
+              "'.kp-release-",
+              "'.kp-modal",
+          )
+          text = '\n'.join(
+              line
+              for line in text.splitlines()
+              if not any(token in line for token in forbidden_style_tokens)
+          ) + '\n'
+
+          text = remove_between(
+              text,
+              '    function normalizeCoreReleaseDates(',
+              '    function renderProfessionDetails(',
+          )
+
+          new_render_panel = '''    function renderPanel(itemId, core) {
+              ensureStyles();
+              var existing = document.getElementById('kinopoiskEnhancedPresentationPanel');
+              if (existing) {
+                  if (existing.dataset.itemId === itemId) {
+                      return;
+                  }
+                  existing.remove();
+              }
+
+              var container = findPanelContainer();
+              if (!container) {
+                  return;
+              }
+
+              var kinopoiskId = Number(pick(core, 'kinopoiskId', 'KinopoiskId') || 0);
+              var panel = createElement('section', 'kp-presentation');
+              panel.id = 'kinopoiskEnhancedPresentationPanel';
+              panel.dataset.itemId = itemId;
+
+              var header = createElement('div', 'kp-presentation__header');
+              header.appendChild(createElement('div', 'kp-presentation__title', 'КиноПоиск'));
+              panel.appendChild(header);
+
+              var ratings = renderRatings(core);
+              if (ratings) {
+                  panel.appendChild(ratings);
+              }
+
+              var sections = createElement('div', 'kp-sections');
+              var professions = renderProfessionDetails(core);
+              var relations = renderRelations(core);
+              if (professions) {
+                  sections.appendChild(professions);
+              }
+              if (relations) {
+                  sections.appendChild(relations);
+              }
+              sections.append(
+                  createLazyDetails('Факты и интересные детали', 'facts', renderFacts, kinopoiskId),
+                  createLazyDetails('Бюджет и сборы', 'box-office', renderBoxOffice, kinopoiskId),
+                  createLazyDetails('Награды и номинации', 'awards', renderAwards, kinopoiskId)
+              );
+              panel.appendChild(sections);
+              container.appendChild(panel);
+          }
+
+          '''
+          text = replace_between(
+              text,
+              '    function renderPanel(',
+              '    function renderCurrentItem(',
+              new_render_panel,
+          )
+
+          new_render_current = '''    function renderCurrentItem() {
+              var itemId = getCurrentItemId();
+              if (!itemId) {
+                  return;
+              }
+
+              fetchCurrentItem(itemId).then(function (item) {
+                  if (!item || getCurrentItemId() !== itemId) {
+                      return;
+                  }
+                  var itemType = String(pick(item, 'Type', 'type') || '');
+                  if (itemType !== 'Movie' && itemType !== 'Series') {
+                      return;
+                  }
+                  var kinopoiskId = getProviderId(item, 'kinopoisk');
+                  if (!kinopoiskId || !/^\\d+$/.test(String(kinopoiskId))) {
+                      return;
+                  }
+
+                  fetchCore(kinopoiskId).then(function (core) {
+                      if (getCurrentItemId() === itemId) {
+                          renderPanel(itemId, core);
+                      }
+                  }).catch(function (error) {
+                      console.warn('[КиноПоиск] Расширенная карточка не отображена.', error);
+                  });
+              });
+          }
+
+          '''
+          text = replace_between(
+              text,
+              '    function renderCurrentItem()',
+              '    function scheduleRender()',
+              new_render_current,
+          )
+
+          keydown_start = "    document.addEventListener('keydown', function (event) {"
+          keydown_end = "    }, true);\n"
+          start = text.find(keydown_start)
+          if start >= 0:
+              end = text.find(keydown_end, start)
+              if end < 0:
+                  raise SystemExit('Завершение обработчика Escape не найдено.')
+              text = text[:start] + text[end + len(keydown_end):]
+
+          forbidden = (
+              'mediaInfoItem-releaseDate',
+              '/release_dates',
+              'calendar_month',
+              'showDatesDialog',
+              'enhanceReleaseChip',
+              'kp-date-list',
+              'activeDatesDialog',
+              'fetchTmdbReleaseDates',
+          )
+          for token in forbidden:
+              if token in text:
+                  raise SystemExit(f'Остаточное вмешательство в даты найдено: {token}')
+
+          path.write_text(text.rstrip() + '\n', encoding='utf-8')
+          PY
+
+      - name: Оставлена только карусельная полировка runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimePolish.js <<'EOF'
+          (function () {
+              'use strict';
+
+              if (window.__kinopoiskRuntimePolishInstalled) {
+                  return;
+              }
+              window.__kinopoiskRuntimePolishInstalled = true;
+              var renderTimer = null;
+
+              function createElement(tagName, className, text) {
+                  var element = document.createElement(tagName);
+                  if (className) {
+                      element.className = className;
+                  }
+                  if (text != null) {
+                      element.textContent = text;
+                  }
+                  return element;
+              }
+
+              function getVisibleDetailPage() {
+                  var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+                  for (var index = 0; index < pages.length; index++) {
+                      var page = pages[index];
+                      if (!page.isConnected || page.hidden || page.classList.contains('hide')) {
+                          continue;
+                      }
+                      var style = window.getComputedStyle(page);
+                      if (style.display !== 'none' && style.visibility !== 'hidden') {
+                          return page;
+                      }
+                  }
+                  return null;
+              }
+
+              function ensureStyles() {
+                  if (document.getElementById('kinopoiskRuntimePolishStyles')) {
+                      return;
+                  }
+                  var style = document.createElement('style');
+                  style.id = 'kinopoiskRuntimePolishStyles';
+                  style.textContent = [
+                      '.kp-runtime-navigation{display:flex;align-items:center;gap:.28em;margin-left:auto}',
+                      '.kp-runtime-navigation-button{display:inline-flex;align-items:center;justify-content:center;width:2.45em;height:2.45em;border:0;border-radius:50%;background:rgba(0,0,0,.52);color:inherit;cursor:pointer;font:inherit}',
+                      '.kp-runtime-navigation-button:hover,.kp-runtime-navigation-button:focus-visible{background:rgba(0,0,0,.78);outline:2px solid rgba(255,255,255,.65);outline-offset:2px}',
+                      '.kp-runtime-navigation-button:disabled{opacity:.28;cursor:default;outline:0}',
+                      '.kp-recommendations-scroller,.tmdb-review-swipe-container{scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-inline:contain}',
+                      '.kp-recommendations-scroller::-webkit-scrollbar,.tmdb-review-swipe-container::-webkit-scrollbar{display:none}',
+                      '.kp-recommendations-items>* ,.tmdb-review-swipe-container>*{scroll-snap-align:start}'
+                  ].join('');
+                  document.head.appendChild(style);
+              }
+
+              function scrollCarousel(scroller, direction) {
+                  var distance = Math.max(320, Math.floor(scroller.clientWidth * .86));
+                  scroller.scrollBy({ left: direction * distance, behavior: 'smooth' });
+              }
+
+              function attachKeyboardNavigation(scroller) {
+                  if (scroller.dataset.kpKeyboardNavigation === 'true') {
+                      return;
+                  }
+                  scroller.dataset.kpKeyboardNavigation = 'true';
+                  if (!scroller.hasAttribute('tabindex')) {
+                      scroller.tabIndex = 0;
+                  }
+                  scroller.addEventListener('keydown', function (event) {
+                      if (event.key === 'ArrowLeft') {
+                          event.preventDefault();
+                          scrollCarousel(scroller, -1);
+                      } else if (event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          scrollCarousel(scroller, 1);
+                      }
+                  });
+              }
+
+              function ensureNavigation(header, scroller, labelPrefix) {
+                  if (!header || !scroller) {
+                      return;
+                  }
+                  attachKeyboardNavigation(scroller);
+                  var navigation = header.querySelector('.kp-runtime-navigation');
+                  if (!navigation) {
+                      navigation = createElement('div', 'kp-runtime-navigation');
+                      var previous = createElement(
+                          'button',
+                          'kp-runtime-navigation-button material-icons',
+                          'chevron_left'
+                      );
+                      var next = createElement(
+                          'button',
+                          'kp-runtime-navigation-button material-icons',
+                          'chevron_right'
+                      );
+                      previous.type = 'button';
+                      next.type = 'button';
+                      previous.title = 'Предыдущие ' + labelPrefix;
+                      next.title = 'Следующие ' + labelPrefix;
+                      previous.setAttribute('aria-label', previous.title);
+                      next.setAttribute('aria-label', next.title);
+                      previous.addEventListener('click', function (event) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          scrollCarousel(scroller, -1);
+                      });
+                      next.addEventListener('click', function (event) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          scrollCarousel(scroller, 1);
+                      });
+                      navigation.append(previous, next);
+                      header.appendChild(navigation);
+
+                      var pending = false;
+                      function update() {
+                          pending = false;
+                          var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+                          previous.disabled = scroller.scrollLeft <= 4;
+                          next.disabled = maximum <= 4 || scroller.scrollLeft >= maximum - 4;
+                      }
+                      function scheduleUpdate() {
+                          if (!pending) {
+                              pending = true;
+                              window.requestAnimationFrame(update);
+                          }
+                      }
+                      scroller.addEventListener('scroll', scheduleUpdate, { passive: true });
+                      window.addEventListener('resize', scheduleUpdate);
+                      navigation.__kpUpdate = scheduleUpdate;
+                  }
+                  if (typeof navigation.__kpUpdate === 'function') {
+                      navigation.__kpUpdate();
+                  }
+              }
+
+              function enhanceCarousels(page) {
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.kp-recommendations-section'),
+                      function (section) {
+                          ensureNavigation(
+                              section.querySelector('.kp-recommendations-header'),
+                              section.querySelector('.kp-recommendations-scroller'),
+                              'рекомендации'
+                          );
+                      }
+                  );
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.tmdb-reviews-section'),
+                      function (section) {
+                          var toolbar = section.querySelector('.kp-review-toolbar');
+                          var scroller = section.querySelector('.tmdb-review-swipe-container');
+                          if (toolbar && scroller && !toolbar.querySelector('.kp-carousel-navigation')) {
+                              ensureNavigation(toolbar, scroller, 'рецензии');
+                          }
+                      }
+                  );
+              }
+
+              function renderCurrentPage() {
+                  var page = getVisibleDetailPage();
+                  if (page) {
+                      enhanceCarousels(page);
+                  }
+              }
+
+              function scheduleRender() {
+                  clearTimeout(renderTimer);
+                  renderTimer = setTimeout(renderCurrentPage, 150);
+              }
+
+              ensureStyles();
+              var observer = new MutationObserver(scheduleRender);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('hashchange', scheduleRender);
+              window.addEventListener('popstate', scheduleRender);
+              document.addEventListener('viewshow', scheduleRender, true);
+              scheduleRender();
+              console.info('[КиноПоиск] Полировка каруселей зарегистрирована.');
+          }());
+          EOF
+
+      - name: Оставлены только корректировки навигации runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeUiCorrections.js <<'EOF'
+          (function () {
+              'use strict';
+
+              if (window.__kinopoiskRuntimeUiCorrectionsInstalled) {
+                  return;
+              }
+              window.__kinopoiskRuntimeUiCorrectionsInstalled = true;
+              var renderTimer = null;
+              var scrollerSequence = 0;
+
+              function getVisibleDetailPage() {
+                  var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+                  for (var index = 0; index < pages.length; index++) {
+                      var page = pages[index];
+                      if (!page.isConnected || page.hidden || page.classList.contains('hide')) {
+                          continue;
+                      }
+                      var style = window.getComputedStyle(page);
+                      if (style.display !== 'none' && style.visibility !== 'hidden') {
+                          return page;
+                      }
+                  }
+                  return null;
+              }
+
+              function ensureStyles() {
+                  if (document.getElementById('kinopoiskRuntimeUiCorrectionsStyles')) {
+                      return;
+                  }
+                  var style = document.createElement('style');
+                  style.id = 'kinopoiskRuntimeUiCorrectionsStyles';
+                  style.textContent = [
+                      '.kp-runtime-navigation[hidden],.kp-carousel-navigation[hidden]{display:none!important}',
+                      '.kp-runtime-navigation-button,.kp-carousel-button{font-family:inherit!important;font-size:1.8em!important;font-weight:400!important;line-height:1!important;padding:0!important}',
+                      '@media(hover:hover) and (pointer:fine){.kp-recommendations-section .kp-runtime-navigation,.tmdb-reviews-section .kp-carousel-navigation,.tmdb-reviews-section .kp-runtime-navigation{opacity:0;pointer-events:none;transition:opacity .16s ease}.kp-recommendations-section:hover .kp-runtime-navigation,.kp-recommendations-section:focus-within .kp-runtime-navigation,.tmdb-reviews-section:hover .kp-carousel-navigation,.tmdb-reviews-section:focus-within .kp-carousel-navigation,.tmdb-reviews-section:hover .kp-runtime-navigation,.tmdb-reviews-section:focus-within .kp-runtime-navigation{opacity:1;pointer-events:auto}}'
+                  ].join('');
+                  document.head.appendChild(style);
+              }
+
+              function getScrollerId(scroller) {
+                  if (!scroller.dataset.kpUiCorrectionsScrollerId) {
+                      scrollerSequence += 1;
+                      scroller.dataset.kpUiCorrectionsScrollerId =
+                          'kp-ui-scroller-' + String(scrollerSequence);
+                  }
+                  return scroller.dataset.kpUiCorrectionsScrollerId;
+              }
+
+              function normalizeNavigation(navigation, scroller, labelPrefix) {
+                  if (!navigation || !scroller) {
+                      return;
+                  }
+                  var buttons = navigation.querySelectorAll('button');
+                  if (buttons.length < 2) {
+                      return;
+                  }
+                  var previous = buttons[0];
+                  var next = buttons[1];
+                  previous.classList.remove('material-icons');
+                  next.classList.remove('material-icons');
+                  previous.textContent = '‹';
+                  next.textContent = '›';
+                  previous.title = 'Предыдущие ' + labelPrefix;
+                  next.title = 'Следующие ' + labelPrefix;
+                  previous.setAttribute('aria-label', previous.title);
+                  next.setAttribute('aria-label', next.title);
+
+                  var bindingId = getScrollerId(scroller);
+                  if (navigation.dataset.kpUiCorrectionsBinding === bindingId) {
+                      if (typeof navigation.__kpUiCorrectionsUpdate === 'function') {
+                          navigation.__kpUiCorrectionsUpdate();
+                      }
+                      return;
+                  }
+                  navigation.dataset.kpUiCorrectionsBinding = bindingId;
+
+                  var pending = false;
+                  function update() {
+                      pending = false;
+                      var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+                      var hasOverflow = maximum > 4;
+                      navigation.hidden = !hasOverflow;
+                      previous.disabled = !hasOverflow || scroller.scrollLeft <= 4;
+                      next.disabled = !hasOverflow || scroller.scrollLeft >= maximum - 4;
+                  }
+                  function scheduleUpdate() {
+                      if (!pending) {
+                          pending = true;
+                          window.requestAnimationFrame(update);
+                      }
+                  }
+                  scroller.addEventListener('scroll', scheduleUpdate, { passive: true });
+                  window.addEventListener('resize', scheduleUpdate);
+                  if (typeof ResizeObserver === 'function') {
+                      var resizeObserver = new ResizeObserver(scheduleUpdate);
+                      resizeObserver.observe(scroller);
+                      navigation.__kpUiCorrectionsResizeObserver = resizeObserver;
+                  }
+                  var mutationObserver = new MutationObserver(scheduleUpdate);
+                  mutationObserver.observe(scroller, {
+                      childList: true,
+                      subtree: true,
+                      attributes: true,
+                      attributeFilter: ['hidden', 'style', 'class']
+                  });
+                  navigation.__kpUiCorrectionsMutationObserver = mutationObserver;
+                  navigation.__kpUiCorrectionsUpdate = scheduleUpdate;
+                  scheduleUpdate();
+              }
+
+              function patchCarousels(page) {
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.kp-recommendations-section'),
+                      function (section) {
+                          normalizeNavigation(
+                              section.querySelector('.kp-runtime-navigation'),
+                              section.querySelector('.kp-recommendations-scroller'),
+                              'рекомендации'
+                          );
+                      }
+                  );
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.tmdb-reviews-section'),
+                      function (section) {
+                          var toolbar = section.querySelector('.kp-review-toolbar');
+                          normalizeNavigation(
+                              toolbar && (
+                                  toolbar.querySelector('.kp-carousel-navigation')
+                                  || toolbar.querySelector('.kp-runtime-navigation')
+                              ),
+                              section.querySelector('.tmdb-review-swipe-container'),
+                              'рецензии'
+                          );
+                      }
+                  );
+              }
+
+              function renderCurrentPage() {
+                  var page = getVisibleDetailPage();
+                  if (page) {
+                      patchCarousels(page);
+                  }
+              }
+
+              function scheduleRender() {
+                  clearTimeout(renderTimer);
+                  renderTimer = setTimeout(renderCurrentPage, 180);
+              }
+
+              ensureStyles();
+              var observer = new MutationObserver(scheduleRender);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('hashchange', scheduleRender);
+              window.addEventListener('popstate', scheduleRender);
+              document.addEventListener('viewshow', scheduleRender, true);
+              scheduleRender();
+              console.info('[КиноПоиск] Корректировки навигации зарегистрированы.');
+          }());
+          EOF
+
+      - name: Оставлен штатный стиль только для каруселей
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeNativeStyle.js <<'EOF'
+          (function () {
+              'use strict';
+
+              if (window.__kinopoiskRuntimeNativeStyleInstalled) {
+                  return;
+              }
+              window.__kinopoiskRuntimeNativeStyleInstalled = true;
+              var renderTimer = null;
+              var sequence = 0;
+
+              function createElement(tagName, className, text) {
+                  var element = document.createElement(tagName);
+                  if (className) {
+                      element.className = className;
+                  }
+                  if (text != null) {
+                      element.textContent = text;
+                  }
+                  return element;
+              }
+
+              function getVisibleDetailPage() {
+                  var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+                  for (var index = 0; index < pages.length; index++) {
+                      var page = pages[index];
+                      if (!page.isConnected || page.hidden || page.classList.contains('hide')) {
+                          continue;
+                      }
+                      var style = window.getComputedStyle(page);
+                      if (style.display !== 'none' && style.visibility !== 'hidden') {
+                          return page;
+                      }
+                  }
+                  return null;
+              }
+
+              function ensureStyles() {
+                  if (document.getElementById('kinopoiskRuntimeNativeStyle')) {
+                      return;
+                  }
+                  var style = document.createElement('style');
+                  style.id = 'kinopoiskRuntimeNativeStyle';
+                  style.textContent = [
+                      '.kp-runtime-navigation,.kp-carousel-navigation{display:none!important}',
+                      '.kp-native-navigation[hidden]{display:none!important}',
+                      '.kp-native-navigation.emby-scrollbuttons{position:static!important;top:auto!important;right:auto!important;left:auto!important;min-width:auto!important;min-height:0!important;padding:0!important;margin-left:auto!important;display:flex;align-items:center;justify-content:center;color:inherit;opacity:1!important;pointer-events:auto!important}',
+                      '.kp-native-navigation .emby-scrollbuttons-button{display:inline-flex;align-items:center;justify-content:center;margin:0;padding:.45em;border:0;background:transparent;color:inherit;cursor:pointer}',
+                      '.kp-native-navigation .emby-scrollbuttons-button>.material-icons{display:block;min-width:24px;min-height:24px;font-size:1.7em;line-height:1}',
+                      '.kp-native-navigation .emby-scrollbuttons-button:disabled{opacity:.3;cursor:default}',
+                      '.kp-native-navigation .emby-scrollbuttons-button:not(:disabled):hover,.kp-native-navigation .emby-scrollbuttons-button:not(:disabled):focus-visible{background:rgba(255,255,255,.12);outline:0}',
+                      '.kp-recommendations-header,.kp-review-toolbar{position:relative}'
+                  ].join('');
+                  document.head.appendChild(style);
+              }
+
+              function getScrollerId(scroller) {
+                  if (!scroller.dataset.kpNativeScrollerId) {
+                      sequence += 1;
+                      scroller.dataset.kpNativeScrollerId =
+                          'kp-native-scroller-' + String(sequence);
+                  }
+                  return scroller.dataset.kpNativeScrollerId;
+              }
+
+              function scrollCarousel(scroller, direction) {
+                  var distance = Math.max(320, Math.floor(scroller.clientWidth * .86));
+                  scroller.scrollBy({ left: direction * distance, behavior: 'smooth' });
+              }
+
+              function createScrollButton(direction, label) {
+                  var button = createElement(
+                      'button',
+                      'emby-scrollbuttons-button paper-icon-button-light'
+                  );
+                  button.type = 'button';
+                  button.setAttribute('is', 'paper-icon-button-light');
+                  button.setAttribute('data-ripple', 'false');
+                  button.setAttribute('data-direction', direction);
+                  button.title = label;
+                  button.setAttribute('aria-label', label);
+                  button.appendChild(createElement(
+                      'span',
+                      'material-icons ' + (direction === 'left' ? 'chevron_left' : 'chevron_right')
+                  ));
+                  button.firstChild.setAttribute('aria-hidden', 'true');
+                  return button;
+              }
+
+              function removeLegacyNavigation(header) {
+                  Array.prototype.forEach.call(
+                      header.querySelectorAll('.kp-runtime-navigation,.kp-carousel-navigation'),
+                      function (navigation) {
+                          navigation.hidden = true;
+                          navigation.setAttribute('aria-hidden', 'true');
+                      }
+                  );
+              }
+
+              function bindNavigation(header, scroller, labelPrefix) {
+                  if (!header || !scroller) {
+                      return;
+                  }
+                  removeLegacyNavigation(header);
+                  var bindingId = getScrollerId(scroller);
+                  var navigation = header.querySelector('.kp-native-navigation');
+                  if (navigation && navigation.dataset.kpNativeBinding !== bindingId) {
+                      navigation.remove();
+                      navigation = null;
+                  }
+                  if (!navigation) {
+                      navigation = createElement(
+                          'div',
+                          'emby-scrollbuttons kp-native-navigation'
+                      );
+                      navigation.dataset.kpNativeBinding = bindingId;
+                      var previous = createScrollButton(
+                          'left',
+                          'Предыдущие ' + labelPrefix
+                      );
+                      var next = createScrollButton(
+                          'right',
+                          'Следующие ' + labelPrefix
+                      );
+                      navigation.append(previous, next);
+                      header.appendChild(navigation);
+
+                      previous.addEventListener('click', function (event) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          scrollCarousel(scroller, -1);
+                      });
+                      next.addEventListener('click', function (event) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          scrollCarousel(scroller, 1);
+                      });
+
+                      if (!scroller.hasAttribute('tabindex')) {
+                          scroller.tabIndex = 0;
+                      }
+                      if (scroller.dataset.kpNativeKeyboard !== 'true') {
+                          scroller.dataset.kpNativeKeyboard = 'true';
+                          scroller.addEventListener('keydown', function (event) {
+                              if (event.key === 'ArrowLeft') {
+                                  event.preventDefault();
+                                  scrollCarousel(scroller, -1);
+                              } else if (event.key === 'ArrowRight') {
+                                  event.preventDefault();
+                                  scrollCarousel(scroller, 1);
+                              }
+                          });
+                      }
+
+                      var pending = false;
+                      function update() {
+                          pending = false;
+                          var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+                          var hasOverflow = maximum > 20;
+                          navigation.hidden = !hasOverflow;
+                          previous.disabled = !hasOverflow || scroller.scrollLeft <= 4;
+                          next.disabled = !hasOverflow || scroller.scrollLeft >= maximum - 4;
+                      }
+                      function scheduleUpdate() {
+                          if (!pending) {
+                              pending = true;
+                              window.requestAnimationFrame(update);
+                          }
+                      }
+                      scroller.addEventListener('scroll', scheduleUpdate, { passive: true });
+                      window.addEventListener('resize', scheduleUpdate);
+                      if (typeof ResizeObserver === 'function') {
+                          var resizeObserver = new ResizeObserver(scheduleUpdate);
+                          resizeObserver.observe(scroller);
+                          navigation.__kpNativeResizeObserver = resizeObserver;
+                      }
+                      var mutationObserver = new MutationObserver(scheduleUpdate);
+                      mutationObserver.observe(scroller, {
+                          childList: true,
+                          subtree: true,
+                          attributes: true,
+                          attributeFilter: ['hidden', 'style', 'class']
+                      });
+                      navigation.__kpNativeMutationObserver = mutationObserver;
+                      navigation.__kpNativeUpdate = scheduleUpdate;
+                      scheduleUpdate();
+                  } else if (typeof navigation.__kpNativeUpdate === 'function') {
+                      navigation.__kpNativeUpdate();
+                  }
+              }
+
+              function patchCarousels(page) {
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.kp-recommendations-section'),
+                      function (section) {
+                          bindNavigation(
+                              section.querySelector('.kp-recommendations-header'),
+                              section.querySelector('.kp-recommendations-scroller'),
+                              'рекомендации'
+                          );
+                      }
+                  );
+                  Array.prototype.forEach.call(
+                      page.querySelectorAll('.tmdb-reviews-section'),
+                      function (section) {
+                          bindNavigation(
+                              section.querySelector('.kp-review-toolbar'),
+                              section.querySelector('.tmdb-review-swipe-container'),
+                              'рецензии'
+                          );
+                      }
+                  );
+              }
+
+              function renderCurrentPage() {
+                  var page = getVisibleDetailPage();
+                  if (page) {
+                      patchCarousels(page);
+                  }
+              }
+
+              function scheduleRender() {
+                  clearTimeout(renderTimer);
+                  renderTimer = setTimeout(renderCurrentPage, 140);
+              }
+
+              ensureStyles();
+              var observer = new MutationObserver(scheduleRender);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('hashchange', scheduleRender);
+              window.addEventListener('popstate', scheduleRender);
+              document.addEventListener('viewshow', scheduleRender, true);
+              scheduleRender();
+              console.info('[КиноПоиск] Штатный стиль каруселей зарегистрирован.');
+          }());
+          EOF
+
+      - name: Исправлено выравнивание стрелок по штатной карусели
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js <<'EOF'
+          (function () {
+              'use strict';
+
+              if (window.__kinopoiskRecommendationLifecycleGuardInstalled) {
+                  return;
+              }
+              window.__kinopoiskRecommendationLifecycleGuardInstalled = true;
+              var alignTimer = null;
+
+              function isVisible(element) {
+                  if (!element || !element.isConnected || element.hidden) {
+                      return false;
+                  }
+                  var style = window.getComputedStyle(element);
+                  var rect = element.getBoundingClientRect();
+                  return style.display !== 'none'
+                      && style.visibility !== 'hidden'
+                      && rect.width > 0
+                      && rect.height > 0;
+              }
+
+              function getVisibleDetailPage() {
+                  var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+                  for (var index = 0; index < pages.length; index++) {
+                      if (isVisible(pages[index]) && !pages[index].classList.contains('hide')) {
+                          return pages[index];
+                      }
+                  }
+                  return null;
+              }
+
+              function findReferenceNavigation(section) {
+                  var previous = section.previousElementSibling;
+                  var direct = previous && previous.querySelector(
+                      '.emby-scrollbuttons:not(.kp-native-navigation)'
+                  );
+                  if (isVisible(direct)) {
+                      return direct;
+                  }
+                  var page = getVisibleDetailPage();
+                  if (!page) {
+                      return null;
+                  }
+                  var sectionTop = section.getBoundingClientRect().top;
+                  var candidates = Array.prototype.filter.call(
+                      page.querySelectorAll('.emby-scrollbuttons:not(.kp-native-navigation)'),
+                      function (candidate) {
+                          return !section.contains(candidate) && isVisible(candidate);
+                      }
+                  );
+                  candidates.sort(function (left, right) {
+                      var leftRect = left.getBoundingClientRect();
+                      var rightRect = right.getBoundingClientRect();
+                      var leftScore = (leftRect.top > sectionTop ? 100000 : 0)
+                          + Math.abs(sectionTop - leftRect.top);
+                      var rightScore = (rightRect.top > sectionTop ? 100000 : 0)
+                          + Math.abs(sectionTop - rightRect.top);
+                      return leftScore - rightScore;
+                  });
+                  return candidates[0] || null;
+              }
+
+              function alignSection(section) {
+                  var header = section.querySelector('.kp-recommendations-header');
+                  var navigation = section.querySelector('.kp-native-navigation');
+                  if (!header || !navigation || !isVisible(navigation)) {
+                      return;
+                  }
+                  var reference = findReferenceNavigation(section);
+                  if (!reference) {
+                      navigation.style.removeProperty('--kp-native-navigation-left-offset');
+                      navigation.style.removeProperty('--kp-native-navigation-right-offset');
+                      navigation.dataset.kpAlignmentSource = 'fallback';
+                      return;
+                  }
+
+                  var headerRect = header.getBoundingClientRect();
+                  var referenceRect = reference.getBoundingClientRect();
+                  var leftOffset = Math.max(
+                      0,
+                      Math.min(240, Math.round(referenceRect.left - headerRect.left))
+                  );
+                  var rightOffset = Math.max(
+                      0,
+                      Math.min(240, Math.round(headerRect.right - referenceRect.right))
+                  );
+                  navigation.style.setProperty(
+                      '--kp-native-navigation-left-offset',
+                      String(leftOffset) + 'px'
+                  );
+                  navigation.style.setProperty(
+                      '--kp-native-navigation-right-offset',
+                      String(rightOffset) + 'px'
+                  );
+                  navigation.dataset.kpAlignmentSource = 'native-carousel';
+              }
+
+              function alignAll() {
+                  alignTimer = null;
+                  Array.prototype.forEach.call(
+                      document.querySelectorAll('.kp-recommendations-section'),
+                      alignSection
+                  );
+              }
+
+              function scheduleAlignment() {
+                  if (!alignTimer) {
+                      alignTimer = setTimeout(alignAll, 120);
+                  }
+              }
+
+              function ensureStyles() {
+                  if (document.getElementById('kinopoiskRecommendationLifecycleGuardStyles')) {
+                      return;
+                  }
+                  var style = document.createElement('style');
+                  style.id = 'kinopoiskRecommendationLifecycleGuardStyles';
+                  style.textContent = [
+                      '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
+                      'margin-left:auto!important;',
+                      'margin-right:var(--kp-native-navigation-right-offset,0px)!important;',
+                      'transform:none!important',
+                      '}',
+                      '@media(max-width:900px){',
+                      '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
+                      'flex:0 0 100%!important;',
+                      'width:100%!important;',
+                      'box-sizing:border-box!important;',
+                      'margin:0!important;',
+                      'padding:0 0 0 var(--kp-native-navigation-left-offset,2.5em)!important;',
+                      'display:flex!important;',
+                      'justify-content:flex-start!important;',
+                      'transform:none!important',
+                      '}',
+                      '}'
+                  ].join('');
+                  document.head.appendChild(style);
+              }
+
+              ensureStyles();
+              var observer = new MutationObserver(scheduleAlignment);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('resize', scheduleAlignment);
+              window.addEventListener('hashchange', scheduleAlignment);
+              window.addEventListener('popstate', scheduleAlignment);
+              document.addEventListener('viewshow', scheduleAlignment, true);
+              scheduleAlignment();
+              console.info('[КиноПоиск] Геометрическое выравнивание навигации зарегистрировано.');
+          }());
+          EOF
+
+      - name: Обновлены тесты клиентского поведения
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskPresentationScriptPolishTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskPresentationScriptPolishTests
+              {
+                  [Fact]
+                  public void ShouldLeaveReleaseDatePresentationToJellyfinEnhanced()
+                  {
+                      var script = ReadPresentationScript();
+
+                      Assert.DoesNotContain("fetchTmdbReleaseDates", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("showDatesDialog", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("kp-date-list", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("Все даты", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldSupportIncrementalProfessionExpansion()
+                  {
+                      var script = ReadPresentationScript();
+
+                      Assert.Contains("var pageSize = 10", script);
+                      Assert.Contains("Показать ещё ", script);
+                      Assert.Contains("Свернуть", script);
+                      Assert.Contains("aria-expanded", script);
+                  }
+
+                  [Fact]
+                  public void ShouldNotDuplicateProviderLinksInPresentationHeader()
+                  {
+                      var script = ReadPresentationScript();
+
+                      Assert.DoesNotContain("КиноПоиск ↗", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("IMDb ↗", script, StringComparison.Ordinal);
+                  }
+
+                  private static string ReadPresentationScript()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      return reader.ReadToEnd();
+                  }
+              }
+          }
+          EOF
+
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimePolishTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskRuntimePolishTests
+              {
+                  [Fact]
+                  public void ShouldEmbedCarouselOnlyRuntimePolishScript()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimePolish.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      Assert.Contains(resourceName, assembly.GetManifestResourceNames());
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("kp-runtime-navigation", script);
+                      Assert.Contains("chevron_left", script);
+                      Assert.Contains("chevron_right", script);
+                      Assert.Contains("ArrowLeft", script);
+                      Assert.Contains("ArrowRight", script);
+                      Assert.Contains("scrollBy", script);
+                      Assert.Contains("scrollbar-width:none", script);
+                      Assert.DoesNotContain("releaseCache", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("KinopoiskTmdbResolver", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldEmbedCarouselRebindScript()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      Assert.Contains(resourceName, assembly.GetManifestResourceNames());
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("kpBoundScrollerId", script);
+                      Assert.Contains("kp-recommendations-scroller", script);
+                      Assert.Contains("chevron_left", script);
+                      Assert.Contains("chevron_right", script);
+                      Assert.Contains("scrollBy", script);
+                  }
+
+                  [Fact]
+                  public void ShouldCombineRuntimePolishInEmbeddedBundle()
+                  {
+                      var source = File.ReadAllText(
+                          Path.Combine(
+                              AppContext.BaseDirectory,
+                              "..", "..", "..", "..",
+                              "Jellyfin.Plugin.Kinopoisk",
+                              "Services",
+                              "KinopoiskWebClientBundle.cs"));
+
+                      Assert.Contains("kinopoiskEnhancedPresentation.js", source);
+                      Assert.Contains("kinopoiskRuntimePolish.js", source);
+                      Assert.Contains("kinopoiskCarouselRebind.js", source);
+                      Assert.Contains("CreateBundle", source);
+                  }
+              }
+          }
+          EOF
+
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimeUiCorrectionsTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskRuntimeUiCorrectionsTests
+              {
+                  [Fact]
+                  public void ShouldEmbedNavigationOnlyRuntimeUiCorrections()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeUiCorrections.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      Assert.Contains(resourceName, assembly.GetManifestResourceNames());
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("previous.textContent = '‹'", script);
+                      Assert.Contains("next.textContent = '›'", script);
+                      Assert.Contains("classList.remove('material-icons')", script);
+                      Assert.Contains("navigation.hidden = !hasOverflow", script);
+                      Assert.Contains("@media(hover:hover) and (pointer:fine)", script);
+                      Assert.DoesNotContain("kp-runtime-release", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("KinopoiskTmdbResolver", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldRegisterRuntimeUiCorrectionsAfterExistingRuntimeScripts()
+                  {
+                      var source = File.ReadAllText(
+                          Path.Combine(
+                              AppContext.BaseDirectory,
+                              "..", "..", "..", "..",
+                              "Jellyfin.Plugin.Kinopoisk",
+                              "Services",
+                              "KinopoiskWebClientBundle.cs"));
+
+                      var polishIndex = source.IndexOf(
+                          "kinopoiskRuntimePolish.js",
+                          StringComparison.Ordinal);
+                      var rebindIndex = source.IndexOf(
+                          "kinopoiskCarouselRebind.js",
+                          StringComparison.Ordinal);
+                      var correctionsIndex = source.IndexOf(
+                          "kinopoiskRuntimeUiCorrections.js",
+                          StringComparison.Ordinal);
+
+                      Assert.True(polishIndex >= 0);
+                      Assert.True(rebindIndex > polishIndex);
+                      Assert.True(correctionsIndex > rebindIndex);
+                  }
+              }
+          }
+          EOF
+
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimeNativeStyleTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskRuntimeNativeStyleTests
+              {
+                  [Fact]
+                  public void ShouldEmbedCarouselOnlyNativeRuntimeStyle()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRuntimeNativeStyle.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      Assert.Contains(resourceName, assembly.GetManifestResourceNames());
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("emby-scrollbuttons kp-native-navigation", script);
+                      Assert.Contains("emby-scrollbuttons-button paper-icon-button-light", script);
+                      Assert.Contains("'material-icons '", script);
+                      Assert.Contains("'chevron_left'", script);
+                      Assert.Contains("'chevron_right'", script);
+                      Assert.Contains("navigation.hidden = !hasOverflow", script);
+                      Assert.Contains("maximum > 20", script);
+                      Assert.DoesNotContain("@media(hover:hover)", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("kp-runtime-release", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldRegisterNativeStyleAfterRuntimeCorrections()
+                  {
+                      var source = File.ReadAllText(
+                          Path.Combine(
+                              AppContext.BaseDirectory,
+                              "..", "..", "..", "..",
+                              "Jellyfin.Plugin.Kinopoisk",
+                              "Services",
+                              "KinopoiskWebClientBundle.cs"));
+
+                      var correctionsIndex = source.IndexOf(
+                          "kinopoiskRuntimeUiCorrections.js",
+                          StringComparison.Ordinal);
+                      var nativeIndex = source.IndexOf(
+                          "kinopoiskRuntimeNativeStyle.js",
+                          StringComparison.Ordinal);
+
+                      Assert.True(correctionsIndex >= 0);
+                      Assert.True(nativeIndex > correctionsIndex);
+                  }
+              }
+          }
+          EOF
+
+          cat > src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationLifecycleGuardTests.cs <<'EOF'
+          using System;
+          using System.IO;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskRecommendationLifecycleGuardTests
+              {
+                  [Fact]
+                  public void ShouldEmbedDirectBoundedLifecycleRecovery()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000]", script);
+                      Assert.Contains("expectedGeneration !== renderGeneration", script);
+                      Assert.Contains("currentItemCache", script);
+                      Assert.Contains("var page = getVisiblePage();", script);
+                      Assert.Contains("function findInsertionAnchor(page)", script);
+                      Assert.Contains("var anchor = findInsertionAnchor(page);", script);
+                      Assert.Contains("anchor.isConnected", script);
+                      Assert.Contains("scheduleImmediateRender", script);
+                      Assert.Contains("window.setInterval", script);
+                      Assert.Contains("2000", script);
+                      Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("setTimeout(renderCurrentItem, 350)", script, StringComparison.Ordinal);
+                  }
+
+                  [Fact]
+                  public void ShouldAlignNavigationOnDesktopAndMobile()
+                  {
+                      const string resourceName =
+                          "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js";
+                      var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
+                      using var stream = assembly.GetManifestResourceStream(resourceName);
+                      Assert.NotNull(stream);
+                      using var reader = new StreamReader(stream!);
+                      var script = reader.ReadToEnd();
+
+                      Assert.Contains("findReferenceNavigation", script);
+                      Assert.Contains(".emby-scrollbuttons:not(.kp-native-navigation)", script);
+                      Assert.Contains("getBoundingClientRect()", script);
+                      Assert.Contains("headerRect.right - referenceRect.right", script);
+                      Assert.Contains("referenceRect.left - headerRect.left", script);
+                      Assert.Contains("--kp-native-navigation-right-offset", script);
+                      Assert.Contains("--kp-native-navigation-left-offset", script);
+                      Assert.Contains("margin-right:var(--kp-native-navigation-right-offset,0px)!important", script);
+                      Assert.Contains("@media(max-width:900px)", script);
+                      Assert.Contains("justify-content:flex-start!important", script);
+                      Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
+                  }
+              }
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskPresentationTests.cs')
+          text = path.read_text(encoding='utf-8')
+          old = '''            Assert.Contains("/KinopoiskPresentation/", script);
+                      Assert.Contains("Кино", script);
+                      Assert.Contains("Цифра", script);
+                      Assert.Contains("Носитель", script);
+          '''
+          new = '''            Assert.Contains("/KinopoiskPresentation/", script);
+                      Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
+                      Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('Ожидания script-теста презентации не найдены.')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
+      - name: Обновлены версия и журнал изменений
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          version_files = [
+              Path('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj'),
+              Path('tools/install-media-core-autonomous.sh'),
+              Path('tools/test-install-media-core-autonomous.sh'),
+              Path('tools/READONLY-DEPLOYMENT.md'),
+          ]
+          for path in version_files:
+              text = path.read_text(encoding='utf-8')
+              if '10.11.0.4' not in text:
+                  raise SystemExit(f'Версия 10.11.0.4 не найдена: {path}')
+              path.write_text(text.replace('10.11.0.4', '10.11.0.5'), encoding='utf-8')
+
+          changelog = Path('CHANGELOG.d/runtime-presentation-followup.md')
+          text = changelog.read_text(encoding='utf-8').rstrip() + '\n'
+          text += (
+              '- Удалено вмешательство клиентских модулей КиноПоиска в штатное поле дат релиза Jellyfin Enhanced.\n'
+              '- Удалены дополнительная строка дат, кнопка календаря, резервные запросы TMDB и собственное окно дат.\n'
+              '- Исправлено десктопное выравнивание стрелок рекомендаций по правой координате ближайшей штатной карусели Jellyfin.\n'
+              '- Сохранено мобильное выравнивание стрелок по левой координате штатной карусели.\n'
+          )
+          changelog.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Проверена полнота удаления дат и синтаксис
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          files=(
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskEnhancedPresentation.js
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimePolish.js
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeUiCorrections.js
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeNativeStyle.js
+          )
+          forbidden=(
+            mediaInfoItem-releaseDate
+            /release_dates
+            calendar_month
+            kp-runtime-release
+            kp-date-list
+            showDatesDialog
+          )
+          for token in "${forbidden[@]}"; do
+            if grep -F -- "$token" "${files[@]}"; then
+              echo "Остаточное вмешательство в даты: $token" >&2
+              exit 1
+            fi
+          done
+          for file in src/Jellyfin.Plugin.Kinopoisk/Web/*.js; do
+            node --check "$file"
+          done
+          git diff --check
+
+      - name: Выполнены сборка и тесты
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk.sln
+          dotnet build src/Jellyfin.Plugin.Kinopoisk.sln \
+            --configuration Release \
+            --no-restore \
+            -warnaserror
+          dotnet test src/Jellyfin.Plugin.Kinopoisk.sln \
+            --configuration Release \
+            --no-build \
+            --no-restore
+
+      - name: Зафиксирован кандидат 10.11.0.5
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskEnhancedPresentation.js \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimePolish.js \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeUiCorrections.js \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRuntimeNativeStyle.js \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskPresentationScriptPolishTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimePolishTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimeUiCorrectionsTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRuntimeNativeStyleTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationLifecycleGuardTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskPresentationTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            tools/install-media-core-autonomous.sh \
+            tools/test-install-media-core-autonomous.sh \
+            tools/READONLY-DEPLOYMENT.md \
+            CHANGELOG.d/runtime-presentation-followup.md
+          git commit -m 'Удалено вмешательство в даты и исправлено выравнивание навигации'
+          git push origin HEAD:feature/diagnostic-test-mode
