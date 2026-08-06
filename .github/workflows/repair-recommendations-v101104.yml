@@ -1,0 +1,209 @@
+name: Восстановление якоря рекомендаций 10.11.0.4
+
+on:
+  push:
+    branches:
+      - feature/diagnostic-test-mode
+    paths:
+      - .github/workflows/repair-recommendations-v101104.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    name: Восстановлен DOM-якорь рекомендаций
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/diagnostic-test-mode
+          fetch-depth: 0
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Восстановлена функция поиска DOM-якоря
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script_path = Path(
+              'src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js'
+          )
+          script = script_path.read_text(encoding='utf-8')
+          definition = '''    function findInsertionAnchor(page) {
+              return page.querySelector('#similarCollapsible')
+                  || page.querySelector('.similarCollapsible');
+          }
+
+          '''
+          marker = '    function removeLegacySeerrSections(page) {'
+
+          if 'function findInsertionAnchor(page)' not in script:
+              if script.count(marker) != 1:
+                  raise SystemExit(
+                      'Точка восстановления функции findInsertionAnchor не найдена.'
+                  )
+              script = script.replace(marker, definition + marker)
+
+          required_fragments = (
+              'function findInsertionAnchor(page)',
+              "page.querySelector('#similarCollapsible')",
+              "page.querySelector('.similarCollapsible')",
+              'var anchor = findInsertionAnchor(page);',
+          )
+          for fragment in required_fragments:
+              if fragment not in script:
+                  raise SystemExit(
+                      f'Обязательный фрагмент не найден: {fragment}'
+                  )
+
+          script_path.write_text(script.rstrip() + '\n', encoding='utf-8')
+          PY
+
+      - name: Обновлены проверки автономного web-клиента
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              'src/Jellyfin.Plugin.Kinopoisk.Tests/'
+              'KinopoiskStandaloneWebClientServiceTests.cs'
+          )
+          text = path.read_text(encoding='utf-8')
+          old = '''            Assert.Contains(
+              "Защита жизненного цикла рекомендаций зарегистрирована",
+              KinopoiskWebClientBundle.Content);
+          '''
+          new = '''            Assert.Contains(
+              "Объединённый блок рекомендаций зарегистрирован",
+              KinopoiskWebClientBundle.Content);
+          Assert.Contains(
+              "Геометрическое выравнивание навигации зарегистрировано",
+              KinopoiskWebClientBundle.Content);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(
+                  'Устаревшая проверка web-клиента не найдена однозначно.'
+              )
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
+      - name: Усилены проверки сценария рекомендаций
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          recommendations = Path(
+              'src/Jellyfin.Plugin.Kinopoisk.Tests/'
+              'KinopoiskRecommendationsTests.cs'
+          )
+          text = recommendations.read_text(encoding='utf-8')
+          old = '            Assert.Contains("#similarCollapsible", script);\n'
+          new = (
+              '            Assert.Contains("function findInsertionAnchor(page)", script);\n'
+              '            Assert.Contains("page.querySelector(\'##PLACEHOLDER##\')", script);\n'
+              '            Assert.Contains("page.querySelector(\'.similarCollapsible\')", script);\n'
+          ).replace('##PLACEHOLDER##', 'similarCollapsible')
+          if text.count(old) != 1:
+              raise SystemExit(
+                  'Устаревшая проверка DOM-якоря не найдена однозначно.'
+              )
+          recommendations.write_text(
+              text.replace(old, new),
+              encoding='utf-8',
+          )
+
+          lifecycle = Path(
+              'src/Jellyfin.Plugin.Kinopoisk.Tests/'
+              'KinopoiskRecommendationLifecycleGuardTests.cs'
+          )
+          text = lifecycle.read_text(encoding='utf-8')
+          marker = '            Assert.Contains("var page = getVisiblePage();", script);\n'
+          addition = (
+              marker
+              + '            Assert.Contains("function findInsertionAnchor(page)", script);\n'
+              + '            Assert.Contains("var anchor = findInsertionAnchor(page);", script);\n'
+          )
+          if text.count(marker) != 1:
+              raise SystemExit(
+                  'Точка усиления проверки жизненного цикла не найдена.'
+              )
+          lifecycle.write_text(
+              text.replace(marker, addition),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Обновлена история изменения
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('CHANGELOG.d/kinopoisk-recommendation-cards.md')
+          text = path.read_text(encoding='utf-8').rstrip() + '\n'
+          entry = (
+              '- Восстановлена функция поиска DOM-якоря для размещения '
+              'объединённого блока рекомендаций.\n'
+          )
+          if entry not in text:
+              text += entry
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Проверен синтаксис клиентских модулей
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --check \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js
+          node --check \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendationLifecycleGuard.js
+          git diff --check
+
+      - name: Восстановлены зависимости тестов плагина
+        run: >-
+          dotnet restore
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+
+      - name: Выполнены тесты плагина
+        run: >-
+          dotnet test
+          src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity normal
+
+      - name: Зафиксировано восстановление DOM-якоря
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/Web/kinopoiskRecommendations.js \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskStandaloneWebClientServiceTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationsTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskRecommendationLifecycleGuardTests.cs \
+            CHANGELOG.d/kinopoisk-recommendation-cards.md
+          git commit -m 'Восстановлен DOM-якорь блока рекомендаций'
+          git push origin HEAD:feature/diagnostic-test-mode
