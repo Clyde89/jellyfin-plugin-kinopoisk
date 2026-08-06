@@ -1,0 +1,87 @@
+name: Синхронизация версии 10.11.0.3
+
+on:
+  push:
+    branches:
+      - feature/diagnostic-test-mode
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runtime-version-10-11-0-3
+  cancel-in-progress: false
+
+jobs:
+  update-version:
+    name: Обновлена версия runtime-кандидата
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Проверены и обновлены версии
+        id: version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          old = "10.11.0.2"
+          new = "10.11.0.3"
+          paths = [
+              Path("src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj"),
+              Path("tools/install-media-core-autonomous.sh"),
+              Path("tools/test-install-media-core-autonomous.sh"),
+              Path("tools/READONLY-DEPLOYMENT.md"),
+          ]
+
+          changed = []
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count:
+                  path.write_text(text.replace(old, new), encoding="utf-8")
+                  changed.append((str(path), count))
+
+          if not changed:
+              Path("/tmp/version-unchanged").write_text("1", encoding="utf-8")
+              print("Версия уже синхронизирована.")
+          else:
+              for path, count in changed:
+                  print(f"{path}: заменено {count}")
+
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              if old in text:
+                  raise SystemExit(f"Старая версия сохранена: {path}")
+              if new not in text:
+                  raise SystemExit(f"Новая версия отсутствует: {path}")
+          PY
+
+          if [[ -f /tmp/version-unchanged ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Зафиксирована синхронизация версии
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            tools/install-media-core-autonomous.sh \
+            tools/test-install-media-core-autonomous.sh \
+            tools/READONLY-DEPLOYMENT.md
+          git commit -m "Обновлена версия runtime-кандидата до 10.11.0.3"
+          git push
