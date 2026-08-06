@@ -1,0 +1,153 @@
+name: Подготовка первого релиза 10.11.0.5
+
+on:
+  push:
+    branches:
+      - feature/diagnostic-test-mode
+    paths:
+      - .github/workflows/prepare-release-101105.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Подготовлена релизная документация
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/diagnostic-test-mode
+          fetch-depth: 0
+
+      - name: Обновлены CHANGELOG и README
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          changelog_path = Path('CHANGELOG.md')
+          changelog = changelog_path.read_text(encoding='utf-8')
+
+          old_heading = '## [10.11.0.0]'
+          new_heading = '## [10.11.0.5]'
+          if changelog.count(old_heading) != 1:
+              raise SystemExit('Исходный раздел 10.11.0.0 не найден однозначно.')
+          if new_heading in changelog:
+              raise SystemExit('Раздел 10.11.0.5 уже существует.')
+          changelog = changelog.replace(old_heading, new_heading, 1)
+
+          section_start = changelog.index(new_heading)
+          next_section = changelog.find('\n## [', section_start + len(new_heading))
+          if next_section < 0:
+              next_section = len(changelog)
+          first_release = changelog[section_start:next_section]
+
+          added_marker = '### Добавлено\n\n'
+          fixed_marker = '### Исправлено\n\n'
+          security_marker = '### Безопасность\n\n'
+          for marker in (added_marker, fixed_marker, security_marker):
+              if marker not in first_release:
+                  raise SystemExit(f'Раздел релизных заметок не найден: {marker.strip()}')
+
+          added_lines = (
+              '- Добавлен автономный endpoint `Kinopoisk/WebClient.js` с MIME-проверкой, `ETag`, ответом `304 Not Modified` и заголовком `X-Content-Type-Options: nosniff`.\n'
+              '- Добавлены объединённый блок «Похожие и рекомендации» и вкладки `КиноПоиск` / `The Movie Database`.\n'
+              '- Добавлено серверное обогащение похожих фильмов КиноПоиска годом, рейтингом, описанием, IMDb ID и типом медиа.\n'
+              '- Добавлено сопоставление карточек КиноПоиска с TMDB через IMDb ID и резервный точный поиск Seerr по типу, году и нормализованному названию.\n'
+              '- Добавлено переиспользование штатных карточек Jellyfin Enhanced с состоянием Seerr и кнопкой запроса.\n'
+              '- Добавлены транзакционный установщик для `media-core`, точный откат, read-only bind mount управляемого `index.html` и полная runtime-проверка.\n'
+          )
+          fixed_lines = (
+              '- Исправлена гонка SPA-навигации, из-за которой блок «Похожие и рекомендации» не появлялся при первом открытии или пропадал после переходов.\n'
+              '- Исправлено повторное использование устаревшей DOM-страницы после асинхронной загрузки карточки.\n'
+              '- Добавлена отмена устаревших попыток рендера по `itemId` и поколению, ограниченные повторные попытки и контроль отсутствующего блока.\n'
+              '- Исправлено геометрическое выравнивание стрелок рекомендаций относительно ближайшей штатной карусели Jellyfin на десктопе и мобильных экранах.\n'
+              '- Удалено дополнительное вмешательство в штатное поле дат релиза Jellyfin Enhanced, включая кнопку календаря, собственное окно и резервные запросы TMDB.\n'
+          )
+          security_lines = (
+              '- Исключена передача API-токена КиноПоиска и пользовательских данных в автономный JavaScript bundle.\n'
+              '- Сохранены неизменяемый корневой слой контейнера и read-only подключение управляемого `index.html` в защищённой схеме `media-core`.\n'
+          )
+
+          first_release = first_release.replace(added_marker, added_marker + added_lines, 1)
+          first_release = first_release.replace(fixed_marker, fixed_marker + fixed_lines, 1)
+          first_release = first_release.replace(security_marker, security_marker + security_lines, 1)
+          changelog = changelog[:section_start] + first_release + changelog[next_section:]
+          changelog_path.write_text(changelog, encoding='utf-8')
+
+          readme_path = Path('README.md')
+          readme = readme_path.read_text(encoding='utf-8')
+          old_version_line = 'Первая самостоятельная версия форка подготовлена под номером `10.11.0.0`.'
+          new_version_line = 'Первая самостоятельная версия форка подготовлена под номером `10.11.0.5`.'
+          if readme.count(old_version_line) != 1:
+              raise SystemExit('Строка версии README не найдена однозначно.')
+          readme = readme.replace(old_version_line, new_version_line, 1)
+
+          features_marker = '## Возможности\n\n'
+          web_section = '''### Дополнительный веб-клиент
+
+- В DLL добавлен автономный endpoint `Kinopoisk/WebClient.js`.
+- Добавлены рекомендации КиноПоиска и TMDB, интеграция с Seerr/Jellyfin Enhanced, карточки запросов и устойчивый SPA-жизненный цикл.
+- Добавлено геометрическое выравнивание навигации со штатными каруселями Jellyfin.
+- Исключено вмешательство в штатное поле дат релиза Jellyfin Enhanced.
+
+Стандартной установкой из каталога установлен серверный плагин и встроен endpoint веб-клиента, но `index.html` Jellyfin Web автоматически не изменён. Для активации дополнительных клиентских функций требуется отдельное безопасное подключение `Kinopoisk/WebClient.js`.
+
+Сценарий `tools/install-media-core-autonomous.sh` подготовлен для согласованной инфраструктуры `media-core`, сохраняет `read_only: true` и не является универсальным установщиком для произвольной инсталляции Jellyfin.
+
+'''
+          if features_marker not in readme:
+              raise SystemExit('Раздел возможностей README не найден.')
+          if '### Дополнительный веб-клиент' not in readme:
+              readme = readme.replace(features_marker, features_marker + web_section, 1)
+
+          old_catalog_note = '> [!NOTE]\n> До публикации первого самостоятельного релиза каталог может не содержать доступных версий.'
+          new_catalog_note = '> [!NOTE]\n> Каталог обновляется автоматически после успешной публикации GitHub Release и ветки `release`.'
+          if old_catalog_note in readme:
+              readme = readme.replace(old_catalog_note, new_catalog_note, 1)
+
+          plan_start = readme.find('## План развития\n')
+          development_start = readme.find('## Разработка\n', plan_start)
+          if plan_start < 0 or development_start < 0:
+              raise SystemExit('Границы раздела плана развития README не найдены.')
+          current_plan = '''## План развития
+
+Запланированы следующие направления:
+
+- подготовка универсального и документированного способа подключения автономного веб-клиента без изменения защищённой архитектуры Jellyfin;
+- расширение runtime-проверок на дополнительных клиентах Jellyfin и мобильных разрешениях;
+- отдельная приёмка фактического применения управляемых коллекций перед выводом write-переключателей в интерфейс;
+- последующая адаптация к новым стабильным версиям Jellyfin;
+- дальнейшее повышение наблюдаемости API, кэшей и клиентских интеграций.
+
+Автоматические операции изменения коллекций не включены без свежего совпадающего preview-отчёта и явного ручного запуска.
+
+'''
+          readme = readme[:plan_start] + current_plan + readme[development_start:]
+          readme_path.write_text(readme, encoding='utf-8')
+          PY
+
+      - name: Проверена релизная документация
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -Fqx '## [10.11.0.5]' CHANGELOG.md
+          ! grep -Fqx '## [10.11.0.0]' CHANGELOG.md
+          grep -Fq '### Дополнительный веб-клиент' README.md
+          grep -Fq 'Первая самостоятельная версия форка подготовлена под номером `10.11.0.5`.' README.md
+          grep -Fq 'Стандартной установкой из каталога установлен серверный плагин' README.md
+          git diff --check
+
+      - name: Зафиксирована релизная документация
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/prepare-release-101105.yml
+          git add CHANGELOG.md README.md
+          git commit -m 'Подготовлена документация первого релиза 10.11.0.5'
+          git push origin HEAD:feature/diagnostic-test-mode
