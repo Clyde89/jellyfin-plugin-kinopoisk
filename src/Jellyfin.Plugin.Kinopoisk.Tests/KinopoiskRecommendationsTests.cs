@@ -42,6 +42,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("#similarCollapsible", script);
             Assert.Contains("removeLegacySeerrSections", script);
             Assert.Contains("KinopoiskTmdbResolver", script);
+            Assert.Contains("retryDelays", script);
+            Assert.Contains("renderGeneration", script);
+            Assert.Contains("currentItemCache", script);
+            Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
             Assert.DoesNotContain("ProviderIds.Tmdb =", script, StringComparison.Ordinal);
             Assert.DoesNotContain("updateItem", script, StringComparison.Ordinal);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);

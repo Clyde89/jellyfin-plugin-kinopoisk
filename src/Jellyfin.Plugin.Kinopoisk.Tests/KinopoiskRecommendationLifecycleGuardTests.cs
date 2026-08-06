@@ -7,32 +7,30 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
     public class KinopoiskRecommendationLifecycleGuardTests
     {
         [Fact]
-        public void ShouldEmbedBoundedLifecycleRecovery()
+        public void ShouldEmbedDirectBoundedLifecycleRecovery()
         {
             const string resourceName =
-                "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js";
+                "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendations.js";
             var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
-
-            Assert.Contains(resourceName, assembly.GetManifestResourceNames());
             using var stream = assembly.GetManifestResourceStream(resourceName);
             Assert.NotNull(stream);
             using var reader = new StreamReader(stream!);
             var script = reader.ReadToEnd();
 
-            Assert.Contains("retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200]", script);
-            Assert.Contains("expectedGeneration !== generation", script);
-            Assert.Contains("getCurrentItemId() !== itemId", script);
-            Assert.Contains("#itemDetailPage:not(.hide)", script);
-            Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
-            Assert.Contains("section.dataset.itemId === itemId", script);
-            Assert.Contains("document.dispatchEvent(new Event('viewshow'))", script);
-            Assert.Contains("internalDispatch", script);
+            Assert.Contains("retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000]", script);
+            Assert.Contains("expectedGeneration !== renderGeneration", script);
+            Assert.Contains("currentItemCache", script);
+            Assert.Contains("var page = getVisiblePage();", script);
+            Assert.Contains("anchor.isConnected", script);
+            Assert.Contains("scheduleImmediateRender", script);
             Assert.Contains("window.setInterval", script);
-            Assert.Contains("2500", script);
+            Assert.Contains("2000", script);
+            Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("setTimeout(renderCurrentItem, 350)", script, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void ShouldAlignMobileNavigationWithNativeCarousels()
+        public void ShouldAlignNavigationFromNativeCarouselGeometry()
         {
             const string resourceName =
                 "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskRecommendationLifecycleGuard.js";
@@ -42,12 +40,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             using var reader = new StreamReader(stream!);
             var script = reader.ReadToEnd();
 
-            Assert.Contains("@media(max-width:600px)", script);
-            Assert.Contains(
-                ".kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons",
-                script);
-            Assert.Contains("margin-right:2.5em!important", script);
-            Assert.Contains("transform:none!important", script);
+            Assert.Contains("findReferenceNavigation", script);
+            Assert.Contains(".emby-scrollbuttons:not(.kp-native-navigation)", script);
+            Assert.Contains("getBoundingClientRect().left", script);
+            Assert.Contains("--kp-native-navigation-left", script);
+            Assert.Contains("@media(max-width:900px)", script);
+            Assert.Contains("justify-content:flex-start!important", script);
+            Assert.DoesNotContain("margin-right:2.5em!important", script);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
         }
     }

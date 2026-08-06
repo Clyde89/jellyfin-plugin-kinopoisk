@@ -106,9 +106,9 @@ HTML
     if [[ "${*: -1}" == "jellyfin" ]]; then
       if [[ "$recreated" == "1" ]]; then
         cat <<'LOG'
-[INF] Loaded assembly Jellyfin.Plugin.Kinopoisk, Version=10.11.0.3, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.3/Jellyfin.Plugin.Kinopoisk.dll
-[INF] Loaded assembly KinopoiskUnofficialInfo.ApiClient, Version=1.0.0.0 from /config/plugins/КиноПоиск_10.11.0.3/KinopoiskUnofficialInfo.ApiClient.dll
-[INF] Loaded plugin: КиноПоиск 10.11.0.3
+[INF] Loaded assembly Jellyfin.Plugin.Kinopoisk, Version=10.11.0.4, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.4/Jellyfin.Plugin.Kinopoisk.dll
+[INF] Loaded assembly KinopoiskUnofficialInfo.ApiClient, Version=1.0.0.0 from /config/plugins/КиноПоиск_10.11.0.4/KinopoiskUnofficialInfo.ApiClient.dll
+[INF] Loaded plugin: КиноПоиск 10.11.0.4
 [INF] Автономный веб-клиент КиноПоиска готов
 LOG
       else
@@ -226,16 +226,16 @@ export JELLYFIN_WEB_OVERRIDE_ROOT="$WEBROOT"
 bash "$PKG/install-media-core-autonomous.sh" plan > "$ROOT/plan.log"
 grep -Fq 'Режим plan: изменения файлов и контейнеров не выполнялись.' "$ROOT/plan.log"
 [[ -d "$OLD_DIR" ]]
-[[ ! -d "$PLUGIN_ROOT/КиноПоиск_10.11.0.3" ]]
+[[ ! -d "$PLUGIN_ROOT/КиноПоиск_10.11.0.4" ]]
 
 bash "$PKG/install-media-core-autonomous.sh" apply --confirm > "$ROOT/apply.log"
-NEW_DIR="$PLUGIN_ROOT/КиноПоиск_10.11.0.3"
+NEW_DIR="$PLUGIN_ROOT/КиноПоиск_10.11.0.4"
 [[ -d "$NEW_DIR" ]]
 [[ ! -d "$OLD_DIR" ]]
 python3 - "$NEW_DIR/meta.json" <<'PY'
 import json
 import sys
-assert json.load(open(sys.argv[1], encoding="utf-8"))["version"] == "10.11.0.3"
+assert json.load(open(sys.argv[1], encoding="utf-8"))["version"] == "10.11.0.4"
 PY
 transaction="$(cat "$BACKUPS/LATEST")"
 [[ -x "$transaction/rollback.sh" ]]

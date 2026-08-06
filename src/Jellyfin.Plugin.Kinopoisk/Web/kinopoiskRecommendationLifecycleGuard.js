@@ -4,130 +4,97 @@
     if (window.__kinopoiskRecommendationLifecycleGuardInstalled) {
         return;
     }
-
     window.__kinopoiskRecommendationLifecycleGuardInstalled = true;
+    var alignTimer = null;
 
-    var retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200];
-    var generation = 0;
-    var activeItemId = null;
-    var retryTimers = [];
-    var internalDispatch = false;
-    var mutationTimer = null;
-
-    function getCurrentItemId() {
-        var candidates = [window.location.search || ''];
-        var hash = window.location.hash || '';
-        var queryIndex = hash.indexOf('?');
-        if (queryIndex >= 0) {
-            candidates.push(hash.substring(queryIndex));
+    function isVisible(element) {
+        if (!element || !element.isConnected || element.hidden) {
+            return false;
         }
-        for (var index = 0; index < candidates.length; index++) {
-            var itemId = new URLSearchParams(candidates[index]).get('id');
-            if (itemId) {
-                return itemId;
+        var style = window.getComputedStyle(element);
+        var rect = element.getBoundingClientRect();
+        return style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && rect.width > 0
+            && rect.height > 0;
+    }
+
+    function getVisibleDetailPage() {
+        var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+        for (var index = 0; index < pages.length; index++) {
+            if (isVisible(pages[index]) && !pages[index].classList.contains('hide')) {
+                return pages[index];
             }
         }
         return null;
     }
 
-    function getVisibleDetailPage() {
-        return document.querySelector('#itemDetailPage:not(.hide)')
-            || document.querySelector('.itemDetailPage:not(.hide)')
-            || null;
-    }
-
-    function getAnchor(page) {
-        if (!page || !page.isConnected) {
+    function findReferenceNavigation(section) {
+        var previous = section.previousElementSibling;
+        var direct = previous && previous.querySelector(
+            '.emby-scrollbuttons:not(.kp-native-navigation)'
+        );
+        if (isVisible(direct)) {
+            return direct;
+        }
+        var page = getVisibleDetailPage();
+        if (!page) {
             return null;
         }
-        return page.querySelector('#similarCollapsible')
-            || page.querySelector('.similarCollapsible');
+        var sectionTop = section.getBoundingClientRect().top;
+        var candidates = Array.prototype.filter.call(
+            page.querySelectorAll('.emby-scrollbuttons:not(.kp-native-navigation)'),
+            function (candidate) {
+                return !section.contains(candidate) && isVisible(candidate);
+            }
+        );
+        candidates.sort(function (left, right) {
+            var leftRect = left.getBoundingClientRect();
+            var rightRect = right.getBoundingClientRect();
+            var leftScore = (leftRect.top > sectionTop ? 100000 : 0)
+                + Math.abs(sectionTop - leftRect.top);
+            var rightScore = (rightRect.top > sectionTop ? 100000 : 0)
+                + Math.abs(sectionTop - rightRect.top);
+            return leftScore - rightScore;
+        });
+        return candidates[0] || null;
     }
 
-    function getSection(page) {
-        if (!page || !page.isConnected) {
-            return null;
+    function alignSection(section) {
+        var header = section.querySelector('.kp-recommendations-header');
+        var navigation = section.querySelector('.kp-native-navigation');
+        if (!header || !navigation || !isVisible(navigation)) {
+            return;
         }
-        return page.querySelector('#kinopoiskRecommendationsSection');
+        var reference = findReferenceNavigation(section);
+        if (!reference) {
+            navigation.style.removeProperty('--kp-native-navigation-left');
+            navigation.dataset.kpAlignmentSource = 'fallback';
+            return;
+        }
+        var offset = Math.max(0, Math.round(
+            reference.getBoundingClientRect().left
+            - header.getBoundingClientRect().left
+        ));
+        navigation.style.setProperty(
+            '--kp-native-navigation-left',
+            String(offset) + 'px'
+        );
+        navigation.dataset.kpAlignmentSource = 'native-carousel';
     }
 
-    function sectionMatches(page, itemId) {
-        var section = getSection(page);
-        return Boolean(
-            section
-            && section.isConnected
-            && section.dataset.itemId === itemId
+    function alignAll() {
+        alignTimer = null;
+        Array.prototype.forEach.call(
+            document.querySelectorAll('.kp-recommendations-section'),
+            alignSection
         );
     }
 
-    function clearRetries() {
-        retryTimers.forEach(function (timer) {
-            clearTimeout(timer);
-        });
-        retryTimers = [];
-    }
-
-    function requestRecommendationRender(itemId, expectedGeneration) {
-        if (expectedGeneration !== generation || getCurrentItemId() !== itemId) {
-            return;
+    function scheduleAlignment() {
+        if (!alignTimer) {
+            alignTimer = setTimeout(alignAll, 120);
         }
-
-        var page = getVisibleDetailPage();
-        if (sectionMatches(page, itemId)) {
-            clearRetries();
-            return;
-        }
-
-        var anchor = getAnchor(page);
-        if (!anchor || !anchor.parentNode || !anchor.isConnected) {
-            return;
-        }
-
-        internalDispatch = true;
-        try {
-            document.dispatchEvent(new Event('viewshow'));
-        } finally {
-            internalDispatch = false;
-        }
-    }
-
-    function startRetryCycle() {
-        var itemId = getCurrentItemId();
-        generation += 1;
-        var expectedGeneration = generation;
-        activeItemId = itemId;
-        clearRetries();
-
-        if (!itemId) {
-            return;
-        }
-
-        retryDelays.forEach(function (delay) {
-            retryTimers.push(setTimeout(function () {
-                requestRecommendationRender(itemId, expectedGeneration);
-            }, delay));
-        });
-    }
-
-    function scheduleMutationCheck() {
-        if (mutationTimer) {
-            return;
-        }
-        mutationTimer = setTimeout(function () {
-            mutationTimer = null;
-            var itemId = getCurrentItemId();
-            if (itemId !== activeItemId) {
-                startRetryCycle();
-                return;
-            }
-            if (!itemId) {
-                return;
-            }
-            var page = getVisibleDetailPage();
-            if (!sectionMatches(page, itemId) && getAnchor(page)) {
-                requestRecommendationRender(itemId, generation);
-            }
-        }, 180);
     }
 
     function ensureStyles() {
@@ -137,10 +104,15 @@
         var style = document.createElement('style');
         style.id = 'kinopoiskRecommendationLifecycleGuardStyles';
         style.textContent = [
-            '@media(max-width:600px){',
+            '@media(max-width:900px){',
             '.kp-recommendations-header>.kp-native-navigation.emby-scrollbuttons{',
-            'margin-left:auto!important;',
-            'margin-right:2.5em!important;',
+            'flex:0 0 100%!important;',
+            'width:100%!important;',
+            'box-sizing:border-box!important;',
+            'margin:0!important;',
+            'padding:0 0 0 var(--kp-native-navigation-left,2.5em)!important;',
+            'display:flex!important;',
+            'justify-content:flex-start!important;',
             'transform:none!important',
             '}',
             '}'
@@ -149,32 +121,12 @@
     }
 
     ensureStyles();
-
-    var observer = new MutationObserver(scheduleMutationCheck);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-
-    window.addEventListener('hashchange', startRetryCycle);
-    window.addEventListener('popstate', startRetryCycle);
-    document.addEventListener('viewshow', function () {
-        if (!internalDispatch) {
-            startRetryCycle();
-        }
-    }, true);
-
-    window.setInterval(function () {
-        var itemId = getCurrentItemId();
-        if (!itemId) {
-            return;
-        }
-        var page = getVisibleDetailPage();
-        if (!sectionMatches(page, itemId) && getAnchor(page)) {
-            startRetryCycle();
-        }
-    }, 2500);
-
-    startRetryCycle();
-    console.info('[КиноПоиск] Защита жизненного цикла рекомендаций зарегистрирована.');
+    var observer = new MutationObserver(scheduleAlignment);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.addEventListener('resize', scheduleAlignment);
+    window.addEventListener('hashchange', scheduleAlignment);
+    window.addEventListener('popstate', scheduleAlignment);
+    document.addEventListener('viewshow', scheduleAlignment, true);
+    scheduleAlignment();
+    console.info('[КиноПоиск] Геометрическое выравнивание навигации зарегистрировано.');
 }());

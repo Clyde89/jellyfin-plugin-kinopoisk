@@ -8,7 +8,12 @@
     window.__kinopoiskRecommendationsInstalled = true;
 
     var dataCache = new Map();
+    var currentItemCache = new Map();
     var renderTimer = null;
+    var retryTimers = [];
+    var renderGeneration = 0;
+    var activeItemId = null;
+    var retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000];
 
     function pick(object) {
         if (!object) {
@@ -87,16 +92,25 @@
     }
 
     function fetchCurrentItem(itemId) {
-        var apiClient = getApiClient();
-        if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
-            return Promise.resolve(null);
-        }
-        return apiClient.getItem(apiClient.getCurrentUserId(), itemId)
+    var apiClient = getApiClient();
+    if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
+        return Promise.resolve(null);
+    }
+    if (!currentItemCache.has(itemId)) {
+        var request = apiClient
+            .getItem(apiClient.getCurrentUserId(), itemId)
             .catch(function (error) {
+                currentItemCache.delete(itemId);
                 console.warn('[КиноПоиск] Карточка для рекомендаций не загружена.', error);
                 return null;
             });
+        currentItemCache.set(itemId, request);
+        if (currentItemCache.size > 50) {
+            currentItemCache.delete(currentItemCache.keys().next().value);
+        }
     }
+    return currentItemCache.get(itemId);
+}
 
     function createElement(tagName, className, text) {
         var element = document.createElement(tagName);
@@ -161,16 +175,19 @@
     }
 
     function getVisiblePage() {
-        return document.querySelector('#itemDetailPage:not(.hide)')
-            || document.querySelector('.itemDetailPage:not(.hide)')
-            || document.querySelector('.libraryPage:not(.hide)')
-            || document;
+    var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
+    for (var index = 0; index < pages.length; index++) {
+        var page = pages[index];
+        if (!page.isConnected || page.hidden || page.classList.contains('hide')) {
+            continue;
+        }
+        var style = window.getComputedStyle(page);
+        if (style.display !== 'none' && style.visibility !== 'hidden') {
+            return page;
+        }
     }
-
-    function findInsertionAnchor(page) {
-        return page.querySelector('#similarCollapsible')
-            || page.querySelector('.similarCollapsible');
-    }
+    return null;
+}
 
     function removeLegacySeerrSections(page) {
         Array.prototype.forEach.call(
@@ -705,62 +722,134 @@
         return section;
     }
 
-    function renderCurrentItem() {
-        ensureStyles();
-        var itemId = getCurrentItemId();
-        if (!itemId) {
+    function sectionMatches(page, itemId) {
+    var section = page && page.querySelector('#kinopoiskRecommendationsSection');
+    return Boolean(section && section.isConnected && section.dataset.itemId === itemId);
+}
+
+function clearRetryTimers() {
+    retryTimers.forEach(function (timer) {
+        clearTimeout(timer);
+    });
+    retryTimers = [];
+    if (renderTimer) {
+        clearTimeout(renderTimer);
+        renderTimer = null;
+    }
+}
+
+function renderCurrentItem(itemId, expectedGeneration) {
+    ensureStyles();
+    if (!itemId
+        || expectedGeneration !== renderGeneration
+        || getCurrentItemId() !== itemId) {
+        return;
+    }
+
+    fetchCurrentItem(itemId).then(function (item) {
+        if (!item
+            || expectedGeneration !== renderGeneration
+            || getCurrentItemId() !== itemId) {
             return;
         }
+
         var page = getVisiblePage();
-        removeLegacySeerrSections(page);
+        if (!page || !page.isConnected) {
+            return;
+        }
 
         var existing = page.querySelector('#kinopoiskRecommendationsSection');
         if (existing && existing.dataset.itemId === itemId) {
+            clearRetryTimers();
             return;
         }
         if (existing) {
             existing.remove();
         }
 
-        fetchCurrentItem(itemId).then(function (item) {
-            if (!item || getCurrentItemId() !== itemId) {
-                return;
-            }
-            var itemType = String(pick(item, 'Type', 'type') || '');
-            if (itemType !== 'Movie' && itemType !== 'Series') {
-                return;
-            }
-            var kinopoiskId = String(getProviderId(item, 'kinopoisk') || '');
-            if (!/^\d+$/.test(kinopoiskId)) {
-                return;
-            }
+        var itemType = String(pick(item, 'Type', 'type') || '');
+        if (itemType !== 'Movie' && itemType !== 'Series') {
+            return;
+        }
+        var kinopoiskId = String(getProviderId(item, 'kinopoisk') || '');
+        if (!/^\d+$/.test(kinopoiskId)) {
+            return;
+        }
 
-            var anchor = findInsertionAnchor(page);
-            if (!anchor || !anchor.parentNode) {
-                return;
-            }
-            removeLegacySeerrSections(page);
-            anchor.parentNode.insertBefore(
-                createSection(itemId, item, kinopoiskId),
-                anchor.nextSibling
-            );
-        });
-    }
+        var anchor = findInsertionAnchor(page);
+        if (!anchor
+            || !anchor.isConnected
+            || !anchor.parentNode
+            || expectedGeneration !== renderGeneration
+            || getCurrentItemId() !== itemId) {
+            return;
+        }
 
-    function scheduleRender() {
-        clearTimeout(renderTimer);
-        renderTimer = setTimeout(renderCurrentItem, 350);
-    }
-
-    ensureStyles();
-    var observer = new MutationObserver(scheduleRender);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
+        removeLegacySeerrSections(page);
+        anchor.parentNode.insertBefore(
+            createSection(itemId, item, kinopoiskId),
+            anchor.nextSibling
+        );
+        clearRetryTimers();
     });
-    window.addEventListener('hashchange', scheduleRender);
-    window.addEventListener('popstate', scheduleRender);
-    document.addEventListener('viewshow', scheduleRender, true);
-    scheduleRender();
-    console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
+}
+
+function queueRenderAttempt(itemId, expectedGeneration, delay) {
+    retryTimers.push(setTimeout(function () {
+        renderCurrentItem(itemId, expectedGeneration);
+    }, delay));
+}
+
+function startRenderCycle() {
+    var itemId = getCurrentItemId();
+    renderGeneration += 1;
+    activeItemId = itemId;
+    clearRetryTimers();
+    if (!itemId) {
+        return;
+    }
+    var expectedGeneration = renderGeneration;
+    retryDelays.forEach(function (delay) {
+        queueRenderAttempt(itemId, expectedGeneration, delay);
+    });
+}
+
+function scheduleImmediateRender() {
+    var itemId = getCurrentItemId();
+    if (itemId !== activeItemId) {
+        startRenderCycle();
+        return;
+    }
+    if (!itemId || renderTimer) {
+        return;
+    }
+    var expectedGeneration = renderGeneration;
+    renderTimer = setTimeout(function () {
+        renderTimer = null;
+        renderCurrentItem(itemId, expectedGeneration);
+    }, 90);
+}
+
+ensureStyles();
+var observer = new MutationObserver(scheduleImmediateRender);
+observer.observe(document.documentElement, { childList: true, subtree: true });
+window.addEventListener('hashchange', startRenderCycle);
+window.addEventListener('popstate', startRenderCycle);
+document.addEventListener('viewshow', startRenderCycle, true);
+window.setInterval(function () {
+    var itemId = getCurrentItemId();
+    if (itemId !== activeItemId) {
+        startRenderCycle();
+        return;
+    }
+    if (!itemId) {
+        return;
+    }
+    var page = getVisiblePage();
+    if (!sectionMatches(page, itemId)) {
+        scheduleImmediateRender();
+    }
+}, 2000);
+startRenderCycle();
+console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
 }());
