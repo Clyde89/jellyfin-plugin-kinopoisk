@@ -1,0 +1,251 @@
+name: Проверка Runtime Web Bootstrap macOS
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-runtime:
+    name: Jellyfin macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            os: macos-15-intel
+            package_arch: amd64
+          - arch: ARM64
+            os: macos-15
+            package_arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Подтверждена архитектура runner
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          actual="$(uname -m)"
+          if [[ "$EXPECTED_ARCH" == 'x64' ]]; then
+            test "$actual" = 'x86_64'
+          else
+            test "$actual" = 'arm64'
+          fi
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release \
+            --no-restore \
+            --warnaserror
+
+      - name: Получен официальный portable Jellyfin 10.11.11
+        shell: bash
+        env:
+          PACKAGE_ARCH: ${{ matrix.package_arch }}
+        run: |
+          set -Eeuo pipefail
+
+          archive="$RUNNER_TEMP/jellyfin-10.11.11-${PACKAGE_ARCH}.tar.xz"
+          root="$RUNNER_TEMP/jellyfin-macos-runtime"
+          url="https://repo.jellyfin.org/files/server/macos/latest/${PACKAGE_ARCH}/jellyfin_10.11.11-${PACKAGE_ARCH}.tar.xz"
+          mkdir -p "$root"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$archive" "$url"
+          tar -xJf "$archive" -C "$root"
+
+          executable="$(find "$root" -type f -name jellyfin -perm -111 | head -n 1)"
+          if [[ -z "$executable" ]]; then
+            executable="$(find "$root" -type f -name jellyfin | head -n 1)"
+          fi
+          [[ -n "$executable" ]] || { echo 'Исполняемый файл jellyfin не найден.' >&2; exit 1; }
+          chmod +x "$executable"
+
+          binary_dir="$(dirname "$executable")"
+          web_dir="$binary_dir/jellyfin-web"
+          [[ -f "$web_dir/index.html" ]] || {
+            web_dir="$(find "$root" -type f -path '*/jellyfin-web/index.html' -print -quit | xargs -I{} dirname '{}')"
+          }
+          [[ -n "$web_dir" && -f "$web_dir/index.html" ]] || {
+            echo 'Штатный jellyfin-web/index.html не найден.' >&2
+            exit 1
+          }
+
+          echo "JELLYFIN_EXE=${executable}" >> "$GITHUB_ENV"
+          echo "JELLYFIN_WEB_DIR=${web_dir}" >> "$GITHUB_ENV"
+          echo "STOCK_INDEX_SHA256=$(shasum -a 256 "$web_dir/index.html" | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Подготовлен чистый macOS-профиль
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          plugin_version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot()
+          value = root.findtext('.//Version')
+          if not value:
+              raise SystemExit('Version плагина не найден.')
+          print(value.strip())
+          PY
+          )"
+
+          data="$RUNNER_TEMP/jellyfin-macos-data"
+          config="$data/config"
+          cache="$data/cache"
+          log="$data/log"
+          plugin="$data/plugins/КиноПоиск_${plugin_version}"
+          plugin_config="$data/plugins/configurations"
+          mkdir -p "$config" "$cache" "$log" "$plugin" "$plugin_config"
+
+          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          cp "$output/Jellyfin.Plugin.Kinopoisk.dll" "$plugin/"
+          cp "$output/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin/"
+
+          cat > "$plugin/meta.json" <<JSON
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-07T00:00:00Z",
+            "version": "${plugin_version}",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          JSON
+
+          cat > "$plugin_config/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-macos-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+            <EnableWebBootstrap>true</EnableWebBootstrap>
+          </PluginConfiguration>
+          XML
+
+          echo "JELLYFIN_TEST_DATA=${data}" >> "$GITHUB_ENV"
+          echo "JELLYFIN_TEST_CONFIG=${config}" >> "$GITHUB_ENV"
+          echo "JELLYFIN_TEST_CACHE=${cache}" >> "$GITHUB_ENV"
+          echo "JELLYFIN_TEST_LOG=${log}" >> "$GITHUB_ENV"
+
+      - name: Запущен настоящий Jellyfin macOS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          stdout="$RUNNER_TEMP/jellyfin-macos.stdout.log"
+          stderr="$RUNNER_TEMP/jellyfin-macos.stderr.log"
+          "$JELLYFIN_EXE" \
+            --datadir "$JELLYFIN_TEST_DATA" \
+            --configdir "$JELLYFIN_TEST_CONFIG" \
+            --cachedir "$JELLYFIN_TEST_CACHE" \
+            --logdir "$JELLYFIN_TEST_LOG" \
+            --webdir "$JELLYFIN_WEB_DIR" \
+            --noautorunwebapp \
+            >"$stdout" 2>"$stderr" &
+          pid=$!
+          echo "JELLYFIN_TEST_PID=${pid}" >> "$GITHUB_ENV"
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:8096/health 2>/dev/null \
+              | tr -d '\r\n"[:space:]' || true)"
+            combined="$(cat "$stdout" "$stderr" 2>/dev/null || true; find "$JELLYFIN_TEST_LOG" -type f -maxdepth 1 -exec cat {} \; 2>/dev/null || true)"
+            if [[ "$health" == 'Healthy' ]] \
+              && grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.' <<< "$combined"; then
+              echo "macOS Jellyfin готов: попытка ${attempt}/120"
+              exit 0
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo 'Jellyfin macOS завершился раньше готовности.' >&2
+              cat "$stdout" "$stderr" >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo 'Jellyfin macOS или Runtime Web Bootstrap не достигли готового состояния.' >&2
+          cat "$stdout" "$stderr" >&2 || true
+          exit 1
+
+      - name: Проверен macOS Runtime Web Bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          runtime_hash="$(shasum -a 256 "$JELLYFIN_WEB_DIR/index.html" | awk '{print $1}')"
+          test "$runtime_hash" = "$STOCK_INDEX_SHA256"
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/index.headers" \
+            -o "$RUNNER_TEMP/index.html" \
+            http://127.0.0.1:8096/web/index.html
+          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc '../Kinopoisk/WebClient.js?v=' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          grep -Fi 'X-Kinopoisk-Web-Bootstrap: runtime' "$RUNNER_TEMP/index.headers"
+
+          etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+            "$RUNNER_TEMP/index.headers")"
+          test -n "$etag"
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/webclient.headers" \
+            -o "$RUNNER_TEMP/WebClient.js" \
+            http://127.0.0.1:8096/Kinopoisk/WebClient.js
+          grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
+          grep -F 'Похожие и рекомендации' "$RUNNER_TEMP/WebClient.js" >/dev/null
+
+          status="$(curl -sS \
+            -o "$RUNNER_TEMP/index-304.body" \
+            -H "If-None-Match: $etag" \
+            -w '%{http_code}' \
+            http://127.0.0.1:8096/web/index.html)"
+          test "$status" = '304'
+          test ! -s "$RUNNER_TEMP/index-304.body"
+
+      - name: Выведен журнал Jellyfin macOS
+        if: always()
+        shell: bash
+        run: |
+          cat "$RUNNER_TEMP/jellyfin-macos.stdout.log" "$RUNNER_TEMP/jellyfin-macos.stderr.log" 2>/dev/null | tail -n 220 || true
+          find "${JELLYFIN_TEST_LOG:-$RUNNER_TEMP/does-not-exist}" -maxdepth 1 -type f -exec sh -c 'echo "=== $1 ==="; tail -n 220 "$1"' _ {} \; 2>/dev/null || true
+          if [[ -n "${JELLYFIN_TEST_PID:-}" ]]; then
+            kill "$JELLYFIN_TEST_PID" 2>/dev/null || true
+          fi
