@@ -20,6 +20,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private const string AcceptEncodingHeader = "Accept-Encoding";
         private const string IfNoneMatchHeader = "If-None-Match";
         private const string IfModifiedSinceHeader = "If-Modified-Since";
+        private const string RangeHeader = "Range";
+        private const string IfRangeHeader = "If-Range";
+        private const string AcceptRangesHeader = "Accept-Ranges";
         private const string ContentEncodingHeader = "Content-Encoding";
         private const string BootstrapHeader = "X-Kinopoisk-Web-Bootstrap";
 
@@ -50,13 +53,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 return;
             }
 
-            var acceptEncoding = CaptureHeader(context.Request.Headers, AcceptEncodingHeader);
-            var ifNoneMatch = CaptureHeader(context.Request.Headers, IfNoneMatchHeader);
-            var ifModifiedSince = CaptureHeader(context.Request.Headers, IfModifiedSinceHeader);
-
-            context.Request.Headers.Remove(AcceptEncodingHeader);
-            context.Request.Headers.Remove(IfNoneMatchHeader);
-            context.Request.Headers.Remove(IfModifiedSinceHeader);
+            var requestHeaders = CaptureRequestHeaders(context.Request.Headers);
+            RemoveDownstreamConditionalHeaders(context.Request.Headers);
 
             var originalBodyFeature = context.Features.Get<IHttpResponseBodyFeature>()
                 ?? throw new InvalidOperationException(
@@ -73,20 +71,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
             catch
             {
-                RestoreRequestHeaders(
-                    context,
-                    acceptEncoding,
-                    ifNoneMatch,
-                    ifModifiedSince);
+                RestoreRequestHeaders(context.Request.Headers, requestHeaders);
                 context.Features.Set(originalBodyFeature);
                 throw;
             }
 
-            RestoreRequestHeaders(
-                context,
-                acceptEncoding,
-                ifNoneMatch,
-                ifModifiedSince);
+            RestoreRequestHeaders(context.Request.Headers, requestHeaders);
             context.Features.Set(originalBodyFeature);
 
             if (!CanTransformResponse(context.Response, capturedBody.Length))
@@ -105,8 +95,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 context.Response.Headers.CacheControl = "no-cache";
                 context.Response.Headers[BootstrapHeader] = "runtime";
                 context.Response.Headers.Remove(ContentEncodingHeader);
+                context.Response.Headers.Remove(AcceptRangesHeader);
 
-                if (MatchesIfNoneMatch(ifNoneMatch, etag))
+                if (MatchesIfNoneMatch(requestHeaders.IfNoneMatch, etag))
                 {
                     context.Response.StatusCode = StatusCodes.Status304NotModified;
                     context.Response.ContentLength = null;
@@ -209,20 +200,37 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             await capturedBody.CopyToAsync(target, context.RequestAborted).ConfigureAwait(false);
         }
 
+        private static RequestHeaderSnapshot CaptureRequestHeaders(IHeaderDictionary headers)
+            => new(
+                CaptureHeader(headers, AcceptEncodingHeader),
+                CaptureHeader(headers, IfNoneMatchHeader),
+                CaptureHeader(headers, IfModifiedSinceHeader),
+                CaptureHeader(headers, RangeHeader),
+                CaptureHeader(headers, IfRangeHeader));
+
+        private static void RemoveDownstreamConditionalHeaders(IHeaderDictionary headers)
+        {
+            headers.Remove(AcceptEncodingHeader);
+            headers.Remove(IfNoneMatchHeader);
+            headers.Remove(IfModifiedSinceHeader);
+            headers.Remove(RangeHeader);
+            headers.Remove(IfRangeHeader);
+        }
+
         private static HeaderSnapshot CaptureHeader(IHeaderDictionary headers, string name)
             => headers.TryGetValue(name, out var value)
                 ? new HeaderSnapshot(true, value)
                 : new HeaderSnapshot(false, default);
 
         private static void RestoreRequestHeaders(
-            HttpContext context,
-            HeaderSnapshot acceptEncoding,
-            HeaderSnapshot ifNoneMatch,
-            HeaderSnapshot ifModifiedSince)
+            IHeaderDictionary headers,
+            RequestHeaderSnapshot snapshot)
         {
-            RestoreHeader(context.Request.Headers, AcceptEncodingHeader, acceptEncoding);
-            RestoreHeader(context.Request.Headers, IfNoneMatchHeader, ifNoneMatch);
-            RestoreHeader(context.Request.Headers, IfModifiedSinceHeader, ifModifiedSince);
+            RestoreHeader(headers, AcceptEncodingHeader, snapshot.AcceptEncoding);
+            RestoreHeader(headers, IfNoneMatchHeader, snapshot.IfNoneMatch);
+            RestoreHeader(headers, IfModifiedSinceHeader, snapshot.IfModifiedSince);
+            RestoreHeader(headers, RangeHeader, snapshot.Range);
+            RestoreHeader(headers, IfRangeHeader, snapshot.IfRange);
         }
 
         private static void RestoreHeader(
@@ -252,5 +260,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         }
 
         internal readonly record struct HeaderSnapshot(bool Exists, StringValues Value);
+
+        private readonly record struct RequestHeaderSnapshot(
+            HeaderSnapshot AcceptEncoding,
+            HeaderSnapshot IfNoneMatch,
+            HeaderSnapshot IfModifiedSince,
+            HeaderSnapshot Range,
+            HeaderSnapshot IfRange);
     }
 }
