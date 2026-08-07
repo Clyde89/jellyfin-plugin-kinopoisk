@@ -137,8 +137,7 @@ jobs:
               '--configdir', $env:JELLYFIN_TEST_CONFIG,
               '--cachedir', $env:JELLYFIN_TEST_CACHE,
               '--logdir', $env:JELLYFIN_TEST_LOG,
-              '--webdir', $env:JELLYFIN_WEB_DIR,
-              '--noautorunwebapp'
+              '--webdir', $env:JELLYFIN_WEB_DIR
           )
           $process = Start-Process `
               -FilePath $env:JELLYFIN_EXE `
@@ -168,10 +167,18 @@ jobs:
                   break
               }
               if ($process.HasExited) {
+                  Write-Host '=== Jellyfin stdout ==='
+                  if (Test-Path $stdout) { Get-Content $stdout -Raw -ErrorAction SilentlyContinue }
+                  Write-Host '=== Jellyfin stderr ==='
+                  if (Test-Path $stderr) { Get-Content $stderr -Raw -ErrorAction SilentlyContinue }
                   throw "Jellyfin завершился раньше готовности с кодом $($process.ExitCode)."
               }
           }
           if (-not $ready) {
+              Write-Host '=== Jellyfin stdout ==='
+              if (Test-Path $stdout) { Get-Content $stdout -Raw -ErrorAction SilentlyContinue }
+              Write-Host '=== Jellyfin stderr ==='
+              if (Test-Path $stderr) { Get-Content $stderr -Raw -ErrorAction SilentlyContinue }
               throw 'Jellyfin Windows или Runtime Web Bootstrap не достигли готового состояния.'
           }
 
@@ -230,6 +237,16 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
+          $stdout = Join-Path $env:RUNNER_TEMP 'jellyfin-windows.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'jellyfin-windows.stderr.log'
+          if (Test-Path $stdout) {
+              Write-Host '=== Jellyfin stdout ==='
+              Get-Content $stdout -Tail 220 -ErrorAction SilentlyContinue
+          }
+          if (Test-Path $stderr) {
+              Write-Host '=== Jellyfin stderr ==='
+              Get-Content $stderr -Tail 220 -ErrorAction SilentlyContinue
+          }
           Get-ChildItem $env:JELLYFIN_TEST_LOG -File -ErrorAction SilentlyContinue |
               ForEach-Object {
                   Write-Host "=== $($_.Name) ==="
