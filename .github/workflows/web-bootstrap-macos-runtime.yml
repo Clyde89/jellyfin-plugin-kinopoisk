@@ -177,7 +177,6 @@ jobs:
             --cachedir "$JELLYFIN_TEST_CACHE" \
             --logdir "$JELLYFIN_TEST_LOG" \
             --webdir "$JELLYFIN_WEB_DIR" \
-            --noautorunwebapp \
             >"$stdout" 2>"$stderr" &
           pid=$!
           echo "JELLYFIN_TEST_PID=${pid}" >> "$GITHUB_ENV"
