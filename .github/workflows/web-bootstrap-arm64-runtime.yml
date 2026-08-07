@@ -1,0 +1,193 @@
+name: Проверка Runtime Web Bootstrap ARM64
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-arm64-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arm64-runtime:
+    name: Jellyfin Linux ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      JELLYFIN_IMAGE: jellyfin/jellyfin:10.11.11
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Подтверждена ARM64-архитектура runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(uname -m)" = 'aarch64'
+          docker version
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин на ARM64
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release \
+            --no-restore \
+            --warnaserror
+
+      - name: Подготовлен чистый ARM64 Jellyfin
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull "$JELLYFIN_IMAGE"
+          test "$(docker image inspect "$JELLYFIN_IMAGE" --format '{{.Architecture}}')" = 'arm64'
+
+          plugin_version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot()
+          value = root.findtext('.//Version')
+          if not value:
+              raise SystemExit('Version плагина не найден.')
+          print(value.strip())
+          PY
+          )"
+
+          config_dir="$RUNNER_TEMP/kinopoisk-arm64-config"
+          cache_dir="$RUNNER_TEMP/kinopoisk-arm64-cache"
+          plugin_dir="$config_dir/plugins/КиноПоиск_${plugin_version}"
+          configuration_dir="$config_dir/plugins/configurations"
+          mkdir -p "$plugin_dir" "$configuration_dir" "$cache_dir"
+
+          output_dir='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          cp "$output_dir/Jellyfin.Plugin.Kinopoisk.dll" "$plugin_dir/"
+          cp "$output_dir/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin_dir/"
+
+          cat > "$plugin_dir/meta.json" <<JSON
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-07T00:00:00Z",
+            "version": "${plugin_version}",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          JSON
+
+          cat > "$configuration_dir/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-arm64-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+            <EnableWebBootstrap>true</EnableWebBootstrap>
+          </PluginConfiguration>
+          XML
+
+          docker run --rm --entrypoint sha256sum "$JELLYFIN_IMAGE" \
+            /jellyfin/jellyfin-web/index.html \
+            | awk '{print $1}' > "$RUNNER_TEMP/stock-index.sha256"
+
+          chmod -R a+rX,u+w "$config_dir" "$cache_dir"
+          echo "TEST_CONFIG=${config_dir}" >> "$GITHUB_ENV"
+          echo "TEST_CACHE=${cache_dir}" >> "$GITHUB_ENV"
+
+      - name: Запущен ARM64 Jellyfin с read-only root filesystem
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run -d \
+            --name kinopoisk-web-bootstrap-arm64 \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            -p 127.0.0.1:18096:8096 \
+            -v "$TEST_CONFIG:/config" \
+            -v "$TEST_CACHE:/cache" \
+            "$JELLYFIN_IMAGE"
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:18096/health 2>/dev/null \
+              | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]] \
+              && docker logs kinopoisk-web-bootstrap-arm64 2>&1 \
+                | grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.'; then
+              echo "ARM64 Jellyfin готов: попытка ${attempt}/120"
+              break
+            fi
+            sleep 1
+          done
+          test "$health" = 'Healthy'
+
+      - name: Проверен ARM64 Runtime Web Bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test "$(docker inspect kinopoisk-web-bootstrap-arm64 --format '{{.Platform}}' 2>/dev/null || true)" != 'windows'
+          test "$(docker inspect kinopoisk-web-bootstrap-arm64 --format '{{.HostConfig.ReadonlyRootfs}}')" = 'true'
+
+          stock_hash="$(cat "$RUNNER_TEMP/stock-index.sha256")"
+          runtime_hash="$(docker exec kinopoisk-web-bootstrap-arm64 sha256sum \
+            /jellyfin/jellyfin-web/index.html | awk '{print $1}')"
+          test "$runtime_hash" = "$stock_hash"
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/index.headers" \
+            -o "$RUNNER_TEMP/index.html" \
+            http://127.0.0.1:18096/web/index.html
+          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          grep -Fi 'X-Kinopoisk-Web-Bootstrap: runtime' "$RUNNER_TEMP/index.headers"
+
+          etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+            "$RUNNER_TEMP/index.headers")"
+          test -n "$etag"
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/webclient.headers" \
+            -o "$RUNNER_TEMP/WebClient.js" \
+            http://127.0.0.1:18096/Kinopoisk/WebClient.js
+          grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
+          grep -F 'Похожие и рекомендации' "$RUNNER_TEMP/WebClient.js" >/dev/null
+
+          status="$(curl -sS \
+            -o "$RUNNER_TEMP/index-304.body" \
+            -H "If-None-Match: $etag" \
+            -w '%{http_code}' \
+            http://127.0.0.1:18096/web/index.html)"
+          test "$status" = '304'
+          test ! -s "$RUNNER_TEMP/index-304.body"
+
+      - name: Выведен журнал ARM64 Jellyfin
+        if: always()
+        shell: bash
+        run: |
+          docker logs kinopoisk-web-bootstrap-arm64 2>&1 | tail -n 220 || true
+          docker rm -f kinopoisk-web-bootstrap-arm64 >/dev/null 2>&1 || true
