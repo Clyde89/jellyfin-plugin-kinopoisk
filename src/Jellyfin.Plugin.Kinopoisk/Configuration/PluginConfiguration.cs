@@ -1,5 +1,6 @@
 using System;
 using System.Xml.Serialization;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Model.Plugins;
 
@@ -119,6 +120,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         [XmlIgnore]
         public KinopoiskDiagnosticsSnapshot Diagnostics
             => KinopoiskDiagnostics.Shared.GetSnapshot();
+
+        [XmlIgnore]
+        public KinopoiskWebBootstrapSnapshot WebBootstrap
+            => KinopoiskWebBootstrapState.GetSnapshot(EnableWebBootstrap);
 
         public void Normalize()
         {
