@@ -2,10 +2,10 @@
 
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
@@ -58,13 +58,18 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             context.Request.Headers.Remove(IfNoneMatchHeader);
             context.Request.Headers.Remove(IfModifiedSinceHeader);
 
-            var originalBody = context.Response.Body;
+            var originalBodyFeature = context.Features.Get<IHttpResponseBodyFeature>()
+                ?? throw new InvalidOperationException(
+                    "HTTP response-body feature Jellyfin недоступен.");
+            var originalBody = originalBodyFeature.Stream;
             await using var capturedBody = new MemoryStream();
-            context.Response.Body = capturedBody;
+            var capturedFeature = new KinopoiskBufferedResponseBodyFeature(capturedBody);
+            context.Features.Set<IHttpResponseBodyFeature>(capturedFeature);
 
             try
             {
                 await _next(context).ConfigureAwait(false);
+                await capturedFeature.CompleteAsync().ConfigureAwait(false);
             }
             catch
             {
@@ -73,7 +78,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     acceptEncoding,
                     ifNoneMatch,
                     ifModifiedSince);
-                context.Response.Body = originalBody;
+                context.Features.Set(originalBodyFeature);
                 throw;
             }
 
@@ -82,7 +87,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 acceptEncoding,
                 ifNoneMatch,
                 ifModifiedSince);
-            context.Response.Body = originalBody;
+            context.Features.Set(originalBodyFeature);
 
             if (!CanTransformResponse(context.Response, capturedBody.Length))
             {
