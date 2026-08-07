@@ -74,7 +74,7 @@ jobs:
             --no-restore \
             --warnaserror
 
-      - name: Получен официальный portable Jellyfin 10.11.11
+      - name: Получен и подготовлен официальный portable Jellyfin 10.11.11
         shell: bash
         env:
           PACKAGE_ARCH: ${{ matrix.package_arch }}
@@ -96,6 +96,10 @@ jobs:
           chmod +x "$executable"
 
           binary_dir="$(dirname "$executable")"
+          xattr -rd com.apple.quarantine "$binary_dir" 2>/dev/null || true
+          codesign -fs - --deep "$executable"
+          codesign --verify --deep --strict "$executable"
+
           web_dir="$binary_dir/jellyfin-web"
           [[ -f "$web_dir/index.html" ]] || {
             web_dir="$(find "$root" -type f -path '*/jellyfin-web/index.html' -print -quit | xargs -I{} dirname '{}')"
@@ -105,6 +109,7 @@ jobs:
             exit 1
           }
 
+          "$executable" --version
           echo "JELLYFIN_EXE=${executable}" >> "$GITHUB_ENV"
           echo "JELLYFIN_WEB_DIR=${web_dir}" >> "$GITHUB_ENV"
           echo "STOCK_INDEX_SHA256=$(shasum -a 256 "$web_dir/index.html" | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -185,7 +190,7 @@ jobs:
           for attempt in $(seq 1 120); do
             health="$(curl -fsS --max-time 2 http://127.0.0.1:8096/health 2>/dev/null \
               | tr -d '\r\n"[:space:]' || true)"
-            combined="$(cat "$stdout" "$stderr" 2>/dev/null || true; find "$JELLYFIN_TEST_LOG" -type f -maxdepth 1 -exec cat {} \; 2>/dev/null || true)"
+            combined="$(cat "$stdout" "$stderr" 2>/dev/null || true; find "$JELLYFIN_TEST_LOG" -maxdepth 1 -type f -exec cat {} \; 2>/dev/null || true)"
             if [[ "$health" == 'Healthy' ]] \
               && grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.' <<< "$combined"; then
               echo "macOS Jellyfin готов: попытка ${attempt}/120"
@@ -238,6 +243,22 @@ jobs:
             http://127.0.0.1:8096/web/index.html)"
           test "$status" = '304'
           test ! -s "$RUNNER_TEMP/index-304.body"
+
+      - name: Сохранена диагностика macOS runtime
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: web-bootstrap-macos-${{ matrix.arch }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/jellyfin-macos.stdout.log
+            ${{ runner.temp }}/jellyfin-macos.stderr.log
+            ${{ runner.temp }}/index.headers
+            ${{ runner.temp }}/index.html
+            ${{ runner.temp }}/webclient.headers
+            ${{ runner.temp }}/WebClient.js
+            ${{ runner.temp }}/jellyfin-macos-data/log/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Выведен журнал Jellyfin macOS
         if: always()
