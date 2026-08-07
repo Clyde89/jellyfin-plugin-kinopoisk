@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   probe:
-    if: github.event.head_commit.message == 'Добавлена runtime-проверка самодостаточного Web Bootstrap'
+    if: github.event.head_commit.message == 'Исправлена runtime-проверка самодостаточного Web Bootstrap'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -87,14 +87,19 @@ jobs:
             -v "$JELLYFIN_TEST_CACHE:/cache" \
             jellyfin/jellyfin:10.11.11
 
-          for attempt in $(seq 1 90); do
-            if curl -fsS --max-time 2 http://127.0.0.1:18096/health >/dev/null 2>&1; then
-              echo "Jellyfin готов: попытка ${attempt}/90"
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:18096/health 2>/dev/null \
+              | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]] \
+              && docker logs kinopoisk-bootstrap-test 2>&1 \
+                | grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.'; then
+              echo "Jellyfin и Runtime Web Bootstrap готовы: попытка ${attempt}/120"
               exit 0
             fi
             sleep 1
           done
 
+          echo 'Jellyfin или Runtime Web Bootstrap не достигли готового состояния.' >&2
           docker logs kinopoisk-bootstrap-test >&2 || true
           exit 1
 
