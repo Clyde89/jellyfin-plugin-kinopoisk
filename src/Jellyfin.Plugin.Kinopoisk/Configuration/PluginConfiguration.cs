@@ -9,6 +9,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
     {
         public string ApiToken { get; set; } = string.Empty;
 
+        public bool EnableWebBootstrap { get; set; } = true;
+
         public bool EnableMovieMetadata { get; set; } = true;
 
         public bool EnableSeriesMetadata { get; set; } = true;
