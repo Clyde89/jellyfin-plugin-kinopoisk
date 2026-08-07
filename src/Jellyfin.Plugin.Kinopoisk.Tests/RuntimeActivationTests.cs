@@ -3,6 +3,8 @@ using System.Linq;
 using System.Reflection;
 using Jellyfin.Plugin.Kinopoisk.MetadataProviders;
 using Jellyfin.Plugin.Kinopoisk.Services;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -32,6 +34,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Assert.Contains(
                     services,
                     descriptor => descriptor.ServiceType == typeof(KinopoiskFranchiseLibraryScanner));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(IStartupFilter)
+                        && descriptor.ImplementationType == typeof(KinopoiskWebBootstrapStartupFilter));
+                Assert.DoesNotContain(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(IHostedService)
+                        && descriptor.ImplementationType == typeof(KinopoiskStandaloneWebClientService));
             }
             finally
             {

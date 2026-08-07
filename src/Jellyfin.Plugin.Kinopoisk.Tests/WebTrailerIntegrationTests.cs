@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Hosting;
 using Xunit;
 
 namespace Jellyfin.Plugin.Kinopoisk.Tests
@@ -38,16 +38,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
-        public void ShouldRegisterHostedStandaloneWebClientService()
+        public void ShouldRegisterRuntimeWebBootstrapStartupFilter()
         {
             var services = new ServiceCollection();
             new KinopoiskPluginServiceRegistrator().RegisterServices(services, null!);
 
             Assert.Contains(
                 services,
-                descriptor => descriptor.ServiceType == typeof(IHostedService)
+                descriptor => descriptor.ServiceType == typeof(IStartupFilter)
                     && descriptor.ImplementationType
-                        == typeof(KinopoiskStandaloneWebClientService));
+                        == typeof(KinopoiskWebBootstrapStartupFilter));
         }
 
         [Fact]

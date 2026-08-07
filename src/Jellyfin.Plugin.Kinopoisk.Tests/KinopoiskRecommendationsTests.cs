@@ -72,7 +72,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     "KinopoiskWebClientBundle.cs"));
 
             Assert.Contains(
-                "AddHostedService<KinopoiskStandaloneWebClientService>()",
+                "AddSingleton<IStartupFilter, KinopoiskWebBootstrapStartupFilter>()",
                 registrator);
             Assert.Contains("kinopoiskRecommendations.js", bundle);
             Assert.Contains("new KinopoiskSimilarApiClient(", registrator);
