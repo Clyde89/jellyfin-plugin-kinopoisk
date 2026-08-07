@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   probe:
-    if: github.event.head_commit.message == 'Исправлена runtime-проверка самодостаточного Web Bootstrap'
+    if: github.event.head_commit.message == 'Повторена runtime-проверка после перехвата SendFileAsync'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -48,7 +48,8 @@ jobs:
           config_dir="$RUNNER_TEMP/kinopoisk-jellyfin-config"
           cache_dir="$RUNNER_TEMP/kinopoisk-jellyfin-cache"
           plugin_dir="$config_dir/plugins/КиноПоиск_10.11.0.5"
-          mkdir -p "$plugin_dir" "$cache_dir"
+          configuration_dir="$config_dir/plugins/configurations"
+          mkdir -p "$plugin_dir" "$configuration_dir" "$cache_dir"
 
           output_dir='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
           cp "$output_dir/Jellyfin.Plugin.Kinopoisk.dll" "$plugin_dir/"
@@ -70,6 +71,14 @@ jobs:
             "autoUpdate": false
           }
           JSON
+
+          cat > "$configuration_dir/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-probe-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+          </PluginConfiguration>
+          XML
 
           chmod -R a+rX,u+w "$config_dir" "$cache_dir"
           echo "JELLYFIN_TEST_CONFIG=${config_dir}" >> "$GITHUB_ENV"
@@ -109,9 +118,14 @@ jobs:
           set -Eeuo pipefail
           docker logs kinopoisk-bootstrap-test > "$RUNNER_TEMP/jellyfin.log" 2>&1
 
-          grep -F 'Jellyfin.Plugin.Kinopoisk' "$RUNNER_TEMP/jellyfin.log"
+          grep -F 'Loaded assembly Jellyfin.Plugin.Kinopoisk' "$RUNNER_TEMP/jellyfin.log"
           grep -F 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.' \
             "$RUNNER_TEMP/jellyfin.log"
+
+          if grep -Fq 'API-токен не должен быть пустым' "$RUNNER_TEMP/jellyfin.log"; then
+            echo 'Тестовая конфигурация КиноПоиска не была применена.' >&2
+            exit 1
+          fi
 
           runtime_hash="$(docker exec kinopoisk-bootstrap-test sha256sum \
             /jellyfin/jellyfin-web/index.html | awk '{print $1}')"
@@ -133,10 +147,18 @@ jobs:
             -o "$RUNNER_TEMP/index.html" \
             http://127.0.0.1:18096/web/index.html
 
-          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html")" -eq 1
-          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_END -->' "$RUNNER_TEMP/index.html")" -eq 1
-          test "$(grep -Foc '../Kinopoisk/WebClient.js?v=' "$RUNNER_TEMP/index.html")" -eq 1
-          test "$(grep -Foc 'data-kinopoisk-managed=\"runtime\"' "$RUNNER_TEMP/index.html")" -eq 1
+          begin_count="$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html" || true)"
+          end_count="$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_END -->' "$RUNNER_TEMP/index.html" || true)"
+          endpoint_count="$(grep -Foc '../Kinopoisk/WebClient.js?v=' "$RUNNER_TEMP/index.html" || true)"
+          runtime_count="$(grep -Foc 'data-kinopoisk-managed=\"runtime\"' "$RUNNER_TEMP/index.html" || true)"
+          printf 'Маркеры: begin=%s end=%s endpoint=%s runtime=%s\n' \
+            "$begin_count" "$end_count" "$endpoint_count" "$runtime_count"
+          cat "$RUNNER_TEMP/index.headers"
+
+          test "$begin_count" -eq 1
+          test "$end_count" -eq 1
+          test "$endpoint_count" -eq 1
+          test "$runtime_count" -eq 1
           grep -Fi 'X-Kinopoisk-Web-Bootstrap: runtime' "$RUNNER_TEMP/index.headers"
 
           runtime_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$RUNNER_TEMP/index.headers")"
