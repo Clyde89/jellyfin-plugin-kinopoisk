@@ -1,0 +1,168 @@
+name: Проверка удаления Runtime Web Bootstrap
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-uninstall-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  uninstall-probe:
+    name: Удаление без следов
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      JELLYFIN_IMAGE: jellyfin/jellyfin:10.11.11
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release --no-restore --warnaserror
+
+      - name: Подготовлена установка плагина
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull "$JELLYFIN_IMAGE"
+
+          version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          value = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot().findtext('.//Version')
+          if not value:
+              raise SystemExit('Version плагина не найден.')
+          print(value.strip())
+          PY
+          )"
+
+          config="$RUNNER_TEMP/uninstall-config"
+          cache="$RUNNER_TEMP/uninstall-cache"
+          plugin="$config/plugins/КиноПоиск_${version}"
+          plugin_config="$config/plugins/configurations"
+          mkdir -p "$plugin" "$plugin_config" "$cache"
+
+          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          cp "$output/Jellyfin.Plugin.Kinopoisk.dll" "$plugin/"
+          cp "$output/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin/"
+
+          cat > "$plugin/meta.json" <<JSON
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-07T00:00:00Z",
+            "version": "${version}",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          JSON
+          cat > "$plugin_config/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-uninstall-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+            <EnableWebBootstrap>true</EnableWebBootstrap>
+          </PluginConfiguration>
+          XML
+
+          docker run --rm --entrypoint cat "$JELLYFIN_IMAGE" \
+            /jellyfin/jellyfin-web/index.html > "$RUNNER_TEMP/stock-index.html"
+
+          chmod -R a+rX,u+w "$config" "$cache"
+          echo "TEST_CONFIG=${config}" >> "$GITHUB_ENV"
+          echo "TEST_CACHE=${cache}" >> "$GITHUB_ENV"
+          echo "TEST_PLUGIN=${plugin}" >> "$GITHUB_ENV"
+
+      - name: Подтверждена работа установленного плагина
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name kinopoisk-uninstall-test \
+            -p 127.0.0.1:18096:8096 \
+            -v "$TEST_CONFIG:/config" -v "$TEST_CACHE:/cache" \
+            "$JELLYFIN_IMAGE"
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:18096/health 2>/dev/null | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]]; then break; fi
+            sleep 1
+          done
+          test "$health" = 'Healthy'
+
+          curl -fsS -o "$RUNNER_TEMP/installed-index.html" http://127.0.0.1:18096/web/index.html
+          test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/installed-index.html" || true)" -eq 1
+          curl -fsS http://127.0.0.1:18096/Kinopoisk/WebClient.js >/dev/null
+          docker rm -f kinopoisk-uninstall-test >/dev/null
+
+      - name: Удалён плагин без изменения jellyfin-web
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- "$TEST_PLUGIN"
+
+          docker run -d --name kinopoisk-uninstall-test \
+            -p 127.0.0.1:18096:8096 \
+            -v "$TEST_CONFIG:/config" -v "$TEST_CACHE:/cache" \
+            "$JELLYFIN_IMAGE"
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:18096/health 2>/dev/null | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]]; then break; fi
+            sleep 1
+          done
+          test "$health" = 'Healthy'
+
+          curl -fsS -o "$RUNNER_TEMP/uninstalled-index.html" http://127.0.0.1:18096/web/index.html
+          cmp "$RUNNER_TEMP/stock-index.html" "$RUNNER_TEMP/uninstalled-index.html"
+          if grep -Fq 'KINOPOISK_WEB_CLIENT_BEGIN' "$RUNNER_TEMP/uninstalled-index.html"; then
+            echo 'После удаления плагина сохранён Web Bootstrap.' >&2
+            exit 1
+          fi
+
+          status="$(curl -sS -o "$RUNNER_TEMP/uninstalled-webclient.body" -w '%{http_code}' \
+            http://127.0.0.1:18096/Kinopoisk/WebClient.js)"
+          test "$status" = '404'
+
+          runtime_hash="$(docker exec kinopoisk-uninstall-test sha256sum /jellyfin/jellyfin-web/index.html | awk '{print $1}')"
+          stock_hash="$(sha256sum "$RUNNER_TEMP/stock-index.html" | awk '{print $1}')"
+          test "$runtime_hash" = "$stock_hash"
+
+      - name: Выведен журнал Jellyfin
+        if: always()
+        shell: bash
+        run: |
+          docker logs kinopoisk-uninstall-test 2>&1 | tail -n 180 || true
+          docker rm -f kinopoisk-uninstall-test >/dev/null 2>&1 || true
