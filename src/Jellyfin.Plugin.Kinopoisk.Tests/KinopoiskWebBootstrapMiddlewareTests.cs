@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -38,6 +39,51 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.StartsWith("\"kp-", context.Response.Headers.ETag.ToString());
             Assert.Equal(1, state.TransformedResponses);
             Assert.Equal(0, state.Failures);
+        }
+
+        [Fact]
+        public async Task ShouldCaptureStaticFileSendFileAsync()
+        {
+            var temporaryFile = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(temporaryFile, OriginalHtml, Encoding.UTF8);
+                var expectedLength = new FileInfo(temporaryFile).Length;
+                var state = new KinopoiskWebBootstrapState();
+                var middleware = new KinopoiskWebBootstrapMiddleware(
+                    async context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status200OK;
+                        context.Response.ContentType = "text/html; charset=utf-8";
+                        context.Response.ContentLength = expectedLength;
+                        var feature = context.Features.Get<IHttpResponseBodyFeature>()
+                            ?? throw new InvalidOperationException(
+                                "Тестовый response-body feature недоступен.");
+                        await feature.SendFileAsync(
+                            temporaryFile,
+                            0,
+                            null,
+                            context.RequestAborted);
+                    },
+                    state,
+                    NullLogger<KinopoiskWebBootstrapMiddleware>.Instance);
+                var context = CreateContext("/web/index.html");
+
+                await middleware.InvokeAsync(context);
+
+                var body = await ReadResponseAsync(context);
+                Assert.Contains(
+                    KinopoiskWebBootstrapTransformer.RuntimeManagedAttribute,
+                    body,
+                    StringComparison.Ordinal);
+                Assert.Contains("<main>Jellyfin</main>", body, StringComparison.Ordinal);
+                Assert.Equal("runtime", context.Response.Headers["X-Kinopoisk-Web-Bootstrap"]);
+                Assert.Equal(1, state.TransformedResponses);
+            }
+            finally
+            {
+                File.Delete(temporaryFile);
+            }
         }
 
         [Fact]
