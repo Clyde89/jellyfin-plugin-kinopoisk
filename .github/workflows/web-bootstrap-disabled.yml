@@ -1,0 +1,181 @@
+name: Проверка отключения Runtime Web Bootstrap
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-disabled-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  disabled-probe:
+    name: Runtime Web Bootstrap выключен
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      JELLYFIN_IMAGE: jellyfin/jellyfin:10.11.11
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release \
+            --no-restore \
+            --warnaserror
+
+      - name: Подготовлен профиль с выключенной веб-интеграцией
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull "$JELLYFIN_IMAGE"
+
+          plugin_version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot()
+          value = root.findtext('.//Version')
+          if not value:
+              raise SystemExit('Version плагина не найден.')
+          print(value.strip())
+          PY
+          )"
+
+          config_dir="$RUNNER_TEMP/kinopoisk-disabled-config"
+          cache_dir="$RUNNER_TEMP/kinopoisk-disabled-cache"
+          plugin_dir="$config_dir/plugins/КиноПоиск_${plugin_version}"
+          configuration_dir="$config_dir/plugins/configurations"
+          mkdir -p "$plugin_dir" "$configuration_dir" "$cache_dir"
+
+          output_dir='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          cp "$output_dir/Jellyfin.Plugin.Kinopoisk.dll" "$plugin_dir/"
+          cp "$output_dir/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin_dir/"
+
+          cat > "$plugin_dir/meta.json" <<JSON
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-07T00:00:00Z",
+            "version": "${plugin_version}",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          JSON
+
+          cat > "$configuration_dir/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-disabled-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+            <EnableWebBootstrap>false</EnableWebBootstrap>
+          </PluginConfiguration>
+          XML
+
+          docker run --rm --entrypoint cat "$JELLYFIN_IMAGE" \
+            /jellyfin/jellyfin-web/index.html > "$RUNNER_TEMP/stock-index.html"
+
+          chmod -R a+rX,u+w "$config_dir" "$cache_dir"
+          echo "TEST_CONFIG=${config_dir}" >> "$GITHUB_ENV"
+          echo "TEST_CACHE=${cache_dir}" >> "$GITHUB_ENV"
+
+      - name: Запущен Jellyfin
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run -d \
+            --name kinopoisk-web-bootstrap-disabled \
+            -p 127.0.0.1:18096:8096 \
+            -v "$TEST_CONFIG:/config" \
+            -v "$TEST_CACHE:/cache" \
+            "$JELLYFIN_IMAGE"
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 http://127.0.0.1:18096/health 2>/dev/null \
+              | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]] \
+              && docker logs kinopoisk-web-bootstrap-disabled 2>&1 \
+                | grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.'; then
+              echo "Jellyfin готов: попытка ${attempt}/120"
+              break
+            fi
+            sleep 1
+          done
+          test "$health" = 'Healthy'
+
+      - name: Подтверждено отключение преобразования HTML
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/index.headers" \
+            -o "$RUNNER_TEMP/index.html" \
+            http://127.0.0.1:18096/web/index.html
+
+          cmp "$RUNNER_TEMP/stock-index.html" "$RUNNER_TEMP/index.html"
+
+          if grep -Fq '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html"; then
+            echo 'При выключенном Bootstrap обнаружен управляемый блок.' >&2
+            exit 1
+          fi
+          if grep -Fq 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index.html"; then
+            echo 'При выключенном Bootstrap обнаружен runtime-атрибут.' >&2
+            exit 1
+          fi
+          if grep -Eiq '^X-Kinopoisk-Web-Bootstrap:' "$RUNNER_TEMP/index.headers"; then
+            echo 'При выключенном Bootstrap обнаружен runtime HTTP-заголовок.' >&2
+            exit 1
+          fi
+
+          grep -F '<EnableWebBootstrap>false</EnableWebBootstrap>' \
+            "$TEST_CONFIG/plugins/configurations/Jellyfin.Plugin.Kinopoisk.xml"
+
+      - name: Подтверждена независимость серверного endpoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fsS \
+            -D "$RUNNER_TEMP/webclient.headers" \
+            -o "$RUNNER_TEMP/WebClient.js" \
+            http://127.0.0.1:18096/Kinopoisk/WebClient.js
+          grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
+          grep -F 'Похожие и рекомендации' "$RUNNER_TEMP/WebClient.js" >/dev/null
+
+      - name: Выведен журнал Jellyfin
+        if: always()
+        shell: bash
+        run: |
+          docker logs kinopoisk-web-bootstrap-disabled 2>&1 | tail -n 200 || true
+          docker rm -f kinopoisk-web-bootstrap-disabled >/dev/null 2>&1 || true
