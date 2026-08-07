@@ -1,0 +1,131 @@
+name: Временное подключение Runtime Web Bootstrap
+
+on:
+  push:
+    branches:
+      - feature/self-contained-web-bootstrap
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Добавлен workflow подключения Runtime Web Bootstrap'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/self-contained-web-bootstrap
+          fetch-depth: 0
+
+      - name: Подключён Runtime Web Bootstrap
+        shell: python
+        run: |
+          from pathlib import Path
+
+          registrator = Path('src/Jellyfin.Plugin.Kinopoisk/KinopoiskPluginServiceRegistrator.cs')
+          text = registrator.read_text(encoding='utf-8')
+          text = text.replace(
+              'using Microsoft.Extensions.Caching.Memory;\n',
+              'using Microsoft.AspNetCore.Hosting;\nusing Microsoft.Extensions.Caching.Memory;\n',
+              1)
+          text = text.replace(
+              '            serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();\n'
+              '            serviceCollection.AddHostedService<KinopoiskStandaloneWebClientService>();\n',
+              '            serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();\n'
+              '            serviceCollection.AddSingleton<KinopoiskWebBootstrapState>();\n'
+              '            serviceCollection.AddSingleton<IStartupFilter, KinopoiskWebBootstrapStartupFilter>();\n',
+              1)
+          if 'AddHostedService<KinopoiskStandaloneWebClientService>' in text:
+              raise SystemExit('Старая регистрация файлового установщика не удалена.')
+          if 'AddSingleton<IStartupFilter, KinopoiskWebBootstrapStartupFilter>()' not in text:
+              raise SystemExit('Регистрация IStartupFilter не добавлена.')
+          registrator.write_text(text, encoding='utf-8')
+
+          plugin_project = Path('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj')
+          text = plugin_project.read_text(encoding='utf-8')
+          marker = '  <ItemGroup>\n    <PackageReference Include="Jellyfin.Data" Version="10.11.11" />'
+          replacement = (
+              '  <ItemGroup>\n'
+              '    <FrameworkReference Include="Microsoft.AspNetCore.App" />\n'
+              '  </ItemGroup>\n\n'
+              + marker
+          )
+          if '<FrameworkReference Include="Microsoft.AspNetCore.App" />' not in text:
+              if marker not in text:
+                  raise SystemExit('Точка вставки FrameworkReference плагина не найдена.')
+              text = text.replace(marker, replacement, 1)
+          plugin_project.write_text(text, encoding='utf-8')
+
+          test_project = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj')
+          text = test_project.read_text(encoding='utf-8')
+          marker = '  <ItemGroup>\n    <ProjectReference Include="..\\Jellyfin.Plugin.Kinopoisk\\Jellyfin.Plugin.Kinopoisk.csproj" />'
+          replacement = (
+              '  <ItemGroup>\n'
+              '    <FrameworkReference Include="Microsoft.AspNetCore.App" />\n'
+              '  </ItemGroup>\n\n'
+              + marker
+          )
+          if '<FrameworkReference Include="Microsoft.AspNetCore.App" />' not in text:
+              if marker not in text:
+                  raise SystemExit('Точка вставки FrameworkReference тестов не найдена.')
+              text = text.replace(marker, replacement, 1)
+          test_project.write_text(text, encoding='utf-8')
+
+          activation = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/RuntimeActivationTests.cs')
+          text = activation.read_text(encoding='utf-8')
+          text = text.replace(
+              'using Jellyfin.Plugin.Kinopoisk.Services;\n',
+              'using Jellyfin.Plugin.Kinopoisk.Services;\nusing Microsoft.AspNetCore.Hosting;\nusing Microsoft.Extensions.Hosting;\n',
+              1)
+          anchor = (
+              '                Assert.Contains(\n'
+              '                    services,\n'
+              '                    descriptor => descriptor.ServiceType == typeof(KinopoiskFranchiseLibraryScanner));\n'
+          )
+          assertions = anchor + (
+              '                Assert.Contains(\n'
+              '                    services,\n'
+              '                    descriptor => descriptor.ServiceType == typeof(IStartupFilter)\n'
+              '                        && descriptor.ImplementationType == typeof(KinopoiskWebBootstrapStartupFilter));\n'
+              '                Assert.DoesNotContain(\n'
+              '                    services,\n'
+              '                    descriptor => descriptor.ServiceType == typeof(IHostedService)\n'
+              '                        && descriptor.ImplementationType == typeof(KinopoiskStandaloneWebClientService));\n'
+          )
+          if 'descriptor.ServiceType == typeof(IStartupFilter)' not in text:
+              if anchor not in text:
+                  raise SystemExit('Точка вставки DI-тестов не найдена.')
+              text = text.replace(anchor, assertions, 1)
+          activation.write_text(text, encoding='utf-8')
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Проверены сборка и тесты
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+          dotnet build src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj --configuration Release --no-restore --warnaserror
+          dotnet test src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj --configuration Release --no-restore
+
+      - name: Зафиксировано подключение Runtime Web Bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/KinopoiskPluginServiceRegistrator.cs \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/RuntimeActivationTests.cs
+          git commit -m 'Подключён Runtime Web Bootstrap к DI Jellyfin'
+          git push origin HEAD:feature/self-contained-web-bootstrap
