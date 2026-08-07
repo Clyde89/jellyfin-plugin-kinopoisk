@@ -1,0 +1,130 @@
+name: Проверка платформенной переносимости
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  managed-tests:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+          - name: Windows x64
+            os: windows-2025
+          - name: macOS Intel
+            os: macos-15-intel
+          - name: macOS ARM64
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Подтверждены ОС, архитектура и .NET
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet --info
+          [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+          [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+          [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+          $version = dotnet --version
+          if (-not $version.StartsWith('9.0.')) {
+              throw "Ожидался .NET SDK 9.0.x, получен $version."
+          }
+
+      - name: Восстановлены зависимости
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet restore src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+
+      - name: Собран плагин без предупреждений
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet build src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj `
+            --configuration Release `
+            --no-restore `
+            --warnaserror
+
+      - name: Выполнены тесты API
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet test src/KinopoiskUnofficialInfo.ApiClient.Tests/KinopoiskUnofficialInfo.ApiClient.Tests.csproj `
+            --configuration Release `
+            --no-restore `
+            --warnaserror
+
+      - name: Выполнены тесты плагина
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet test src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj `
+            --configuration Release `
+            --no-restore `
+            --warnaserror
+
+      - name: Подтверждена платформенно-независимая сборка
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = 'src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          $required = @(
+              'Jellyfin.Plugin.Kinopoisk.dll',
+              'KinopoiskUnofficialInfo.ApiClient.dll'
+          )
+          foreach ($name in $required) {
+              $path = Join-Path $output $name
+              if (-not (Test-Path $path -PathType Leaf)) {
+                  throw "Не найден обязательный managed-файл: $path"
+              }
+          }
+          $native = Get-ChildItem $output -File | Where-Object {
+              $_.Extension -in @('.so', '.dylib') -or
+              ($_.Extension -eq '.dll' -and $_.Name -notin @(
+                  'Jellyfin.Plugin.Kinopoisk.dll',
+                  'KinopoiskUnofficialInfo.ApiClient.dll'
+              ))
+          }
+          if ($native) {
+              $names = ($native | ForEach-Object Name) -join ', '
+              throw "Обнаружены неожиданные платформенные библиотеки: $names"
+          }
