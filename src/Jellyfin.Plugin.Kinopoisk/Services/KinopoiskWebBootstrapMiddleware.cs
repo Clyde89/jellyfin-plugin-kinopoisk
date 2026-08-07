@@ -29,16 +29,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private readonly RequestDelegate _next;
         private readonly KinopoiskWebBootstrapState _state;
         private readonly ILogger<KinopoiskWebBootstrapMiddleware> _logger;
+        private readonly Func<bool> _isEnabled;
 
         public KinopoiskWebBootstrapMiddleware(
-            RequestDelegate next,
-            KinopoiskWebBootstrapState state,
-            ILogger<KinopoiskWebBootstrapMiddleware> logger)
-        {
-            _next = next ?? throw new ArgumentNullException(nameof(next));
-            _state = state ?? throw new ArgumentNullException(nameof(state));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        }
+    RequestDelegate next,
+    KinopoiskWebBootstrapState state,
+    ILogger<KinopoiskWebBootstrapMiddleware> logger)
+    : this(next, state, logger, IsConfiguredEnabled)
+{
+}
+
+internal KinopoiskWebBootstrapMiddleware(
+    RequestDelegate next,
+    KinopoiskWebBootstrapState state,
+    ILogger<KinopoiskWebBootstrapMiddleware> logger,
+    Func<bool> isEnabled)
+{
+    _next = next ?? throw new ArgumentNullException(nameof(next));
+    _state = state ?? throw new ArgumentNullException(nameof(state));
+    _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    _isEnabled = isEnabled ?? throw new ArgumentNullException(nameof(isEnabled));
+}
 
         /// <summary>
         /// Выполнено преобразование только главного HTML Jellyfin Web.
@@ -47,7 +58,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         /// <returns>Асинхронная операция.</returns>
         public async Task InvokeAsync(HttpContext context)
         {
-            if (!ShouldTransform(context.Request))
+            if (!_isEnabled() || !ShouldTransform(context.Request))
             {
                 await _next(context).ConfigureAwait(false);
                 return;
@@ -122,6 +133,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 await CopyCapturedBodyAsync(capturedBody, originalBody, context).ConfigureAwait(false);
             }
         }
+
+        internal static bool IsConfiguredEnabled()
+            => Plugin.Instance?.Configuration?.EnableWebBootstrap != false;
 
         internal static bool ShouldTransform(HttpRequest request)
         {

@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using System.IO;
 using System.Text;
@@ -85,6 +87,32 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 File.Delete(temporaryFile);
             }
         }
+
+        [Fact]
+    public async Task ShouldLeaveIndexUntouchedWhenBootstrapDisabled()
+    {
+        var state = new KinopoiskWebBootstrapState();
+        var middleware = new KinopoiskWebBootstrapMiddleware(
+            async context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/html; charset=utf-8";
+                var bytes = Encoding.UTF8.GetBytes(OriginalHtml);
+                context.Response.ContentLength = bytes.Length;
+                await context.Response.Body.WriteAsync(bytes);
+            },
+            state,
+            NullLogger<KinopoiskWebBootstrapMiddleware>.Instance,
+            () => false);
+        var context = CreateContext("/web/index.html");
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(OriginalHtml, await ReadResponseAsync(context));
+        Assert.False(context.Response.Headers.ContainsKey("X-Kinopoisk-Web-Bootstrap"));
+        Assert.Equal(0, state.TransformedResponses);
+        Assert.Equal(0, state.Failures);
+    }
 
         [Fact]
         public async Task ShouldLeaveUnrelatedRouteUntouched()
