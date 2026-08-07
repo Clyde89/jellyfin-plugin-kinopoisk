@@ -1,0 +1,321 @@
+name: Проверка Runtime Web Bootstrap
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-probe:
+    name: Runtime Web Bootstrap (${{ matrix.scenario }})
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - clean
+          - readonly
+          - baseurl
+          - legacy-external
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      JELLYFIN_IMAGE: jellyfin/jellyfin:10.11.11
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build \
+            src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release \
+            --no-restore \
+            --warnaserror
+
+      - name: Подготовлен тестовый профиль Jellyfin
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -Eeuo pipefail
+
+          docker pull "$JELLYFIN_IMAGE"
+
+          plugin_version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot()
+          value = root.findtext('.//VersionPrefix')
+          if not value:
+              raise SystemExit('VersionPrefix плагина не найден.')
+          print(value.strip())
+          PY
+          )"
+
+          config_dir="$RUNNER_TEMP/kinopoisk-config-${SCENARIO}"
+          cache_dir="$RUNNER_TEMP/kinopoisk-cache-${SCENARIO}"
+          plugin_dir="$config_dir/plugins/КиноПоиск_${plugin_version}"
+          configuration_dir="$config_dir/plugins/configurations"
+          server_config_dir="$config_dir/config"
+          mkdir -p \
+            "$plugin_dir" \
+            "$configuration_dir" \
+            "$server_config_dir" \
+            "$cache_dir"
+
+          output_dir='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          cp "$output_dir/Jellyfin.Plugin.Kinopoisk.dll" "$plugin_dir/"
+          cp "$output_dir/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin_dir/"
+
+          cat > "$plugin_dir/meta.json" <<JSON
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-07T00:00:00Z",
+            "version": "${plugin_version}",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          JSON
+
+          cat > "$configuration_dir/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-integration-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+          </PluginConfiguration>
+          XML
+
+          if [[ "$SCENARIO" == 'baseurl' ]]; then
+            cat > "$server_config_dir/network.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <NetworkConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <BaseUrl>/jellyfin</BaseUrl>
+          </NetworkConfiguration>
+          XML
+          fi
+
+          stock_index="$RUNNER_TEMP/stock-index-${SCENARIO}.html"
+          docker run --rm --entrypoint cat "$JELLYFIN_IMAGE" \
+            /jellyfin/jellyfin-web/index.html > "$stock_index"
+          stock_hash="$(sha256sum "$stock_index" | awk '{print $1}')"
+
+          if [[ "$SCENARIO" == 'legacy-external' ]]; then
+            legacy_index="$RUNNER_TEMP/legacy-index.html"
+            cp "$stock_index" "$legacy_index"
+            python3 - "$legacy_index" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          value = path.read_text(encoding='utf-8')
+          block = '''<!-- KINOPOISK_WEB_CLIENT_BEGIN -->
+              <script src="../Kinopoisk/WebClient.js" defer data-kinopoisk-managed="external"></script>
+          <!-- KINOPOISK_WEB_CLIENT_END -->
+          '''
+          position = value.lower().rfind('</body>')
+          if position < 0:
+              raise SystemExit('Закрывающий тег body не найден в штатном index.html.')
+          value = value[:position] + block + value[position:]
+          path.write_text(value, encoding='utf-8')
+          PY
+            echo "LEGACY_INDEX=${legacy_index}" >> "$GITHUB_ENV"
+          fi
+
+          chmod -R a+rX,u+w "$config_dir" "$cache_dir"
+          echo "PLUGIN_VERSION=${plugin_version}" >> "$GITHUB_ENV"
+          echo "TEST_CONFIG=${config_dir}" >> "$GITHUB_ENV"
+          echo "TEST_CACHE=${cache_dir}" >> "$GITHUB_ENV"
+          echo "STOCK_INDEX_SHA256=${stock_hash}" >> "$GITHUB_ENV"
+
+      - name: Запущен чистый Jellyfin
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -Eeuo pipefail
+
+          args=(
+            run -d
+            --name kinopoisk-web-bootstrap-test
+            -p 127.0.0.1:18096:8096
+            -v "$TEST_CONFIG:/config"
+            -v "$TEST_CACHE:/cache"
+          )
+
+          if [[ "$SCENARIO" == 'readonly' ]]; then
+            args+=(
+              --read-only
+              --tmpfs /tmp:rw,nosuid,nodev,size=256m
+            )
+          fi
+
+          if [[ "$SCENARIO" == 'legacy-external' ]]; then
+            args+=(
+              -v "$LEGACY_INDEX:/jellyfin/jellyfin-web/index.html:ro"
+            )
+          fi
+
+          args+=("$JELLYFIN_IMAGE")
+          docker "${args[@]}"
+
+          if [[ "$SCENARIO" == 'baseurl' ]]; then
+            health_url='http://127.0.0.1:18096/jellyfin/health'
+          else
+            health_url='http://127.0.0.1:18096/health'
+          fi
+
+          health=''
+          for attempt in $(seq 1 120); do
+            health="$(curl -fsS --max-time 2 "$health_url" 2>/dev/null \
+              | tr -d '\r\n"[:space:]' || true)"
+            if [[ "$health" == 'Healthy' ]] \
+              && docker logs kinopoisk-web-bootstrap-test 2>&1 \
+                | grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.'; then
+              echo "Jellyfin готов: попытка ${attempt}/120"
+              break
+            fi
+            sleep 1
+          done
+
+          if [[ "$health" != 'Healthy' ]]; then
+            docker logs kinopoisk-web-bootstrap-test >&2 || true
+            exit 1
+          fi
+
+      - name: Проверена неизменность jellyfin-web
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -Eeuo pipefail
+
+          docker logs kinopoisk-web-bootstrap-test > "$RUNNER_TEMP/jellyfin.log" 2>&1
+          grep -F 'Loaded assembly Jellyfin.Plugin.Kinopoisk' "$RUNNER_TEMP/jellyfin.log"
+          grep -F 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.' \
+            "$RUNNER_TEMP/jellyfin.log"
+
+          mounts="$(docker inspect kinopoisk-web-bootstrap-test \
+            --format '{{range .Mounts}}{{println .Destination "|" .RW}}{{end}}')"
+
+          if [[ "$SCENARIO" == 'legacy-external' ]]; then
+            grep -Fq 'data-kinopoisk-managed="external"' "$LEGACY_INDEX"
+            if grep -Fq 'data-kinopoisk-managed="runtime"' "$LEGACY_INDEX"; then
+              echo 'Legacy index.html был изменён на диске.' >&2
+              exit 1
+            fi
+            grep -F '/jellyfin/jellyfin-web/index.html | false' <<< "$mounts"
+          else
+            runtime_hash="$(docker exec kinopoisk-web-bootstrap-test sha256sum \
+              /jellyfin/jellyfin-web/index.html | awk '{print $1}')"
+            test "$runtime_hash" = "$STOCK_INDEX_SHA256"
+            if grep -Fq '/jellyfin/jellyfin-web/index.html' <<< "$mounts"; then
+              echo 'Обнаружено запрещённое монтирование штатного index.html.' >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$SCENARIO" == 'readonly' ]]; then
+            test "$(docker inspect kinopoisk-web-bootstrap-test \
+              --format '{{.HostConfig.ReadonlyRootfs}}')" = 'true'
+          fi
+
+      - name: Проверены HTML, WebClient.js и HTTP-кэш
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "$SCENARIO" == 'baseurl' ]]; then
+            root_url='http://127.0.0.1:18096/jellyfin'
+          else
+            root_url='http://127.0.0.1:18096'
+          fi
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/index.headers" \
+            -o "$RUNNER_TEMP/index.html" \
+            "$root_url/web/index.html"
+
+          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_END -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc '../Kinopoisk/WebClient.js?v=' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          if grep -Fq 'data-kinopoisk-managed="external"' "$RUNNER_TEMP/index.html"; then
+            echo 'В HTTP-ответе сохранён устаревший external-блок.' >&2
+            exit 1
+          fi
+          grep -Fi 'X-Kinopoisk-Web-Bootstrap: runtime' "$RUNNER_TEMP/index.headers"
+
+          etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+            "$RUNNER_TEMP/index.headers")"
+          test -n "$etag"
+
+          curl -fsS \
+            -D "$RUNNER_TEMP/webclient.headers" \
+            -o "$RUNNER_TEMP/WebClient.js" \
+            "$root_url/Kinopoisk/WebClient.js"
+          grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
+          grep -Eiq '^ETag:' "$RUNNER_TEMP/webclient.headers"
+          grep -Eiq '^X-Content-Type-Options:[[:space:]]*nosniff' "$RUNNER_TEMP/webclient.headers"
+          grep -F 'Похожие и рекомендации' "$RUNNER_TEMP/WebClient.js" >/dev/null
+
+          status="$(curl -sS \
+            -o "$RUNNER_TEMP/index-304.body" \
+            -D "$RUNNER_TEMP/index-304.headers" \
+            -H "If-None-Match: $etag" \
+            -w '%{http_code}' \
+            "$root_url/web/index.html")"
+          test "$status" = '304'
+          test ! -s "$RUNNER_TEMP/index-304.body"
+
+          range_status="$(curl -sS \
+            -o "$RUNNER_TEMP/index-range.html" \
+            -D "$RUNNER_TEMP/index-range.headers" \
+            -H 'Range: bytes=0-63' \
+            -w '%{http_code}' \
+            "$root_url/web/index.html")"
+          test "$range_status" = '200'
+          test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index-range.html" || true)" -eq 1
+          if grep -Eiq '^Accept-Ranges:' "$RUNNER_TEMP/index-range.headers"; then
+            echo 'Runtime index.html не должен рекламировать байтовые диапазоны.' >&2
+            exit 1
+          fi
+
+      - name: Выведен журнал Jellyfin
+        if: always()
+        shell: bash
+        run: |
+          docker logs kinopoisk-web-bootstrap-test 2>&1 | tail -n 220 || true
+          docker rm -f kinopoisk-web-bootstrap-test >/dev/null 2>&1 || true
