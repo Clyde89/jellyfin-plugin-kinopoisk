@@ -72,9 +72,9 @@ jobs:
           plugin_version="$(python3 - <<'PY'
           import xml.etree.ElementTree as ET
           root = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot()
-          value = root.findtext('.//VersionPrefix')
+          value = root.findtext('.//Version')
           if not value:
-              raise SystemExit('VersionPrefix плагина не найден.')
+              raise SystemExit('Version плагина не найден.')
           print(value.strip())
           PY
           )"
