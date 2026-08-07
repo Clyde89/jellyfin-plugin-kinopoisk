@@ -1,0 +1,292 @@
+name: Временное добавление управления Runtime Web Bootstrap
+
+on:
+  push:
+    branches:
+      - feature/self-contained-web-bootstrap
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Добавлен workflow управления Runtime Web Bootstrap'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: feature/self-contained-web-bootstrap
+          fetch-depth: 0
+
+      - name: Добавлено runtime-управление middleware
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk/Services/KinopoiskWebBootstrapMiddleware.cs')
+          text = path.read_text(encoding='utf-8')
+
+          old_fields = '''        private readonly RequestDelegate _next;
+          private readonly KinopoiskWebBootstrapState _state;
+          private readonly ILogger<KinopoiskWebBootstrapMiddleware> _logger;
+          '''
+          new_fields = '''        private readonly RequestDelegate _next;
+          private readonly KinopoiskWebBootstrapState _state;
+          private readonly ILogger<KinopoiskWebBootstrapMiddleware> _logger;
+          private readonly Func<bool> _isEnabled;
+          '''
+          if old_fields not in text:
+              raise SystemExit('Поля middleware не найдены.')
+          text = text.replace(old_fields, new_fields, 1)
+
+          old_constructor = '''        public KinopoiskWebBootstrapMiddleware(
+              RequestDelegate next,
+              KinopoiskWebBootstrapState state,
+              ILogger<KinopoiskWebBootstrapMiddleware> logger)
+          {
+              _next = next ?? throw new ArgumentNullException(nameof(next));
+              _state = state ?? throw new ArgumentNullException(nameof(state));
+              _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+          }
+          '''
+          new_constructor = '''        public KinopoiskWebBootstrapMiddleware(
+              RequestDelegate next,
+              KinopoiskWebBootstrapState state,
+              ILogger<KinopoiskWebBootstrapMiddleware> logger)
+              : this(next, state, logger, IsConfiguredEnabled)
+          {
+          }
+
+          internal KinopoiskWebBootstrapMiddleware(
+              RequestDelegate next,
+              KinopoiskWebBootstrapState state,
+              ILogger<KinopoiskWebBootstrapMiddleware> logger,
+              Func<bool> isEnabled)
+          {
+              _next = next ?? throw new ArgumentNullException(nameof(next));
+              _state = state ?? throw new ArgumentNullException(nameof(state));
+              _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+              _isEnabled = isEnabled ?? throw new ArgumentNullException(nameof(isEnabled));
+          }
+          '''
+          if old_constructor not in text:
+              raise SystemExit('Конструктор middleware не найден.')
+          text = text.replace(old_constructor, new_constructor, 1)
+
+          old_guard = '''            if (!ShouldTransform(context.Request))
+              {
+                  await _next(context).ConfigureAwait(false);
+                  return;
+              }
+          '''
+          new_guard = '''            if (!_isEnabled() || !ShouldTransform(context.Request))
+              {
+                  await _next(context).ConfigureAwait(false);
+                  return;
+              }
+          '''
+          if old_guard not in text:
+              raise SystemExit('Защитное условие middleware не найдено.')
+          text = text.replace(old_guard, new_guard, 1)
+
+          method_anchor = '''        internal static bool ShouldTransform(HttpRequest request)
+          {
+          '''
+          policy = '''        internal static bool IsConfiguredEnabled()
+              => Plugin.Instance?.Configuration?.EnableWebBootstrap != false;
+
+          '''
+          if policy.strip() not in text:
+              if method_anchor not in text:
+                  raise SystemExit('Точка вставки policy не найдена.')
+              text = text.replace(method_anchor, policy + method_anchor, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+      - name: Добавлено управление на странице параметров
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk/Configuration/configPage.html')
+          text = path.read_text(encoding='utf-8')
+
+          anchor = '''                    <h2>Стандартные функции Jellyfin</h2>
+          '''
+          block = '''                    <h2>Веб-интеграция</h2>
+              <div class="checkboxContainer checkboxContainer-withDescription">
+                  <label><input id="EnableWebBootstrap" type="checkbox" is="emby-checkbox" /><span>Самодостаточная веб-интеграция КиноПоиска</span></label>
+                  <div class="fieldDescription checkboxFieldDescription">Runtime Web Bootstrap подключает встроенный WebClient.js к Jellyfin Web в памяти процесса. Файл index.html на диске не изменён.</div>
+              </div>
+              <div class="kinopoiskStatusCard">
+                  <div><strong>Runtime Bootstrap:</strong> <span id="WebBootstrapStatus">ещё не проверялся</span></div>
+                  <div><strong>Режим:</strong> <code id="WebBootstrapMode">runtime-http</code></div>
+                  <div><strong>Версия bundle:</strong> <code id="WebBootstrapBundleVersion">—</code></div>
+                  <div><strong>Преобразовано index.html:</strong> <span id="WebBootstrapTransforms">0</span></div>
+                  <div><strong>Ошибки fail-open:</strong> <span id="WebBootstrapFailures">0</span></div>
+                  <div><strong>Последний ETag:</strong> <code id="WebBootstrapLastEtag">—</code></div>
+              </div>
+
+          '''
+          if 'id="EnableWebBootstrap"' not in text:
+              if anchor not in text:
+                  raise SystemExit('Точка вставки раздела веб-интеграции не найдена.')
+              text = text.replace(anchor, block + anchor, 1)
+
+          load_anchor = "            setValue('#ApiToken', config.ApiToken, '');\n"
+          load_line = "            setCheckbox('#EnableWebBootstrap', config.EnableWebBootstrap, true);\n"
+          if load_line not in text:
+              if load_anchor not in text:
+                  raise SystemExit('Точка загрузки EnableWebBootstrap не найдена.')
+              text = text.replace(load_anchor, load_anchor + load_line, 1)
+
+          diagnostics_anchor = '''            var diagnostics = config.Diagnostics || {};
+          '''
+          status_block = '''            var webBootstrap = config.WebBootstrap || {};
+              var webBootstrapStatus = !config.EnableWebBootstrap
+                  ? 'выключен администратором'
+                  : (webBootstrap.PipelineRegistered ? 'активен' : 'ожидает регистрации pipeline');
+              $('#WebBootstrapStatus').text(webBootstrapStatus);
+              $('#WebBootstrapMode').text(webBootstrap.Mode || 'runtime-http');
+              $('#WebBootstrapBundleVersion').text(webBootstrap.BundleVersion || '—');
+              $('#WebBootstrapTransforms').text(webBootstrap.TransformedResponses || 0);
+              $('#WebBootstrapFailures').text(webBootstrap.Failures || 0);
+              $('#WebBootstrapLastEtag').text(webBootstrap.LastEtag || '—');
+
+          '''
+          if 'var webBootstrap = config.WebBootstrap || {};' not in text:
+              if diagnostics_anchor not in text:
+                  raise SystemExit('Точка вывода статуса Web Bootstrap не найдена.')
+              text = text.replace(diagnostics_anchor, status_block + diagnostics_anchor, 1)
+
+          save_anchor = "            config.ApiToken = $('#ApiToken').val();\n"
+          save_line = "            config.EnableWebBootstrap = $('#EnableWebBootstrap').prop('checked');\n"
+          if save_line not in text:
+              if save_anchor not in text:
+                  raise SystemExit('Точка сохранения EnableWebBootstrap не найдена.')
+              text = text.replace(save_anchor, save_anchor + save_line, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+      - name: Добавлены тесты выключателя
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskWebBootstrapMiddlewareTests.cs')
+          text = path.read_text(encoding='utf-8')
+          anchor = '''        [Fact]
+              public async Task ShouldLeaveUnrelatedRouteUntouched()
+          '''
+          test = '''        [Fact]
+              public async Task ShouldLeaveIndexUntouchedWhenBootstrapDisabled()
+              {
+                  var state = new KinopoiskWebBootstrapState();
+                  var middleware = new KinopoiskWebBootstrapMiddleware(
+                      async context =>
+                      {
+                          context.Response.StatusCode = StatusCodes.Status200OK;
+                          context.Response.ContentType = "text/html; charset=utf-8";
+                          var bytes = Encoding.UTF8.GetBytes(OriginalHtml);
+                          context.Response.ContentLength = bytes.Length;
+                          await context.Response.Body.WriteAsync(bytes);
+                      },
+                      state,
+                      NullLogger<KinopoiskWebBootstrapMiddleware>.Instance,
+                      () => false);
+                  var context = CreateContext("/web/index.html");
+
+                  await middleware.InvokeAsync(context);
+
+                  Assert.Equal(OriginalHtml, await ReadResponseAsync(context));
+                  Assert.False(context.Response.Headers.ContainsKey("X-Kinopoisk-Web-Bootstrap"));
+                  Assert.Equal(0, state.TransformedResponses);
+                  Assert.Equal(0, state.Failures);
+              }
+
+          '''
+          if 'ShouldLeaveIndexUntouchedWhenBootstrapDisabled' not in text:
+              if anchor not in text:
+                  raise SystemExit('Точка вставки теста выключателя не найдена.')
+              text = text.replace(anchor, test + anchor, 1)
+          path.write_text(text, encoding='utf-8')
+
+          status_test = Path('src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskWebBootstrapConfigurationTests.cs')
+          if not status_test.exists():
+              status_test.write_text('''using Jellyfin.Plugin.Kinopoisk.Configuration;
+          using Jellyfin.Plugin.Kinopoisk.Services;
+          using Xunit;
+
+          namespace Jellyfin.Plugin.Kinopoisk.Tests
+          {
+              public class KinopoiskWebBootstrapConfigurationTests
+              {
+                  [Fact]
+                  public void ShouldEnableRuntimeWebBootstrapByDefault()
+                  {
+                      var configuration = new PluginConfiguration();
+
+                      Assert.True(configuration.EnableWebBootstrap);
+                      Assert.True(configuration.WebBootstrap.Enabled);
+                  }
+
+                  [Fact]
+                  public void ShouldExposeRuntimeBootstrapSnapshot()
+                  {
+                      var state = new KinopoiskWebBootstrapState();
+                      state.MarkPipelineRegistered();
+                      state.RecordSuccess("\\\"kp-test\\\"");
+                      var configuration = new PluginConfiguration
+                      {
+                          EnableWebBootstrap = false
+                      };
+
+                      var snapshot = configuration.WebBootstrap;
+
+                      Assert.False(snapshot.Enabled);
+                      Assert.True(snapshot.PipelineRegistered);
+                      Assert.Equal(1, snapshot.TransformedResponses);
+                      Assert.Equal(0, snapshot.Failures);
+                      Assert.Equal("\\\"kp-test\\\"", snapshot.LastEtag);
+                      Assert.Equal("runtime-http", snapshot.Mode);
+                      Assert.NotEmpty(snapshot.BundleVersion);
+                  }
+              }
+          }
+          ''', encoding='utf-8')
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Проверены сборка и тесты
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj
+          dotnet build src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj \
+            --configuration Release --no-restore --warnaserror
+          dotnet test src/Jellyfin.Plugin.Kinopoisk.Tests/Jellyfin.Plugin.Kinopoisk.Tests.csproj \
+            --configuration Release --no-restore
+          grep -F 'id="EnableWebBootstrap"' src/Jellyfin.Plugin.Kinopoisk/Configuration/configPage.html
+          grep -F "config.EnableWebBootstrap = $('#EnableWebBootstrap').prop('checked');" \
+            src/Jellyfin.Plugin.Kinopoisk/Configuration/configPage.html
+
+      - name: Зафиксировано управление Runtime Web Bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Jellyfin.Plugin.Kinopoisk/Services/KinopoiskWebBootstrapMiddleware.cs \
+            src/Jellyfin.Plugin.Kinopoisk/Configuration/configPage.html \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskWebBootstrapMiddlewareTests.cs \
+            src/Jellyfin.Plugin.Kinopoisk.Tests/KinopoiskWebBootstrapConfigurationTests.cs
+          git commit -m 'Добавлено управление Runtime Web Bootstrap'
+          git push origin HEAD:feature/self-contained-web-bootstrap
