@@ -130,6 +130,44 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public async Task ShouldIgnoreRangeForRuntimeIndexAndRestoreRequestHeaders()
+        {
+            string? downstreamRange = null;
+            string? downstreamIfRange = null;
+            var state = new KinopoiskWebBootstrapState();
+            var middleware = new KinopoiskWebBootstrapMiddleware(
+                async context =>
+                {
+                    downstreamRange = context.Request.Headers.Range.ToString();
+                    downstreamIfRange = context.Request.Headers.IfRange.ToString();
+                    context.Response.StatusCode = StatusCodes.Status200OK;
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    context.Response.Headers.AcceptRanges = "bytes";
+                    var bytes = Encoding.UTF8.GetBytes(OriginalHtml);
+                    context.Response.ContentLength = bytes.Length;
+                    await context.Response.Body.WriteAsync(bytes);
+                },
+                state,
+                NullLogger<KinopoiskWebBootstrapMiddleware>.Instance);
+            var context = CreateContext("/web/index.html");
+            context.Request.Headers.Range = "bytes=0-63";
+            context.Request.Headers.IfRange = "\"stock-etag\"";
+
+            await middleware.InvokeAsync(context);
+
+            Assert.Equal(string.Empty, downstreamRange);
+            Assert.Equal(string.Empty, downstreamIfRange);
+            Assert.Equal("bytes=0-63", context.Request.Headers.Range.ToString());
+            Assert.Equal("\"stock-etag\"", context.Request.Headers.IfRange.ToString());
+            Assert.False(context.Response.Headers.ContainsKey("Accept-Ranges"));
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+            Assert.Contains(
+                KinopoiskWebBootstrapTransformer.RuntimeManagedAttribute,
+                await ReadResponseAsync(context),
+                StringComparison.Ordinal);
+        }
+
+        [Fact]
         public async Task ShouldMigrateLegacyExternalBlockWithoutDuplication()
         {
             var external = KinopoiskStandaloneWebClientService.BuildExternallyManagedIndex(
