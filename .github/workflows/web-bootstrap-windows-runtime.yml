@@ -66,7 +66,6 @@ jobs:
           $index = Join-Path $webDir 'index.html'
           if (-not (Test-Path $index -PathType Leaf)) { throw "Штатный index.html не найден: $index" }
 
-          & $exe.FullName --version
           "JELLYFIN_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "JELLYFIN_WEB_DIR=$webDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "STOCK_INDEX_SHA256=$((Get-FileHash -Algorithm SHA256 $index).Hash.ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
