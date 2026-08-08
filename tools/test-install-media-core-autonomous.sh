@@ -4,7 +4,6 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 ROOT="$(mktemp -d)"
-trap 'rm -rf -- "$ROOT"' EXIT
 
 PKG="$ROOT/package"
 BIN="$ROOT/bin"
@@ -22,6 +21,40 @@ DOCKER_LOG="$ROOT/docker.log"
 EXPECTED_TARGET="/jellyfin/jellyfin-web/index.html"
 LEGACY_OVERRIDE_CONTENT='services: legacy-runtime-test'
 LEGACY_INDEX_CONTENT='<!doctype html><html><body data-kinopoisk-managed="external">legacy</body></html>'
+
+failure_report() {
+  local code="$1"
+  local line="$2"
+  local command="$3"
+  trap - ERR
+  set +e
+
+  printf '\n=== Диагностика отказа теста установщика ===\n' >&2
+  printf 'Код: %s\n' "$code" >&2
+  printf 'Строка: %s\n' "$line" >&2
+  printf 'Команда: %s\n' "$command" >&2
+  if [[ -f "$STATE/mode" ]]; then
+    printf 'Fake mode: %s\n' "$(cat "$STATE/mode")" >&2
+  fi
+  if [[ -f "$DOCKER_LOG" ]]; then
+    printf '%s\n' '--- docker.log ---' >&2
+    tail -n 120 "$DOCKER_LOG" >&2
+  fi
+
+  shopt -s nullglob
+  local file
+  for file in "$ROOT"/*.log; do
+    printf '%s\n' "--- $(basename "$file") ---" >&2
+    cat "$file" >&2
+  done
+
+  printf '%s\n' '--- дерево состояния ---' >&2
+  find "$ROOT" -maxdepth 4 -type f -o -type d | sort >&2
+  exit "$code"
+}
+
+trap 'failure_report "$?" "$LINENO" "$BASH_COMMAND"' ERR
+trap 'rm -rf -- "$ROOT"' EXIT
 
 mkdir -p \
   "$PKG" \
