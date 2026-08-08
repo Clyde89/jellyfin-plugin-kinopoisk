@@ -113,6 +113,20 @@ jobs:
           echo "JELLYFIN_WEB_DIR=${web_dir}" >> "$GITHUB_ENV"
           echo "STOCK_INDEX_SHA256=$(shasum -a 256 "$web_dir/index.html" | awk '{print $1}')" >> "$GITHUB_ENV"
 
+      - name: Установлен FFmpeg для portable Jellyfin
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
+          ffmpeg_path="$(command -v ffmpeg)"
+          ffprobe_path="$(command -v ffprobe)"
+          [[ -x "$ffmpeg_path" && -x "$ffprobe_path" ]]
+          xattr -rd com.apple.quarantine "$(dirname "$ffmpeg_path")" 2>/dev/null || true
+          "$ffmpeg_path" -version | head -n 1
+          echo "JELLYFIN_FFMPEG=${ffmpeg_path}" >> "$GITHUB_ENV"
+
       - name: Подготовлен чистый macOS-профиль
         shell: bash
         run: |
@@ -147,7 +161,7 @@ jobs:
             "name": "КиноПоиск",
             "owner": "Clyde89; LinFor; skrashevich",
             "targetAbi": "10.11.0.0",
-            "timestamp": "2026-08-07T00:00:00Z",
+            "timestamp": "2026-08-08T00:00:00Z",
             "version": "${plugin_version}",
             "status": "Active",
             "autoUpdate": false
@@ -168,7 +182,7 @@ jobs:
           echo "JELLYFIN_TEST_CACHE=${cache}" >> "$GITHUB_ENV"
           echo "JELLYFIN_TEST_LOG=${log}" >> "$GITHUB_ENV"
 
-      - name: Запущен настоящий Jellyfin macOS
+      - name: Запущен и проверен настоящий Jellyfin macOS
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -181,36 +195,41 @@ jobs:
             --cachedir "$JELLYFIN_TEST_CACHE" \
             --logdir "$JELLYFIN_TEST_LOG" \
             --webdir "$JELLYFIN_WEB_DIR" \
+            --ffmpeg "$JELLYFIN_FFMPEG" \
             >"$stdout" 2>"$stderr" &
           pid=$!
-          echo "JELLYFIN_TEST_PID=${pid}" >> "$GITHUB_ENV"
 
-          health=''
+          cleanup() {
+            if kill -0 "$pid" 2>/dev/null; then
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
           for attempt in $(seq 1 120); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo 'Jellyfin macOS завершился раньше готовности.' >&2
+              cat "$stdout" "$stderr" >&2 || true
+              exit 1
+            fi
+
             health="$(curl -fsS --max-time 2 http://127.0.0.1:8096/health 2>/dev/null \
               | tr -d '\r\n"[:space:]' || true)"
             combined="$(cat "$stdout" "$stderr" 2>/dev/null || true; find "$JELLYFIN_TEST_LOG" -maxdepth 1 -type f -exec cat {} \; 2>/dev/null || true)"
             if [[ "$health" == 'Healthy' ]] \
               && grep -Fq 'Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.' <<< "$combined"; then
               echo "macOS Jellyfin готов: попытка ${attempt}/120"
-              exit 0
-            fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-              echo 'Jellyfin macOS завершился раньше готовности.' >&2
-              cat "$stdout" "$stderr" >&2 || true
-              exit 1
+              ready=true
+              break
             fi
             sleep 1
           done
-
-          echo 'Jellyfin macOS или Runtime Web Bootstrap не достигли готового состояния.' >&2
-          cat "$stdout" "$stderr" >&2 || true
-          exit 1
-
-      - name: Проверен macOS Runtime Web Bootstrap
-        shell: bash
-        run: |
-          set -Eeuo pipefail
+          [[ "$ready" == true ]] || {
+            echo 'Jellyfin macOS или Runtime Web Bootstrap не достигли готового состояния.' >&2
+            exit 1
+          }
 
           runtime_hash="$(shasum -a 256 "$JELLYFIN_WEB_DIR/index.html" | awk '{print $1}')"
           test "$runtime_hash" = "$STOCK_INDEX_SHA256"
@@ -220,9 +239,10 @@ jobs:
             -o "$RUNNER_TEMP/index.html" \
             http://127.0.0.1:8096/web/index.html
           test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
+          test "$(grep -Foc '<!-- KINOPOISK_WEB_CLIENT_END -->' "$RUNNER_TEMP/index.html" || true)" -eq 1
           test "$(grep -Foc 'data-kinopoisk-managed="runtime"' "$RUNNER_TEMP/index.html" || true)" -eq 1
           test "$(grep -Foc '../Kinopoisk/WebClient.js?v=' "$RUNNER_TEMP/index.html" || true)" -eq 1
-          grep -Fi 'X-Kinopoisk-Web-Bootstrap: runtime' "$RUNNER_TEMP/index.headers"
+          grep -Eiq '^X-Kinopoisk-Web-Bootstrap:[[:space:]]*runtime[[:space:]]*$' "$RUNNER_TEMP/index.headers"
 
           etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
             "$RUNNER_TEMP/index.headers")"
@@ -233,7 +253,7 @@ jobs:
             -o "$RUNNER_TEMP/WebClient.js" \
             http://127.0.0.1:8096/Kinopoisk/WebClient.js
           grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
-          grep -F 'Похожие и рекомендации' "$RUNNER_TEMP/WebClient.js" >/dev/null
+          grep -F 'kinopoiskRecommendationLifecycleGuard' "$RUNNER_TEMP/WebClient.js" >/dev/null
 
           status="$(curl -sS \
             -o "$RUNNER_TEMP/index-304.body" \
@@ -242,6 +262,8 @@ jobs:
             http://127.0.0.1:8096/web/index.html)"
           test "$status" = '304'
           test ! -s "$RUNNER_TEMP/index-304.body"
+
+          echo 'macOS Runtime Web Bootstrap подтверждён.'
 
       - name: Сохранена диагностика macOS runtime
         if: always()
@@ -255,6 +277,7 @@ jobs:
             ${{ runner.temp }}/index.html
             ${{ runner.temp }}/webclient.headers
             ${{ runner.temp }}/WebClient.js
+            ${{ runner.temp }}/index-304.body
             ${{ runner.temp }}/jellyfin-macos-data/log/**
           if-no-files-found: ignore
           retention-days: 7
@@ -265,6 +288,3 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/jellyfin-macos.stdout.log" "$RUNNER_TEMP/jellyfin-macos.stderr.log" 2>/dev/null | tail -n 220 || true
           find "${JELLYFIN_TEST_LOG:-$RUNNER_TEMP/does-not-exist}" -maxdepth 1 -type f -exec sh -c 'echo "=== $1 ==="; tail -n 220 "$1"' _ {} \; 2>/dev/null || true
-          if [[ -n "${JELLYFIN_TEST_PID:-}" ]]; then
-            kill "$JELLYFIN_TEST_PID" 2>/dev/null || true
-          fi
