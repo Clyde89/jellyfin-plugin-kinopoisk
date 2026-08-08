@@ -1,88 +1,104 @@
-# Автономный КиноПоиск в защищённом `media-core`
+# Самодостаточный КиноПоиск в защищённом `media-core`
 
-Комплект предназначен для Jellyfin 10.11.11, запущенного с `read_only: true`.
-JavaScript Injector не требуется.
+Комплект подготовлен для Jellyfin 10.11.11 с `read_only: true`.
+JavaScript Injector исключён из обязательных зависимостей.
 
 ## Архитектура
 
-- Клиентский JavaScript хранится внутри `Jellyfin.Plugin.Kinopoisk.dll`.
-- Jellyfin выдаёт bundle через `Kinopoisk/WebClient.js`.
-- На хосте создаётся отдельный управляемый `index.html`.
-- В контейнер он подключается точечным bind mount с `read_only: true`.
-- Корневой слой контейнера и сам `index.html` остаются неизменяемыми.
-- Отдельный JavaScript-файл в Jellyfin Web не создаётся.
+- Клиентский JavaScript встроен в `Jellyfin.Plugin.Kinopoisk.dll`.
+- Bundle опубликован серверным endpoint `Kinopoisk/WebClient.js`.
+- Подключение bundle перенесено в Runtime Web Bootstrap внутри HTTP pipeline Jellyfin.
+- Штатный `jellyfin-web/index.html` сохранён без изменений на диске.
+- Внешний bind mount `index.html` исключён из новой схемы.
+- Совместимость с Jellyfin Base URL сохранена.
+- Сильный ETag и ответ `304 Not Modified` добавлены для runtime HTML и `WebClient.js`.
+- Работа с `ReadonlyRootfs=true` подтверждена постоянными runtime-проверками.
 
-## Состав комплекта
+## Состав автономного комплекта
 
-- `install-media-core-autonomous.sh` — транзакционные `plan`, `apply`, `verify` и `rollback`.
-- `prepare-kinopoisk-readonly-index.py` — атомарная подготовка, проверка и удаление управляемого блока.
-- `prepare-media-core-readonly.sh` — подготовка внешнего `index.html` и Compose override без замены DLL и без перезапуска.
-- `Jellyfin.Plugin.Kinopoisk.dll` и `.pdb` — основной плагин.
-- `KinopoiskUnofficialInfo.ApiClient.dll` и `.pdb` — API-клиент.
-- `SHA256SUMS` — контрольные суммы всех файлов комплекта.
+- `install-media-core-autonomous.sh` — добавлены транзакционные режимы `plan`, `apply`, `verify` и `rollback`.
+- `Jellyfin.Plugin.Kinopoisk.dll` и `.pdb` — добавлены основной плагин и отладочные символы.
+- `KinopoiskUnofficialInfo.ApiClient.dll` и `.pdb` — добавлены API-клиент и отладочные символы.
+- `PACKAGE-INFO.txt` — добавлена сводка кандидата и его установочной модели.
+- `SHA256SUMS` — добавлены контрольные суммы файлов комплекта.
 
-## Рекомендуемый порядок
+Утилиты прежнего external Web-слоя сохранены только в репозитории для совместимости и тестов миграции. В автономный пакет `10.11.0.6` они не включены.
 
-Сначала выполнить только read-only план:
+## Read-only план
+
+Сначала запущен только диагностический режим:
 
 ```bash
-chmod +x \
-  install-media-core-autonomous.sh \
-  prepare-media-core-readonly.sh \
-  prepare-kinopoisk-readonly-index.py
-
+chmod 750 install-media-core-autonomous.sh
 ./install-media-core-autonomous.sh plan
 ```
 
-Команда `plan`:
+В режиме `plan` выполнены следующие проверки:
 
-- проверяет SHA-256 комплекта;
-- проверяет базовый Compose и `read_only: true`;
-- использует существующий Compose-проект `media-core-jellyfin`;
-- обнаруживает реальный `/config` mount и фактически загруженный каталог КиноПоиска;
-- показывает текущие и целевые SHA-256;
-- не изменяет файлы и контейнеры.
+- подтверждена целостность комплекта по SHA-256;
+- подтверждён базовый Compose и `read_only: true`;
+- обнаружен существующий Compose-проект `media-core-jellyfin`;
+- обнаружены реальный `/config` mount и фактически загруженный каталог КиноПоиска;
+- определён фактический путь штатного `index.html` внутри контейнера;
+- проверено отсутствие Web mount в базовом Compose;
+- распознан прежний управляемый external mount, когда он присутствовал;
+- выведены текущие и целевые SHA-256;
+- изменения файлов и контейнеров не выполнены.
 
-После проверки плана применяется явная транзакционная команда:
+## Транзакционное применение
+
+После проверки вывода `plan` запущена явная команда применения:
 
 ```bash
 ./install-media-core-autonomous.sh apply --confirm
 ```
 
-## Что делает `apply`
+В режиме `apply` выполнены следующие действия:
 
-1. Создаёт отдельную транзакцию в `/srv/media-core/backups/jellyfin-kinopoisk/`.
-2. Резервирует текущий каталог плагина, XML-конфигурацию, Compose-файл, прежний override и внешний `index.html`.
-3. Создаёт самостоятельный `rollback.sh` внутри транзакции.
-4. Подготавливает внешний read-only `index.html`.
-5. Проверяет временный Compose override до установки и установленный override после записи.
-6. Создаёт отдельный каталог `КиноПоиск_10.11.0.5` и меняет только DLL/PDB и версию в `meta.json`.
-7. Сохраняет `Jellyfin.Plugin.Kinopoisk.xml` без изменений.
-8. Пересоздаёт только сервис Jellyfin в проекте `media-core-jellyfin`.
-9. Не пересоздаёт и не перезапускает `jellyfin-egress-proxy`.
-10. Проверяет `healthy`, Jellyfin 10.11.11, `ReadonlyRootfs`, read-only mount, API endpoint, MIME, ETag, `304 Not Modified`, состав bundle и журналы загрузки.
-11. Подтверждает отсутствие автоматического запуска Preview и Apply.
-12. При любой критической ошибке автоматически выполняет точный откат.
+1. Создана отдельная транзакция в `/srv/media-core/backups/jellyfin-kinopoisk/`.
+2. Сохранены текущий каталог плагина, XML-конфигурация, базовый Compose и `docker inspect` Jellyfin.
+3. Сохранены прежний Compose override и внешний `index.html`, когда они существовали.
+4. Создан самостоятельный `rollback.sh` внутри транзакции.
+5. Подготовлен отдельный каталог `КиноПоиск_10.11.0.6`.
+6. Заменены только DLL/PDB и версия в `meta.json`.
+7. `Jellyfin.Plugin.Kinopoisk.xml` сохранён без изменений.
+8. Удалены только распознанные legacy-файлы external Web-слоя.
+9. Jellyfin пересоздан только из базового Compose проекта `media-core-jellyfin`.
+10. `jellyfin-egress-proxy` сохранён без пересоздания и перезапуска.
+11. Подтверждены `healthy`, Jellyfin 10.11.11 и `ReadonlyRootfs=true`.
+12. Подтверждено отсутствие mount на штатный `index.html`.
+13. Подтверждены Runtime Web Bootstrap, единственный runtime-блок, ETag и `304 Not Modified`.
+14. Подтверждены MIME, ETag, `nosniff` и состав `WebClient.js`.
+15. Подтверждена загрузка версии `10.11.0.6` без критических ошибок DI/assembly loading.
+16. Подтверждено отсутствие автоматического запуска Preview и Apply.
+17. При критической ошибке запущен автоматический точный откат.
 
-Пакет не запускает обновление библиотек.
+Обновление библиотек медиатеки установщиком не запускалось.
 
 ## Проверка установленного состояния
+
+Отдельная runtime-проверка выполнена командой:
 
 ```bash
 ./install-media-core-autonomous.sh verify
 ```
 
-При наличии `LATEST` проверяется последняя транзакция, включая неизменность XML-конфигурации и состояние `jellyfin-egress-proxy`.
+При переданном пути транзакции дополнительно подтверждены исходный SHA-256 XML-конфигурации и неизменность `jellyfin-egress-proxy`:
+
+```bash
+./install-media-core-autonomous.sh verify \
+  /srv/media-core/backups/jellyfin-kinopoisk/ТРАНЗАКЦИЯ
+```
 
 ## Ручной откат
 
-Откат последней транзакции:
+Откат последней транзакции выполнен командой:
 
 ```bash
 ./install-media-core-autonomous.sh rollback --confirm
 ```
 
-Откат конкретной транзакции:
+Откат выбранной транзакции выполнен командой:
 
 ```bash
 ./install-media-core-autonomous.sh rollback \
@@ -90,44 +106,33 @@ chmod +x \
   --confirm
 ```
 
-Также каждая транзакция содержит самостоятельный сценарий:
+В каждой транзакции также создан самостоятельный сценарий:
 
 ```bash
 /srv/media-core/backups/jellyfin-kinopoisk/ТРАНЗАКЦИЯ/rollback.sh
 ```
 
-## Только подготовка Web-слоя
+При откате восстановлены прежний каталог плагина, XML-конфигурация и legacy external Web-слой, когда он существовал до транзакции.
 
-Для диагностики и формирования Web-слоя без замены DLL и без перезапуска Jellyfin:
+## Миграция прежней external-схемы
 
-```bash
-./prepare-media-core-readonly.sh plan
-./prepare-media-core-readonly.sh prepare
-```
+Для известной прежней схемы использованы следующие значения по умолчанию:
 
-## Управляемый блок
+- Compose override: `/srv/media-core/compose/compose.jellyfin.kinopoisk-web.yaml`;
+- внешний HTML: `/srv/media-core/appdata/jellyfin-web/kinopoisk/index.html`.
+
+Перед удалением выполнено строгое сопоставление фактического mount с известным управляемым источником. Неизвестный mount на штатный `index.html` остановил применение до внесения изменений.
+
+После успешной миграции внешний override и внешний HTML удалены, а штатный `index.html` внутри Jellyfin остался неизменным.
+
+## Runtime-блок
+
+Runtime Web Bootstrap сформировал в HTTP-ответе один управляемый блок:
 
 ```html
 <!-- KINOPOISK_WEB_CLIENT_BEGIN -->
-    <script src="../Kinopoisk/WebClient.js" defer data-kinopoisk-managed="external"></script>
+<script data-kinopoisk-managed="runtime" src="../Kinopoisk/WebClient.js?v=..."></script>
 <!-- KINOPOISK_WEB_CLIENT_END -->
 ```
 
-Относительный путь сохраняет совместимость с обычным `/web/` и Jellyfin Base URL.
-URL не фиксирует версию bundle: после замены DLL браузер безопасно перепроверяет ресурс по ETag.
-
-## Проверка отдельного `index.html`
-
-```bash
-python3 prepare-kinopoisk-readonly-index.py check \
-  --input /srv/media-core/appdata/jellyfin-web/kinopoisk/index.html
-```
-
-## Удаление управляемого блока
-
-```bash
-python3 prepare-kinopoisk-readonly-index.py remove \
-  --input /srv/media-core/appdata/jellyfin-web/kinopoisk/index.html \
-  --output /srv/media-core/appdata/jellyfin-web/kinopoisk/index.clean.html \
-  --backup-dir /srv/media-core/appdata/jellyfin-web/kinopoisk/backups
-```
+Этот блок сформирован только в ответе HTTP. Запись блока в файл Jellyfin Web не выполнялась.
