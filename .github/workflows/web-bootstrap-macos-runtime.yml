@@ -109,7 +109,6 @@ jobs:
             exit 1
           }
 
-          "$executable" --version
           echo "JELLYFIN_EXE=${executable}" >> "$GITHUB_ENV"
           echo "JELLYFIN_WEB_DIR=${web_dir}" >> "$GITHUB_ENV"
           echo "STOCK_INDEX_SHA256=$(shasum -a 256 "$web_dir/index.html" | awk '{print $1}')" >> "$GITHUB_ENV"
