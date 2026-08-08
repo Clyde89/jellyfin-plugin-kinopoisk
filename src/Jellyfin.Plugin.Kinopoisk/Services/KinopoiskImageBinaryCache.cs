@@ -357,20 +357,23 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var temporaryPath = metadataPath + ".tmp-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             try
             {
-                await using var stream = new FileStream(
+                await using (var stream = new FileStream(
                     temporaryPath,
                     FileMode.CreateNew,
                     FileAccess.Write,
                     FileShare.None,
                     4096,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                await JsonSerializer.SerializeAsync(
-                        stream,
-                        metadata,
-                        SerializerOptions,
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-                await stream.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                    FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    await JsonSerializer.SerializeAsync(
+                            stream,
+                            metadata,
+                            SerializerOptions,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                    await stream.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+
                 File.Move(temporaryPath, metadataPath, true);
             }
             catch
