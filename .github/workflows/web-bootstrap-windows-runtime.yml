@@ -62,6 +62,7 @@ jobs:
 
           $exe = Get-ChildItem -Path $root -Filter jellyfin.exe -File -Recurse | Select-Object -First 1
           if (-not $exe) { throw 'jellyfin.exe не найден в официальном portable ZIP.' }
+
           $webDir = Join-Path $exe.Directory.FullName 'jellyfin-web'
           $index = Join-Path $webDir 'index.html'
           if (-not (Test-Path $index -PathType Leaf)) { throw "Штатный index.html не найден: $index" }
@@ -98,7 +99,7 @@ jobs:
             "name": "КиноПоиск",
             "owner": "Clyde89; LinFor; skrashevich",
             "targetAbi": "10.11.0.0",
-            "timestamp": "2026-08-07T00:00:00Z",
+            "timestamp": "2026-08-08T00:00:00Z",
             "version": "$version",
             "status": "Active",
             "autoUpdate": false
@@ -119,7 +120,7 @@ jobs:
           "JELLYFIN_TEST_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "JELLYFIN_TEST_LOG=$log" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Запущен настоящий Jellyfin Windows x64
+      - name: Запущен и проверен настоящий Jellyfin Windows x64
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -135,90 +136,94 @@ jobs:
           )
           $process = Start-Process -FilePath $env:JELLYFIN_EXE -ArgumentList $arguments -PassThru `
               -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          "JELLYFIN_TEST_PID=$($process.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          $ready = $false
-          for ($attempt = 1; $attempt -le 120; $attempt++) {
-              Start-Sleep -Seconds 1
-              try {
-                  $health = (Invoke-WebRequest -Uri 'http://127.0.0.1:8096/health' -UseBasicParsing -TimeoutSec 2).Content.Trim('"').Trim()
-              } catch { $health = '' }
+          try {
+              $ready = $false
+              for ($attempt = 1; $attempt -le 120; $attempt++) {
+                  Start-Sleep -Seconds 1
+                  if ($process.HasExited) {
+                      throw "Jellyfin завершился раньше готовности с кодом $($process.ExitCode)."
+                  }
 
-              $combined = ''
-              if (Test-Path $stdout) { $combined += (Get-Content $stdout -Raw -ErrorAction SilentlyContinue) }
-              if (Test-Path $stderr) { $combined += (Get-Content $stderr -Raw -ErrorAction SilentlyContinue) }
-              $diskLogs = Get-ChildItem $env:JELLYFIN_TEST_LOG -File -ErrorAction SilentlyContinue |
-                  ForEach-Object { Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue }
-              $combined += ($diskLogs -join "`n")
+                  try {
+                      $health = (Invoke-WebRequest -Uri 'http://127.0.0.1:8096/health' -UseBasicParsing -TimeoutSec 2).Content.Trim('"').Trim()
+                  } catch {
+                      $health = ''
+                  }
 
-              if ($health -eq 'Healthy' -and $combined.Contains('Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.')) {
-                  Write-Host "Windows Jellyfin готов: попытка $attempt/120"
-                  $ready = $true
-                  break
+                  $combined = ''
+                  if (Test-Path $stdout) { $combined += (Get-Content $stdout -Raw -ErrorAction SilentlyContinue) }
+                  if (Test-Path $stderr) { $combined += (Get-Content $stderr -Raw -ErrorAction SilentlyContinue) }
+                  $diskLogs = Get-ChildItem $env:JELLYFIN_TEST_LOG -File -ErrorAction SilentlyContinue |
+                      ForEach-Object { Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue }
+                  $combined += ($diskLogs -join "`n")
+
+                  if ($health -eq 'Healthy' -and $combined.Contains('Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.')) {
+                      Write-Host "Windows Jellyfin готов: попытка $attempt/120"
+                      $ready = $true
+                      break
+                  }
               }
-              if ($process.HasExited) {
-                  throw "Jellyfin завершился раньше готовности с кодом $($process.ExitCode)."
+              if (-not $ready) { throw 'Jellyfin Windows или Runtime Web Bootstrap не достигли готового состояния.' }
+              if ($process.HasExited) { throw 'Jellyfin завершился перед HTTP-проверкой.' }
+
+              $indexPath = Join-Path $env:JELLYFIN_WEB_DIR 'index.html'
+              $runtimeHash = (Get-FileHash -Algorithm SHA256 $indexPath).Hash.ToLowerInvariant()
+              Write-Host "Stock index SHA256:   $env:STOCK_INDEX_SHA256"
+              Write-Host "Runtime index SHA256: $runtimeHash"
+              if ($runtimeHash -ne $env:STOCK_INDEX_SHA256) { throw 'Штатный Windows index.html был изменён.' }
+
+              $headers = Join-Path $env:RUNNER_TEMP 'windows-index.headers'
+              $html = Join-Path $env:RUNNER_TEMP 'windows-index.html'
+              & curl.exe -fsS -D $headers -o $html 'http://127.0.0.1:8096/web/index.html'
+              if ($LASTEXITCODE -ne 0) { throw 'Не получен Windows index.html.' }
+
+              $value = Get-Content $html -Raw -Encoding utf8
+              foreach ($marker in @(
+                  '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->',
+                  '<!-- KINOPOISK_WEB_CLIENT_END -->',
+                  'data-kinopoisk-managed="runtime"',
+                  '../Kinopoisk/WebClient.js?v='
+              )) {
+                  $count = [regex]::Matches($value, [regex]::Escape($marker)).Count
+                  Write-Host "Marker [$marker] count=$count"
+                  if ($count -ne 1) { throw "Маркер отсутствует или продублирован: $marker" }
               }
+
+              $headerText = Get-Content $headers -Raw -Encoding utf8
+              if ($headerText -notmatch '(?im)^X-Kinopoisk-Web-Bootstrap:\s*runtime\s*$') {
+                  throw 'Runtime HTTP-заголовок отсутствует.'
+              }
+              $etagMatch = [regex]::Match($headerText, '(?im)^ETag:\s*(.+?)\r?$')
+              if (-not $etagMatch.Success) { throw 'Runtime ETag отсутствует.' }
+              $etag = $etagMatch.Groups[1].Value.Trim()
+
+              $webClientHeaders = Join-Path $env:RUNNER_TEMP 'windows-webclient.headers'
+              $webClient = Join-Path $env:RUNNER_TEMP 'Windows-WebClient.js'
+              & curl.exe -fsS -D $webClientHeaders -o $webClient 'http://127.0.0.1:8096/Kinopoisk/WebClient.js'
+              if ($LASTEXITCODE -ne 0) { throw 'WebClient.js не получен на Windows.' }
+              $webClientText = Get-Content $webClient -Raw -Encoding utf8
+              if (-not $webClientText.Contains('kinopoiskRecommendationLifecycleGuard')) {
+                  throw 'WebClient.js не содержит ожидаемый ASCII-маркер bundle.'
+              }
+
+              $conditionalHeaders = Join-Path $env:RUNNER_TEMP 'windows-304.headers'
+              $conditionalBody = Join-Path $env:RUNNER_TEMP 'windows-304.body'
+              $status = & curl.exe -sS -D $conditionalHeaders -o $conditionalBody `
+                  -H "If-None-Match: $etag" -w '%{http_code}' 'http://127.0.0.1:8096/web/index.html'
+              if ($LASTEXITCODE -ne 0) { throw 'Условный запрос index.html завершился ошибкой.' }
+              if ($status -ne '304') { throw "Ожидался HTTP 304, получен $status." }
+              if ((Test-Path $conditionalBody) -and (Get-Item $conditionalBody).Length -ne 0) {
+                  throw 'Ответ 304 содержит тело.'
+              }
+
+              Write-Host 'Windows Runtime Web Bootstrap подтверждён.'
           }
-          if (-not $ready) { throw 'Jellyfin Windows или Runtime Web Bootstrap не достигли готового состояния.' }
-
-      - name: Проверен Windows Runtime Web Bootstrap
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $indexPath = Join-Path $env:JELLYFIN_WEB_DIR 'index.html'
-          $runtimeHash = (Get-FileHash -Algorithm SHA256 $indexPath).Hash.ToLowerInvariant()
-          Write-Host "Stock index SHA256:   $env:STOCK_INDEX_SHA256"
-          Write-Host "Runtime index SHA256: $runtimeHash"
-          if ($runtimeHash -ne $env:STOCK_INDEX_SHA256) { throw 'Штатный Windows index.html был изменён.' }
-
-          $headers = Join-Path $env:RUNNER_TEMP 'windows-index.headers'
-          $html = Join-Path $env:RUNNER_TEMP 'windows-index.html'
-          & curl.exe -fsS -D $headers -o $html 'http://127.0.0.1:8096/web/index.html'
-          if ($LASTEXITCODE -ne 0) { throw 'Не получен Windows index.html.' }
-
-          $value = Get-Content $html -Raw -Encoding utf8
-          $markers = @(
-              '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->',
-              '<!-- KINOPOISK_WEB_CLIENT_END -->',
-              'data-kinopoisk-managed="runtime"',
-              '../Kinopoisk/WebClient.js?v='
-          )
-          foreach ($marker in $markers) {
-              $count = [regex]::Matches($value, [regex]::Escape($marker)).Count
-              Write-Host "Marker [$marker] count=$count"
-              if ($count -ne 1) { throw "Маркер отсутствует или продублирован: $marker" }
-          }
-
-          $headerText = Get-Content $headers -Raw -Encoding utf8
-          Write-Host '=== index headers ==='
-          Write-Host $headerText
-          if ($headerText -notmatch '(?im)^X-Kinopoisk-Web-Bootstrap:\s*runtime\s*$') {
-              throw 'Runtime HTTP-заголовок отсутствует.'
-          }
-          $etagMatch = [regex]::Match($headerText, '(?im)^ETag:\s*(.+?)\r?$')
-          if (-not $etagMatch.Success) { throw 'Runtime ETag отсутствует.' }
-          $etag = $etagMatch.Groups[1].Value.Trim()
-          Write-Host "Runtime ETag: $etag"
-
-          $webClientHeaders = Join-Path $env:RUNNER_TEMP 'windows-webclient.headers'
-          $webClient = Join-Path $env:RUNNER_TEMP 'Windows-WebClient.js'
-          & curl.exe -fsS -D $webClientHeaders -o $webClient 'http://127.0.0.1:8096/Kinopoisk/WebClient.js'
-          if ($LASTEXITCODE -ne 0) { throw 'WebClient.js не получен на Windows.' }
-          $webClientText = Get-Content $webClient -Raw -Encoding utf8
-          if (-not $webClientText.Contains('kinopoiskRecommendationLifecycleGuard')) {
-              throw 'WebClient.js не содержит ожидаемый ASCII-маркер bundle.'
-          }
-
-          $conditionalHeaders = Join-Path $env:RUNNER_TEMP 'windows-304.headers'
-          $conditionalBody = Join-Path $env:RUNNER_TEMP 'windows-304.body'
-          $status = & curl.exe -sS -D $conditionalHeaders -o $conditionalBody `
-              -H "If-None-Match: $etag" -w '%{http_code}' 'http://127.0.0.1:8096/web/index.html'
-          Write-Host "Conditional status: $status"
-          if ($status -ne '304') { throw "Ожидался HTTP 304, получен $status." }
-          if ((Test-Path $conditionalBody) -and (Get-Item $conditionalBody).Length -ne 0) {
-              throw 'Ответ 304 содержит тело.'
+          finally {
+              if ($process -and -not $process.HasExited) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                  $process.WaitForExit(5000) | Out-Null
+              }
           }
 
       - name: Сохранена диагностика Windows runtime
@@ -256,6 +261,3 @@ jobs:
                   Write-Host "=== $($_.Name) ==="
                   Get-Content $_.FullName -Tail 220 -ErrorAction SilentlyContinue
               }
-          if ($env:JELLYFIN_TEST_PID) {
-              Stop-Process -Id ([int]$env:JELLYFIN_TEST_PID) -Force -ErrorAction SilentlyContinue
-          }
