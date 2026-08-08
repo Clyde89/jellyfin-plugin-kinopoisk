@@ -3,11 +3,9 @@ set -Eeuo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-media-core-readonly.sh"
-INDEX_TOOL="${SCRIPT_DIR}/prepare-kinopoisk-readonly-index.py"
 CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS"
 
-TARGET_VERSION="10.11.0.5"
+TARGET_VERSION="10.11.0.6"
 EXPECTED_JELLYFIN_VERSION="10.11.11"
 COMPOSE_FILE="${JELLYFIN_COMPOSE_FILE:-/srv/media-core/compose/compose.jellyfin.yaml}"
 COMPOSE_PROJECT="${JELLYFIN_COMPOSE_PROJECT:-media-core-jellyfin}"
@@ -26,6 +24,7 @@ CURRENT_PLUGIN_DIR=""
 TARGET_PLUGIN_DIR=""
 PLUGIN_CONFIG=""
 WEB_INDEX_PATH=""
+LEGACY_MOUNT_ACTIVE=false
 TEMPORARY_DIRECTORY=""
 TRANSACTION_DIR=""
 TRANSACTION_READY=false
@@ -43,11 +42,12 @@ usage() {
   install-media-core-autonomous.sh rollback [ТРАНЗАКЦИЯ] --confirm
 
 plan      Выполняет только read-only диагностику.
-apply     Создаёт резервную копию, устанавливает DLL и внешний read-only index.html,
-          пересоздаёт только Jellyfin, проверяет runtime и автоматически откатывает
-          изменения при любой критической ошибке.
+apply     Создаёт транзакционную резервную копию, устанавливает DLL, удаляет legacy
+          external index.html и его Compose override, пересоздаёт только Jellyfin
+          из базового Compose и проверяет Runtime Web Bootstrap.
 verify    Выполняет только runtime-проверку текущей установки.
-rollback  Восстанавливает точное состояние из указанной или последней транзакции.
+rollback  Восстанавливает точное состояние из указанной или последней транзакции,
+          включая прежний external Web-слой, если он существовал.
 
 Переменные окружения:
   JELLYFIN_COMPOSE_FILE
@@ -109,8 +109,6 @@ verify_package() {
     || fail "Основная DLL отсутствует в комплекте."
   [[ -f "$SCRIPT_DIR/KinopoiskUnofficialInfo.ApiClient.dll" ]] \
     || fail "DLL API-клиента отсутствует в комплекте."
-  [[ -f "$PREPARE_SCRIPT" ]] || fail "Подготовщик media-core отсутствует."
-  [[ -f "$INDEX_TOOL" ]] || fail "Подготовщик index.html отсутствует."
 
   (
     cd "$SCRIPT_DIR"
@@ -144,6 +142,35 @@ PY
   rm -f -- "$rendered"
 }
 
+validate_base_compose_has_no_web_mount() {
+  local rendered
+  rendered="$(mktemp)"
+  compose_base config --format json > "$rendered"
+  python3 - "$rendered" "$SERVICE_NAME" "$WEB_INDEX_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, service_name, web_index = sys.argv[1:]
+config = json.loads(Path(path).read_text(encoding="utf-8"))
+service = config.get("services", {}).get(service_name, {})
+volumes = service.get("volumes", []) or []
+matching = []
+for volume in volumes:
+    if not isinstance(volume, dict):
+        continue
+    target = volume.get("target") or volume.get("destination")
+    if target == web_index:
+        matching.append(volume)
+if matching:
+    raise SystemExit(
+        f"Базовый Compose содержит mount index.html в {web_index}; автоматическое удаление запрещено."
+    )
+print("Базовый Compose: внешний mount index.html отсутствует.")
+PY
+  rm -f -- "$rendered"
+}
+
 resolve_container_id() {
   local container_id
   container_id="$(compose_base ps -q "$SERVICE_NAME" 2>/dev/null || true)"
@@ -167,8 +194,7 @@ from pathlib import Path
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if not payload:
     raise SystemExit("docker inspect не вернул объект контейнера.")
-mounts = payload[0].get("Mounts", [])
-matching = [mount for mount in mounts if mount.get("Destination") == "/config"]
+matching = [m for m in payload[0].get("Mounts", []) if m.get("Destination") == "/config"]
 if len(matching) != 1:
     raise SystemExit(f"Ожидалось одно монтирование /config, обнаружено {len(matching)}.")
 mount = matching[0]
@@ -248,6 +274,43 @@ verify_current_files() {
   [[ -f "$PLUGIN_CONFIG" ]] || fail "Конфигурация плагина не найдена: $PLUGIN_CONFIG"
 }
 
+inspect_legacy_web_layer() {
+  local container_id="$1"
+  local inspect_file
+  inspect_file="$(mktemp)"
+  docker inspect "$container_id" > "$inspect_file"
+  local result
+  result="$(python3 - "$inspect_file" "$WEB_INDEX_PATH" "$MANAGED_INDEX" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+inspect_path, target, expected_source = sys.argv[1:]
+container = json.loads(Path(inspect_path).read_text(encoding="utf-8"))[0]
+matching = [m for m in container.get("Mounts", []) if m.get("Destination") == target]
+if not matching:
+    print("false")
+    raise SystemExit(0)
+if len(matching) != 1:
+    raise SystemExit(f"В {target} обнаружено несколько mount: {len(matching)}.")
+mount = matching[0]
+if mount.get("Source") != expected_source:
+    raise SystemExit(
+        f"Обнаружен неуправляемый mount index.html: {mount.get('Source')!r}; ожидался {expected_source!r}."
+    )
+if mount.get("RW") is not False:
+    raise SystemExit("Legacy mount index.html неожиданно доступен для записи.")
+print("true")
+PY
+)"
+  rm -f -- "$inspect_file"
+  LEGACY_MOUNT_ACTIVE="$result"
+
+  if [[ "$LEGACY_MOUNT_ACTIVE" == "true" && ! -f "$OVERRIDE_FILE" ]]; then
+    fail "Legacy mount активен, но его Compose override отсутствует: $OVERRIDE_FILE"
+  fi
+}
+
 discover_environment() {
   CURRENT_STAGE="Обнаружение среды media-core"
   validate_base_compose
@@ -257,6 +320,8 @@ discover_environment() {
   resolve_web_index_path "$container_id"
   resolve_current_plugin_dir
   verify_current_files
+  inspect_legacy_web_layer "$container_id"
+  validate_base_compose_has_no_web_mount
 }
 
 container_status() {
@@ -268,12 +333,12 @@ verify_container_security() {
   local container_id="$1"
   local inspect_file="$2"
   docker inspect "$container_id" > "$inspect_file"
-  python3 - "$inspect_file" "$MANAGED_INDEX" "$WEB_INDEX_PATH" <<'PY'
+  python3 - "$inspect_file" "$WEB_INDEX_PATH" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-inspect_path, expected_source, expected_target = sys.argv[1:]
+inspect_path, expected_target = sys.argv[1:]
 payload = json.loads(Path(inspect_path).read_text(encoding="utf-8"))
 if not payload:
     raise SystemExit("docker inspect не вернул контейнер.")
@@ -281,16 +346,10 @@ container = payload[0]
 if container.get("HostConfig", {}).get("ReadonlyRootfs") is not True:
     raise SystemExit("ReadonlyRootfs контейнера Jellyfin отключён.")
 matching = [m for m in container.get("Mounts", []) if m.get("Destination") == expected_target]
-if len(matching) != 1:
-    raise SystemExit(
-        f"Ожидалось одно монтирование index.html в {expected_target}, обнаружено {len(matching)}."
-    )
-mount = matching[0]
-if mount.get("Source") != expected_source:
-    raise SystemExit("Источник read-only index.html не совпадает с ожидаемым.")
-if mount.get("RW") is not False:
-    raise SystemExit("Управляемый index.html смонтирован с правом записи.")
-print("Контейнер: ReadonlyRootfs=true; index.html смонтирован read-only.")
+if matching:
+    sources = ", ".join(str(m.get("Source", "")) for m in matching)
+    raise SystemExit(f"Внешний mount index.html всё ещё активен: {sources}")
+print("Контейнер: ReadonlyRootfs=true; внешний mount index.html отсутствует.")
 PY
 }
 
@@ -318,9 +377,10 @@ verify_http_runtime() {
   local workdir="$1"
   local info_file="$workdir/system-info.json"
   local index_file="$workdir/index.html"
+  local index_headers="$workdir/index.headers"
   local js_file="$workdir/web-client.js"
-  local headers_file="$workdir/web-client.headers"
-  local etag http_code
+  local js_headers="$workdir/web-client.headers"
+  local index_etag index_code js_etag js_code
 
   curl -fsS --max-time 15 "$BASE_URL/System/Info/Public" -o "$info_file"
   python3 - "$info_file" "$EXPECTED_JELLYFIN_VERSION" <<'PY'
@@ -336,15 +396,57 @@ if version != expected:
 print(f"Jellyfin API: Version={version}")
 PY
 
-  curl -fsS --max-time 15 "$BASE_URL/web/index.html" -o "$index_file"
-  python3 "$INDEX_TOOL" check --input "$index_file"
+  curl -fsS --max-time 15 \
+    -D "$index_headers" \
+    "$BASE_URL/web/index.html" \
+    -o "$index_file"
+
+  python3 - "$index_headers" "$index_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+headers_path, index_path = sys.argv[1:]
+headers = Path(headers_path).read_text(encoding="utf-8", errors="replace")
+html = Path(index_path).read_text(encoding="utf-8")
+required = (
+    "<!-- KINOPOISK_WEB_CLIENT_BEGIN -->",
+    "<!-- KINOPOISK_WEB_CLIENT_END -->",
+    'data-kinopoisk-managed="runtime"',
+    "Kinopoisk/WebClient.js?v=",
+)
+for marker in required:
+    count = html.count(marker)
+    if count != 1:
+        raise SystemExit(f"Runtime-маркер {marker!r} обнаружен {count} раз вместо одного.")
+if re.search(r'data-kinopoisk-managed="external"', html, re.IGNORECASE):
+    raise SystemExit("В HTTP-ответе остался legacy external-блок.")
+if not re.search(r"(?im)^x-kinopoisk-web-bootstrap:\s*runtime\s*$", headers):
+    raise SystemExit("Ответ index.html не содержит X-Kinopoisk-Web-Bootstrap: runtime.")
+if not re.search(r"(?im)^etag:\s*\"[0-9a-f]{64}\"\s*$", headers):
+    raise SystemExit("Ответ index.html не содержит корректный Runtime ETag.")
+print("Runtime index.html: bootstrap-блок, заголовок и ETag подтверждены.")
+PY
+
+  index_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/\r$/, "", $2); print $2; exit}' "$index_headers")"
+  [[ -n "$index_etag" ]] || fail "Не удалось извлечь Runtime ETag index.html."
+  index_code="$(
+    curl -sS --max-time 15 \
+      -o /dev/null \
+      -w '%{http_code}' \
+      -H "If-None-Match: $index_etag" \
+      "$BASE_URL/web/index.html"
+  )"
+  [[ "$index_code" == "304" ]] \
+    || fail "Условный запрос index.html вернул HTTP $index_code вместо 304."
+  log "Runtime index.html: условный запрос 304 подтверждён."
 
   curl -fsS --max-time 15 \
-    -D "$headers_file" \
+    -D "$js_headers" \
     "$BASE_URL/Kinopoisk/WebClient.js" \
     -o "$js_file"
 
-  python3 - "$headers_file" "$js_file" <<'PY'
+  python3 - "$js_headers" "$js_file" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -362,7 +464,7 @@ required = (
     ".btnPlayTrailer",
     "Похожие и рекомендации",
     "kp-recommendations-scroller",
-    "widgets.kinopoisk.ru",
+    "kinopoiskRecommendationLifecycleGuard",
 )
 missing = [value for value in required if value not in script]
 if missing:
@@ -373,16 +475,16 @@ for forbidden in ("X-API-KEY", "kinopoiskapiunofficial.tech/api", "Authorization
 print("WebClient.js: MIME, ETag, nosniff и состав bundle подтверждены.")
 PY
 
-  etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/\r$/, "", $2); print $2; exit}' "$headers_file")"
-  [[ -n "$etag" ]] || fail "Не удалось извлечь ETag веб-клиента."
-  http_code="$(
+  js_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/\r$/, "", $2); print $2; exit}' "$js_headers")"
+  [[ -n "$js_etag" ]] || fail "Не удалось извлечь ETag WebClient.js."
+  js_code="$(
     curl -sS --max-time 15 \
       -o /dev/null \
       -w '%{http_code}' \
-      -H "If-None-Match: $etag" \
+      -H "If-None-Match: $js_etag" \
       "$BASE_URL/Kinopoisk/WebClient.js"
   )"
-  [[ "$http_code" == "304" ]] || fail "Условный запрос вернул HTTP $http_code вместо 304."
+  [[ "$js_code" == "304" ]] || fail "Условный запрос WebClient.js вернул HTTP $js_code вместо 304."
   log "WebClient.js: условный запрос 304 подтверждён."
 }
 
@@ -395,8 +497,8 @@ verify_logs() {
     || fail "В журнале не подтверждена загрузка основной DLL версии $TARGET_VERSION."
   grep -Fq "Loaded plugin: КиноПоиск ${TARGET_VERSION}" "$log_file" \
     || fail "В журнале не подтверждена активация плагина версии $TARGET_VERSION."
-  grep -Fq "Автономный веб-клиент КиноПоиска готов" "$log_file" \
-    || fail "В журнале не подтверждена готовность автономного веб-клиента."
+  grep -Fq "Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin." "$log_file" \
+    || fail "В журнале не подтверждена регистрация Runtime Web Bootstrap."
 
   if grep -Eiq \
     'Failed to load.*Kinopoisk|Could not load.*Kinopoisk|BadImageFormatException|FileLoadException|TypeLoadException|MissingMethodException|Unable to resolve service|No service for type|AmbiguousMatchException' \
@@ -410,7 +512,7 @@ verify_logs() {
   if grep -Eiq 'franchise\.(preview|apply)\.started|Предварительный просмотр франшиз КиноПоиска.*запущ|Применение франшиз КиноПоиска.*запущ' "$log_file"; then
     fail "Во время установки неожиданно запустилась Preview или Apply-задача."
   fi
-  log "Журнал Jellyfin: загрузка плагина подтверждена; критических ошибок и автозапуска задач нет."
+  log "Журнал Jellyfin: загрузка плагина и Runtime Bootstrap подтверждены; автозапуска задач нет."
 }
 
 verify_installed_files() {
@@ -522,7 +624,7 @@ run_verify() {
   verify_proxy_unchanged "$proxy_id" "$proxy_started" "$proxy_restarts"
 
   rm -rf -- "$workdir"
-  log "ПОЛНАЯ RUNTIME-ПРОВЕРКА АВТОНОМНОГО ПЛАГИНА УСПЕШНО ЗАВЕРШЕНА."
+  log "ПОЛНАЯ RUNTIME-ПРОВЕРКА САМОДОСТАТОЧНОГО ПЛАГИНА УСПЕШНО ЗАВЕРШЕНА."
 }
 
 write_transaction_state() {
@@ -583,7 +685,7 @@ prepare_transaction_backup() {
   local override_existed=false index_existed=false transaction_started
 
   stamp="$(date -u +%Y%m%d-%H%M%S)"
-  TRANSACTION_DIR="$BACKUP_ROOT/${stamp}-autonomous-${TARGET_VERSION}"
+  TRANSACTION_DIR="$BACKUP_ROOT/${stamp}-runtime-bootstrap-${TARGET_VERSION}"
   [[ ! -e "$TRANSACTION_DIR" ]] || fail "Каталог транзакции уже существует: $TRANSACTION_DIR"
   mkdir -p "$TRANSACTION_DIR/plugin-original"
 
@@ -722,21 +824,23 @@ stage_target_plugin() {
   CURRENT_PLUGIN_DIR="$TARGET_PLUGIN_DIR"
 }
 
-apply_readonly_layer() {
-  CURRENT_STAGE="Подготовка внешнего read-only index.html"
-  JELLYFIN_COMPOSE_FILE="$COMPOSE_FILE" \
-  JELLYFIN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
-  JELLYFIN_OVERRIDE_FILE="$OVERRIDE_FILE" \
-  JELLYFIN_SERVICE_NAME="$SERVICE_NAME" \
-  JELLYFIN_CONTAINER_NAME="$CONTAINER_NAME" \
-  JELLYFIN_WEB_OVERRIDE_ROOT="$WEB_OVERRIDE_ROOT" \
-    bash "$PREPARE_SCRIPT" prepare
+remove_legacy_web_layer() {
+  CURRENT_STAGE="Удаление legacy Web bind mount"
+  if [[ -f "$OVERRIDE_FILE" ]]; then
+    rm -f -- "$OVERRIDE_FILE"
+    log "Удалён legacy Compose override: $OVERRIDE_FILE"
+  fi
+  if [[ -f "$MANAGED_INDEX" ]]; then
+    rm -f -- "$MANAGED_INDEX"
+    log "Удалён legacy внешний index.html: $MANAGED_INDEX"
+  fi
+  sync
 }
 
 recreate_jellyfin() {
-  CURRENT_STAGE="Пересоздание только Jellyfin"
-  compose_with_override config --quiet
-  compose_with_override \
+  CURRENT_STAGE="Пересоздание только Jellyfin из базового Compose"
+  compose_base config --quiet
+  compose_base \
     up -d \
     --no-deps \
     --force-recreate \
@@ -746,13 +850,11 @@ recreate_jellyfin() {
 
 internal_rollback() {
   local transaction="$1"
-  local rollback_workdir
   ROLLBACK_RUNNING=true
   trap - ERR INT TERM
   set +e
 
   load_transaction_state "$transaction" || return 1
-  rollback_workdir="$(mktemp -d)"
   log "Начат откат транзакции: $transaction"
 
   rm -rf -- "$TARGET_PLUGIN_DIR" || return 1
@@ -767,6 +869,7 @@ internal_rollback() {
 
   if [[ "$OVERRIDE_EXISTED" == "true" ]]; then
     rm -f -- "$OVERRIDE_FILE" || return 1
+    mkdir -p -- "$(dirname -- "$OVERRIDE_FILE")" || return 1
     cp -a -- "$transaction/compose.override.before.yaml" "$OVERRIDE_FILE" || return 1
   else
     rm -f -- "$OVERRIDE_FILE" || return 1
@@ -774,6 +877,7 @@ internal_rollback() {
 
   if [[ "$MANAGED_INDEX_EXISTED" == "true" ]]; then
     rm -f -- "$MANAGED_INDEX" || return 1
+    mkdir -p -- "$(dirname -- "$MANAGED_INDEX")" || return 1
     cp -a -- "$transaction/index.before.html" "$MANAGED_INDEX" || return 1
   else
     rm -f -- "$MANAGED_INDEX" || return 1
@@ -782,24 +886,12 @@ internal_rollback() {
   sync || return 1
 
   if [[ "$OVERRIDE_EXISTED" == "true" ]]; then
-    docker compose \
-      -p "$COMPOSE_PROJECT" \
-      -f "$COMPOSE_FILE" \
-      -f "$OVERRIDE_FILE" \
-      config --quiet || return 1
-    docker compose \
-      -p "$COMPOSE_PROJECT" \
-      -f "$COMPOSE_FILE" \
-      -f "$OVERRIDE_FILE" \
+    compose_with_override config --quiet || return 1
+    compose_with_override \
       up -d --no-deps --force-recreate --pull never "$SERVICE_NAME" || return 1
   else
-    docker compose \
-      -p "$COMPOSE_PROJECT" \
-      -f "$COMPOSE_FILE" \
-      config --quiet || return 1
-    docker compose \
-      -p "$COMPOSE_PROJECT" \
-      -f "$COMPOSE_FILE" \
+    compose_base config --quiet || return 1
+    compose_base \
       up -d --no-deps --force-recreate --pull never "$SERVICE_NAME" || return 1
   fi
 
@@ -812,7 +904,6 @@ internal_rollback() {
   [[ "$(sha256_file "$PLUGIN_CONFIG")" == "$ORIGINAL_CONFIG_SHA" ]] || return 1
 
   printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$transaction/ROLLED_BACK" || return 1
-  rm -rf -- "$rollback_workdir"
   log "Откат успешно завершён. Восстановлен: $ORIGINAL_PLUGIN_DIR"
   return 0
 }
@@ -855,6 +946,8 @@ run_plan() {
   discover_environment
   local container_id current_version current_main_sha current_client_sha config_sha
   local proxy_state="отсутствует"
+  local override_state="отсутствует"
+  local index_state="отсутствует"
   container_id="$(resolve_container_id)"
   current_version="$(python3 - "$CURRENT_PLUGIN_DIR/meta.json" <<'PY'
 import json
@@ -865,6 +958,8 @@ PY
   current_main_sha="$(sha256_file "$CURRENT_PLUGIN_DIR/Jellyfin.Plugin.Kinopoisk.dll")"
   current_client_sha="$(sha256_file "$CURRENT_PLUGIN_DIR/KinopoiskUnofficialInfo.ApiClient.dll")"
   config_sha="$(sha256_file "$PLUGIN_CONFIG")"
+  [[ -f "$OVERRIDE_FILE" ]] && override_state="есть"
+  [[ -f "$MANAGED_INDEX" ]] && index_state="есть"
   if docker inspect "$PROXY_CONTAINER" >/dev/null 2>&1; then
     proxy_state="$(container_status "$PROXY_CONTAINER")"
   fi
@@ -875,8 +970,10 @@ PY
 ============================================================
 Версия кандидата:       $TARGET_VERSION
 Compose-проект:         $COMPOSE_PROJECT
-Compose-файл:           $COMPOSE_FILE
-Compose override:       $OVERRIDE_FILE
+Базовый Compose:        $COMPOSE_FILE
+Legacy override:        $OVERRIDE_FILE ($override_state)
+Legacy внешний index:   $MANAGED_INDEX ($index_state)
+Legacy mount активен:   $LEGACY_MOUNT_ACTIVE
 Jellyfin container ID:  $container_id
 Jellyfin Web index:     $WEB_INDEX_PATH
 /config на хосте:       $CONFIG_SOURCE
@@ -900,12 +997,14 @@ Proxy state:
   $proxy_state
 
 apply --confirm выполнит:
-1. Точную резервную копию текущего каталога плагина, XML, override и index.html.
-2. Создание автономного внешнего index.html и read-only bind mount.
-3. Установку отдельного каталога КиноПоиск_${TARGET_VERSION}.
-4. Пересоздание только сервиса Jellyfin в проекте $COMPOSE_PROJECT.
-5. Проверку health, API, read-only mount, WebClient.js, ETag/304 и журналов.
-6. Автоматический откат при любой критической ошибке.
+1. Точную резервную копию текущего каталога плагина, XML, legacy override и внешнего index.html.
+2. Установку отдельного каталога КиноПоиск_${TARGET_VERSION}.
+3. Удаление legacy external index.html и его Compose override.
+4. Пересоздание только сервиса Jellyfin из базового Compose проекта $COMPOSE_PROJECT.
+5. Проверку health, Jellyfin API, ReadonlyRootfs, отсутствия mount index.html,
+   Runtime Web Bootstrap, WebClient.js, ETag/304 и журналов.
+6. Проверку неизменности XML-конфигурации и состояния $PROXY_CONTAINER.
+7. Автоматический точный откат при любой критической ошибке.
 
 Режим plan: изменения файлов и контейнеров не выполнялись.
 ============================================================
@@ -937,8 +1036,8 @@ run_apply() {
 
   log "Начата транзакционная установка КиноПоиска $TARGET_VERSION"
   log "Транзакция: $TRANSACTION_DIR"
-  apply_readonly_layer
   stage_target_plugin
+  remove_legacy_web_layer
   recreate_jellyfin
   CURRENT_STAGE="Ожидание healthy"
   wait_healthy 60 3
@@ -953,7 +1052,8 @@ run_apply() {
 API-клиент SHA-256: $(sha256_file "$TARGET_PLUGIN_DIR/KinopoiskUnofficialInfo.ApiClient.dll")
 XML-конфигурация SHA-256: $(sha256_file "$PLUGIN_CONFIG")
 Jellyfin: healthy
-Автономный WebClient: проверен
+Runtime Web Bootstrap: проверен
+Legacy index.html mount: удалён
 Preview/Apply: не запускались
 Ручной откат: $TRANSACTION_DIR/rollback.sh
 EOF
@@ -962,10 +1062,12 @@ EOF
 
   cat <<EOF
 ============================================================
-АВТОНОМНЫЙ ПЛАГИН КИНОПОИСКА УСТАНОВЛЕН
+САМОДОСТАТОЧНЫЙ ПЛАГИН КИНОПОИСКА УСТАНОВЛЕН
 Версия:             $TARGET_VERSION
 Каталог:            $TARGET_PLUGIN_DIR
 Транзакция:         $TRANSACTION_DIR
+Runtime Bootstrap:  проверен
+Legacy Web mount:   удалён
 Ручной откат:       $TRANSACTION_DIR/rollback.sh
 Отчёт:              $REPORT_FILE
 Preview/Apply:       не запускались
@@ -990,45 +1092,45 @@ run_rollback() {
 }
 
 main() {
-  local command_name="${1:-plan}"
+  local command="${1:-}"
   shift || true
 
-  for command in docker python3 sha256sum awk grep sed find strings curl install cp mv rm sync stat tee mktemp; do
-    require_command "$command"
-  done
-  [[ -f "$COMPOSE_FILE" ]] || fail "Compose-файл не найден: $COMPOSE_FILE"
+  require_command docker
+  require_command python3
+  require_command sha256sum
+  require_command curl
+  require_command strings
+  require_command stat
+  require_command install
 
-  case "$command_name" in
+  case "$command" in
     plan)
+      [[ "$#" -eq 0 ]] || fail "plan не принимает дополнительные аргументы."
       run_plan
       ;;
     apply)
       run_apply "${1:-}"
       ;;
     verify)
-      local transaction=""
-      if [[ "${1:-}" != "" ]]; then
-        transaction="$(resolve_transaction_argument "$1")"
-      elif [[ -f "$BACKUP_ROOT/LATEST" ]]; then
-        transaction="$(resolve_transaction_argument "")"
-      fi
-      run_verify "$transaction"
+      [[ "$#" -le 1 ]] || fail "verify принимает не более одного пути транзакции."
+      run_verify "${1:-}"
       ;;
     rollback)
+      [[ "$#" -le 2 ]] || fail "rollback принимает путь транзакции и --confirm."
       run_rollback "${1:-}" "${2:-}"
       ;;
     __rollback-internal)
-      internal_rollback "${1:?Транзакция не указана}"
+      [[ "$#" -eq 1 ]] || fail "Внутреннему откату требуется путь транзакции."
+      internal_rollback "$1" || exit 1
       ;;
-    -h|--help|help)
+    -h|--help|help|"")
       usage
       ;;
     *)
       usage >&2
-      fail "Неизвестная команда: $command_name"
+      fail "Неизвестная команда: $command"
       ;;
   esac
 }
 
-trap cleanup EXIT
 main "$@"
