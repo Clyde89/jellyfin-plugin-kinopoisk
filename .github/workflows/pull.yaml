@@ -96,15 +96,11 @@ jobs:
           src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.pdb \
           "$package_dir/"
         cp -- \
-          tools/prepare-kinopoisk-readonly-index.py \
-          tools/prepare-media-core-readonly.sh \
           tools/install-media-core-autonomous.sh \
           tools/READONLY-DEPLOYMENT.md \
           "$package_dir/"
-        chmod 0755 \
-          "$package_dir/prepare-kinopoisk-readonly-index.py" \
-          "$package_dir/prepare-media-core-readonly.sh" \
-          "$package_dir/install-media-core-autonomous.sh"
+
+        chmod 0755 "$package_dir/install-media-core-autonomous.sh"
         chmod 0644 \
           "$package_dir/Jellyfin.Plugin.Kinopoisk.dll" \
           "$package_dir/Jellyfin.Plugin.Kinopoisk.pdb" \
@@ -113,14 +109,15 @@ jobs:
           "$package_dir/READONLY-DEPLOYMENT.md"
 
         cat > "$package_dir/PACKAGE-INFO.txt" <<EOF
-        Автономный транзакционный кандидат плагина КиноПоиск
+        Самодостаточный транзакционный кандидат плагина КиноПоиск
         Версия: ${version}
         HEAD ветки: ${source_sha}
         Commit сборки: ${GITHUB_SHA}
 
-        JavaScript Injector для работы не требуется.
-        Клиентский JavaScript хранится внутри DLL и выдаётся через
-        Kinopoisk/WebClient.js с ETag и SHA-256.
+        JavaScript Injector не требуется.
+        Клиентский JavaScript встроен в Jellyfin.Plugin.Kinopoisk.dll и выдаётся через
+        Kinopoisk/WebClient.js. Подключение к Jellyfin Web выполняется Runtime Web Bootstrap
+        в HTTP pipeline Jellyfin без изменения штатного index.html на диске.
 
         Основной установщик для защищённого media-core:
           ./install-media-core-autonomous.sh plan
@@ -133,17 +130,19 @@ jobs:
         - обнаруживает фактически загруженный каталог плагина и /config mount;
         - создаёт точную транзакционную резервную копию и самостоятельный rollback.sh;
         - сохраняет XML-конфигурацию без изменений;
-        - создаёт внешний index.html и точечный read-only bind mount;
+        - распознаёт прежний управляемый external index.html и Compose override;
+        - удаляет legacy Web bind mount только после создания резервной копии;
         - устанавливает отдельный каталог КиноПоиск_${version};
-        - пересоздаёт только Jellyfin в Compose-проекте media-core-jellyfin;
+        - пересоздаёт только Jellyfin из базового Compose проекта media-core-jellyfin;
         - не затрагивает jellyfin-egress-proxy;
-        - проверяет health, Jellyfin 10.11.11, ReadonlyRootfs, mount index.html,
-          MIME, ETag, 304, состав WebClient.js и журналы загрузки;
+        - проверяет health, Jellyfin 10.11.11, ReadonlyRootfs и отсутствие mount index.html;
+        - проверяет Runtime Web Bootstrap, MIME, ETag, 304 и состав WebClient.js;
         - подтверждает отсутствие автозапуска Preview и Apply;
-        - автоматически выполняет точный откат при критической ошибке.
+        - автоматически выполняет точный откат при критической ошибке;
+        - при откате восстанавливает прежний external Web-слой, если он существовал.
 
-        Подготовщики prepare-*.sh/.py доступны отдельно для read-only диагностики
-        и формирования Web-слоя без замены DLL и без перезапуска контейнера.
+        Внешний index.html, Compose override и prepare-утилиты для работы версии ${version}
+        не требуются и в автономный пакет не включены.
 
         Пакет сам по себе ничего не применяет. Изменения начинаются только после
         явной команды apply --confirm.
@@ -156,8 +155,6 @@ jobs:
             Jellyfin.Plugin.Kinopoisk.pdb \
             KinopoiskUnofficialInfo.ApiClient.dll \
             KinopoiskUnofficialInfo.ApiClient.pdb \
-            prepare-kinopoisk-readonly-index.py \
-            prepare-media-core-readonly.sh \
             install-media-core-autonomous.sh \
             READONLY-DEPLOYMENT.md \
             PACKAGE-INFO.txt \
@@ -182,8 +179,6 @@ jobs:
           Jellyfin.Plugin.Kinopoisk.pdb
           KinopoiskUnofficialInfo.ApiClient.dll
           KinopoiskUnofficialInfo.ApiClient.pdb
-          prepare-kinopoisk-readonly-index.py
-          prepare-media-core-readonly.sh
           install-media-core-autonomous.sh
           READONLY-DEPLOYMENT.md
           PACKAGE-INFO.txt
