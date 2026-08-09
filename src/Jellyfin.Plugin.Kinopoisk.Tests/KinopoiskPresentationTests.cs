@@ -81,7 +81,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
             Assert.Contains("releaseDates", script, StringComparison.Ordinal);
             Assert.Contains("Мировая премьера", script, StringComparison.Ordinal);
-            Assert.Contains("Премьера в России", script, StringComparison.Ordinal);
+            Assert.Contains("return 'Премьера в ' + normalized.prepositional;", script, StringComparison.Ordinal);
+            Assert.Contains("prepositional: 'России'", script, StringComparison.Ordinal);
             Assert.Contains("Все даты", script, StringComparison.Ordinal);
             Assert.Contains("kp-standalone-release-dates", script, StringComparison.Ordinal);
             Assert.Contains("window.JellyfinEnhanced", script, StringComparison.Ordinal);
