@@ -12,6 +12,8 @@ JavaScript Injector исключён из обязательных зависи�
 - Внешний bind mount `index.html` исключён из новой схемы.
 - Совместимость с Jellyfin Base URL сохранена.
 - Сильный ETag и ответ `304 Not Modified` добавлены для runtime HTML и `WebClient.js`.
+- Для композитного HTML, дополнительно изменённого Jellyfin Enhanced, учтено штатное
+  удаление устаревшего ETag внешним middleware; собственный ETag `WebClient.js` сохранён.
 - Работа с `ReadonlyRootfs=true` подтверждена постоянными runtime-проверками.
 
 ## Состав автономного комплекта
@@ -67,7 +69,9 @@ chmod 750 install-media-core-autonomous.sh
 10. `jellyfin-egress-proxy` сохранён без пересоздания и перезапуска.
 11. Подтверждены `healthy`, Jellyfin 10.11.11 и `ReadonlyRootfs=true`.
 12. Подтверждено отсутствие mount на штатный `index.html`.
-13. Подтверждены Runtime Web Bootstrap, единственный runtime-блок, ETag и `304 Not Modified`.
+13. Подтверждены Runtime Web Bootstrap и единственный runtime-блок. Для самостоятельного
+    ответа подтверждены сильный ETag и `304 Not Modified`; отсутствие ETag разрешено только
+    при однозначно подтверждённой последующей инъекции Jellyfin Enhanced.
 14. Подтверждены MIME, ETag, `nosniff` и состав `WebClient.js`.
 15. Подтверждена загрузка версии `10.11.0.6` без критических ошибок DI/assembly loading.
 16. Подтверждено отсутствие автоматического запуска Preview и Apply.

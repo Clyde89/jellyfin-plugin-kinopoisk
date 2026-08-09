@@ -428,38 +428,57 @@ for line in headers.splitlines():
     name, separator, value = line.partition(":")
     if separator and name.strip().lower() == "etag":
         etag_values.append(value.strip())
-if len(etag_values) != 1:
+if len(etag_values) > 1:
     raise SystemExit(
-        "Ответ index.html должен содержать ровно один ETag; "
+        "Ответ index.html должен содержать не более одного ETag; "
         f"получено: {etag_values!r}.")
-etag = etag_values[0]
-if etag.lower().startswith("w/"):
-    raise SystemExit(f"Ответ index.html содержит слабый ETag: {etag!r}.")
-if len(etag) < 3 or not (etag.startswith('"') and etag.endswith('"')):
-    raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
-opaque_tag = etag[1:-1]
-if not opaque_tag or any(
-    not (ord(character) == 0x21 or 0x23 <= ord(character) <= 0x7E)
-    for character in opaque_tag
-):
-    raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
-print(
-    "Runtime index.html: bootstrap-блок, заголовок и сильный ETag "
-    f"{etag} подтверждены.")
+if etag_values:
+    etag = etag_values[0]
+    if etag.lower().startswith("w/"):
+        raise SystemExit(f"Ответ index.html содержит слабый ETag: {etag!r}.")
+    if len(etag) < 3 or not (etag.startswith('"') and etag.endswith('"')):
+        raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
+    opaque_tag = etag[1:-1]
+    if not opaque_tag or any(
+        not (ord(character) == 0x21 or 0x23 <= ord(character) <= 0x7E)
+        for character in opaque_tag
+    ):
+        raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
+    print(
+        "Runtime index.html: bootstrap-блок, заголовок и сильный ETag "
+        f"{etag} подтверждены.")
+else:
+    enhanced_scripts = re.findall(
+        r"<script\b[^>]*\bsrc\s*=\s*['\"][^'\"]*/JellyfinEnhanced/script"
+        r"(?:\?[^'\"]*)?['\"][^>]*>\s*</script>",
+        html,
+        re.IGNORECASE,
+    )
+    if len(enhanced_scripts) != 1:
+        raise SystemExit(
+            "Ответ index.html не содержит ETag, но совместимый внешний преобразователь "
+            "Jellyfin Enhanced не подтверждён ровно одним script-элементом; "
+            f"обнаружено: {len(enhanced_scripts)}.")
+    print(
+        "Runtime index.html: bootstrap-блок подтверждён; Jellyfin Enhanced "
+        "изменил итоговый HTML и штатно удалил устаревший ETag.")
 PY
 
   index_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$index_headers")"
-  [[ -n "$index_etag" ]] || fail "Не удалось извлечь Runtime ETag index.html."
-  index_code="$(
-    curl -sS --max-time 15 \
-      -o /dev/null \
-      -w '%{http_code}' \
-      -H "If-None-Match: $index_etag" \
-      "$BASE_URL/web/index.html"
-  )"
-  [[ "$index_code" == "304" ]] \
-    || fail "Условный запрос index.html вернул HTTP $index_code вместо 304."
-  log "Runtime index.html: условный запрос 304 подтверждён."
+  if [[ -n "$index_etag" ]]; then
+    index_code="$(
+      curl -sS --max-time 15 \
+        -o /dev/null \
+        -w '%{http_code}' \
+        -H "If-None-Match: $index_etag" \
+        "$BASE_URL/web/index.html"
+    )"
+    [[ "$index_code" == "304" ]] \
+      || fail "Условный запрос index.html вернул HTTP $index_code вместо 304."
+    log "Runtime index.html: условный запрос 304 подтверждён."
+  else
+    log "Runtime index.html: проверка 304 пропущена только для композитного ответа Jellyfin Enhanced без ETag."
+  fi
 
   curl -fsS --max-time 15 \
     -D "$js_headers" \

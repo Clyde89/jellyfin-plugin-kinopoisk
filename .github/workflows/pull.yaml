@@ -136,7 +136,8 @@ jobs:
         - пересоздаёт только Jellyfin из базового Compose проекта media-core-jellyfin;
         - не затрагивает jellyfin-egress-proxy;
         - проверяет health, Jellyfin 10.11.11, ReadonlyRootfs и отсутствие mount index.html;
-        - проверяет Runtime Web Bootstrap, MIME, ETag, 304 и состав WebClient.js;
+        - проверяет Runtime Web Bootstrap, композитный режим Jellyfin Enhanced,
+          MIME, ETag, 304 и состав WebClient.js;
         - подтверждает отсутствие автозапуска Preview и Apply;
         - автоматически выполняет точный откат при критической ошибке;
         - при откате восстанавливает прежний external Web-слой, если он существовал.

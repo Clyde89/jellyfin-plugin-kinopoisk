@@ -277,14 +277,15 @@ write_headers() {
   local kind="$1"
   [[ -n "$headers" ]] || return 0
   if [[ "$kind" == "index" ]]; then
-    cat > "$headers" <<HEADERS
-HTTP/1.1 200 OK
-Content-Type: text/html; charset=utf-8
-ETag: ${index_etag}
-X-Kinopoisk-Web-Bootstrap: runtime
-Cache-Control: no-cache
-
-HEADERS
+    {
+      printf '%s\n' 'HTTP/1.1 200 OK'
+      printf '%s\n' 'Content-Type: text/html; charset=utf-8'
+      if [[ "${FAKE_OMIT_INDEX_ETAG:-0}" != "1" ]]; then
+        printf 'ETag: %s\n' "$index_etag"
+      fi
+      printf '%s\n' 'X-Kinopoisk-Web-Bootstrap: runtime'
+      printf '%s\n\n' 'Cache-Control: no-cache'
+    } > "$headers"
   else
     cat > "$headers" <<HEADERS
 HTTP/1.1 200 OK
@@ -307,7 +308,11 @@ case "$url" in
       exit 0
     fi
     write_headers index
-    write_body '<!doctype html><html><head><!-- KINOPOISK_WEB_CLIENT_BEGIN --><script data-kinopoisk-managed="runtime" src="../Kinopoisk/WebClient.js?v=test"></script><!-- KINOPOISK_WEB_CLIENT_END --></head><body>Jellyfin</body></html>'
+    enhanced_script=''
+    if [[ "${FAKE_JELLYFIN_ENHANCED:-0}" == "1" ]]; then
+      enhanced_script='<script plugin="Jellyfin Enhanced" version="test" dev="false" src="../JellyfinEnhanced/script?v=test" defer></script>'
+    fi
+    write_body "<!doctype html><html><head><!-- KINOPOISK_WEB_CLIENT_BEGIN --><script data-kinopoisk-managed=\"runtime\" src=\"../Kinopoisk/WebClient.js?v=test\"></script><!-- KINOPOISK_WEB_CLIENT_END -->${enhanced_script}</head><body>Jellyfin</body></html>"
     ;;
 
   */Kinopoisk/WebClient.js)
@@ -392,6 +397,51 @@ bash "$PKG/install-media-core-autonomous.sh" rollback "$transaction" --confirm >
 [[ "$(cat "$STATE/mode")" == "legacy" ]]
 grep -Fq "$LEGACY_OVERRIDE_CONTENT" "$OVERRIDE"
 grep -Fq 'data-kinopoisk-managed="external"' "$MANAGED_INDEX"
+grep -Fq 'SECRET-TEST-TOKEN' "$PLUGIN_ROOT/configurations/Jellyfin.Plugin.Kinopoisk.xml"
+
+sleep 1
+FAKE_OMIT_INDEX_ETAG=1 FAKE_JELLYFIN_ENHANCED=1 \
+  bash "$PKG/install-media-core-autonomous.sh" apply --confirm \
+  > "$ROOT/apply-jellyfin-enhanced.log"
+
+enhanced_transaction="$(cat "$BACKUPS/LATEST")"
+[[ -f "$enhanced_transaction/APPLIED_OK" ]]
+[[ -d "$NEW_DIR" ]]
+[[ ! -d "$OLD_DIR" ]]
+[[ ! -e "$OVERRIDE" ]]
+[[ ! -e "$MANAGED_INDEX" ]]
+[[ "$(cat "$STATE/mode")" == "runtime" ]]
+grep -Fq 'Jellyfin Enhanced изменил итоговый HTML и штатно удалил устаревший ETag.' \
+  "$ROOT/apply-jellyfin-enhanced.log"
+grep -Fq 'проверка 304 пропущена только для композитного ответа Jellyfin Enhanced без ETag.' \
+  "$ROOT/apply-jellyfin-enhanced.log"
+
+bash "$PKG/install-media-core-autonomous.sh" \
+  rollback "$enhanced_transaction" --confirm \
+  > "$ROOT/rollback-jellyfin-enhanced.log"
+[[ -d "$OLD_DIR" ]]
+[[ ! -d "$NEW_DIR" ]]
+[[ -f "$OVERRIDE" ]]
+[[ -f "$MANAGED_INDEX" ]]
+[[ "$(cat "$STATE/mode")" == "legacy" ]]
+
+sleep 1
+if FAKE_OMIT_INDEX_ETAG=1 bash "$PKG/install-media-core-autonomous.sh" apply --confirm \
+  > "$ROOT/apply-missing-etag.log" 2>&1; then
+  printf '%s\n' 'Установка без Runtime ETag и без Jellyfin Enhanced неожиданно завершилась успешно.' >&2
+  exit 1
+fi
+
+missing_etag_transaction="$(cat "$BACKUPS/LATEST")"
+[[ -f "$missing_etag_transaction/ROLLED_BACK" ]]
+[[ -d "$OLD_DIR" ]]
+[[ ! -d "$NEW_DIR" ]]
+[[ -f "$OVERRIDE" ]]
+[[ -f "$MANAGED_INDEX" ]]
+[[ "$(cat "$STATE/mode")" == "legacy" ]]
+grep -Fq 'совместимый внешний преобразователь Jellyfin Enhanced не подтверждён' \
+  "$ROOT/apply-missing-etag.log"
+grep -Fq 'Автоматический откат завершён успешно.' "$ROOT/apply-missing-etag.log"
 grep -Fq 'SECRET-TEST-TOKEN' "$PLUGIN_ROOT/configurations/Jellyfin.Plugin.Kinopoisk.xml"
 
 sleep 1
