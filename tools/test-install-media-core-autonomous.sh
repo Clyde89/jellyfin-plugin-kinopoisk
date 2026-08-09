@@ -222,6 +222,11 @@ headers=""
 write_format=""
 if_none_match=""
 url=""
+index_etag='"media-core-runtime-1111111111111111111111111111111111111111111111111111111111111111"'
+webclient_etag='"2222222222222222222222222222222222222222222222222222222222222222"'
+if [[ "${FAKE_WEAK_INDEX_ETAG:-0}" == "1" ]]; then
+  index_etag='W/"media-core-runtime-1111111111111111111111111111111111111111111111111111111111111111"'
+fi
 
 while (($#)); do
   case "$1" in
@@ -272,19 +277,19 @@ write_headers() {
   local kind="$1"
   [[ -n "$headers" ]] || return 0
   if [[ "$kind" == "index" ]]; then
-    cat > "$headers" <<'HEADERS'
+    cat > "$headers" <<HEADERS
 HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
-ETag: "kp-1111111111111111111111111111111111111111111111111111111111111111"
+ETag: ${index_etag}
 X-Kinopoisk-Web-Bootstrap: runtime
 Cache-Control: no-cache
 
 HEADERS
   else
-    cat > "$headers" <<'HEADERS'
+    cat > "$headers" <<HEADERS
 HTTP/1.1 200 OK
 Content-Type: application/javascript; charset=utf-8
-ETag: "2222222222222222222222222222222222222222222222222222222222222222"
+ETag: ${webclient_etag}
 X-Content-Type-Options: nosniff
 
 HEADERS
@@ -297,7 +302,7 @@ case "$url" in
     ;;
 
   */web/index.html)
-    if [[ -n "$if_none_match" ]]; then
+    if [[ "$if_none_match" == "$index_etag" ]]; then
       [[ -n "$write_format" ]] && printf '304'
       exit 0
     fi
@@ -309,7 +314,7 @@ case "$url" in
     if [[ "${FAKE_FAIL_WEB:-0}" == "1" ]]; then
       exit 22
     fi
-    if [[ -n "$if_none_match" ]]; then
+    if [[ "$if_none_match" == "$webclient_etag" ]]; then
       [[ -n "$write_format" ]] && printf '304'
       exit 0
     fi
@@ -372,6 +377,7 @@ grep -Fq 'Runtime Web Bootstrap: проверен' "$transaction/install-summary
 
 grep -Fq 'Runtime Bootstrap:  проверен' "$ROOT/apply.log"
 grep -Fq 'Legacy Web mount:   удалён' "$ROOT/apply.log"
+grep -Fq 'сильный ETag "media-core-runtime-' "$ROOT/apply.log"
 
 bash "$PKG/install-media-core-autonomous.sh" verify "$transaction" > "$ROOT/verify.log"
 grep -Fq 'ПОЛНАЯ RUNTIME-ПРОВЕРКА САМОДОСТАТОЧНОГО ПЛАГИНА УСПЕШНО ЗАВЕРШЕНА.' \
@@ -386,6 +392,24 @@ bash "$PKG/install-media-core-autonomous.sh" rollback "$transaction" --confirm >
 [[ "$(cat "$STATE/mode")" == "legacy" ]]
 grep -Fq "$LEGACY_OVERRIDE_CONTENT" "$OVERRIDE"
 grep -Fq 'data-kinopoisk-managed="external"' "$MANAGED_INDEX"
+grep -Fq 'SECRET-TEST-TOKEN' "$PLUGIN_ROOT/configurations/Jellyfin.Plugin.Kinopoisk.xml"
+
+sleep 1
+if FAKE_WEAK_INDEX_ETAG=1 bash "$PKG/install-media-core-autonomous.sh" apply --confirm \
+  > "$ROOT/apply-weak-etag.log" 2>&1; then
+  printf '%s\n' 'Установка со слабым Runtime ETag неожиданно завершилась успешно.' >&2
+  exit 1
+fi
+
+weak_etag_transaction="$(cat "$BACKUPS/LATEST")"
+[[ -f "$weak_etag_transaction/ROLLED_BACK" ]]
+[[ -d "$OLD_DIR" ]]
+[[ ! -d "$NEW_DIR" ]]
+[[ -f "$OVERRIDE" ]]
+[[ -f "$MANAGED_INDEX" ]]
+[[ "$(cat "$STATE/mode")" == "legacy" ]]
+grep -Fq 'содержит слабый ETag' "$ROOT/apply-weak-etag.log"
+grep -Fq 'Автоматический откат завершён успешно.' "$ROOT/apply-weak-etag.log"
 grep -Fq 'SECRET-TEST-TOKEN' "$PLUGIN_ROOT/configurations/Jellyfin.Plugin.Kinopoisk.xml"
 
 sleep 1

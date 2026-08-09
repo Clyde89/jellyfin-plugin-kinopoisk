@@ -423,12 +423,32 @@ if re.search(r'data-kinopoisk-managed="external"', html, re.IGNORECASE):
     raise SystemExit("В HTTP-ответе остался legacy external-блок.")
 if not re.search(r"(?im)^x-kinopoisk-web-bootstrap:\s*runtime\s*$", headers):
     raise SystemExit("Ответ index.html не содержит X-Kinopoisk-Web-Bootstrap: runtime.")
-if not re.search(r"(?im)^etag:\s*\"kp-[0-9a-f]{64}\"\s*$", headers):
-    raise SystemExit("Ответ index.html не содержит корректный Runtime ETag.")
-print("Runtime index.html: bootstrap-блок, заголовок и ETag подтверждены.")
+etag_values = []
+for line in headers.splitlines():
+    name, separator, value = line.partition(":")
+    if separator and name.strip().lower() == "etag":
+        etag_values.append(value.strip())
+if len(etag_values) != 1:
+    raise SystemExit(
+        "Ответ index.html должен содержать ровно один ETag; "
+        f"получено: {etag_values!r}.")
+etag = etag_values[0]
+if etag.lower().startswith("w/"):
+    raise SystemExit(f"Ответ index.html содержит слабый ETag: {etag!r}.")
+if len(etag) < 3 or not (etag.startswith('"') and etag.endswith('"')):
+    raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
+opaque_tag = etag[1:-1]
+if not opaque_tag or any(
+    not (ord(character) == 0x21 or 0x23 <= ord(character) <= 0x7E)
+    for character in opaque_tag
+):
+    raise SystemExit(f"Ответ index.html содержит некорректный сильный ETag: {etag!r}.")
+print(
+    "Runtime index.html: bootstrap-блок, заголовок и сильный ETag "
+    f"{etag} подтверждены.")
 PY
 
-  index_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/\r$/, "", $2); print $2; exit}' "$index_headers")"
+  index_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$index_headers")"
   [[ -n "$index_etag" ]] || fail "Не удалось извлечь Runtime ETag index.html."
   index_code="$(
     curl -sS --max-time 15 \
@@ -475,7 +495,7 @@ for forbidden in ("X-API-KEY", "kinopoiskapiunofficial.tech/api", "Authorization
 print("WebClient.js: MIME, ETag, nosniff и состав bundle подтверждены.")
 PY
 
-  js_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/\r$/, "", $2); print $2; exit}' "$js_headers")"
+  js_etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$js_headers")"
   [[ -n "$js_etag" ]] || fail "Не удалось извлечь ETag WebClient.js."
   js_code="$(
     curl -sS --max-time 15 \
