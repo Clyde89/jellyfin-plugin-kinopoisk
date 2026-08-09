@@ -1,3 +1,20 @@
+
+.devcontainer/
+.editorconfig
+.github/
+.gitignore
+.vscode/
+CHANGELOG.d/
+CHANGELOG.md
+LICENSE
+README.md
+assets/
+dist/
+docs/
+global.json
+kinopoisk.code-workspace
+src/
+tools/
 name: Проверка Runtime Web Bootstrap
 
 on:
@@ -280,7 +297,12 @@ jobs:
 
           etag="$(awk 'BEGIN{IGNORECASE=1} /^ETag:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
             "$RUNNER_TEMP/index.headers")"
-          test -n "$etag"
+          printf 'Runtime ETag: %s\n' "$etag"
+          if [[ ! "$etag" =~ ^\"kp-[0-9a-f]{64}\"$ ]]; then
+            echo 'Runtime index.html не содержит собственный сильный ETag КиноПоиска.' >&2
+            sed -n '/^[Ee][Tt][Aa][Gg]:/p' "$RUNNER_TEMP/index.headers" >&2
+            exit 1
+          fi
 
           curl -fsS \
             -D "$RUNNER_TEMP/webclient.headers" \
