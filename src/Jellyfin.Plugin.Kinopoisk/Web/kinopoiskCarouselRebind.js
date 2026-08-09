@@ -96,8 +96,13 @@
     }
 
     function bindCurrentCarousels() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        var page = lifecycle ? lifecycle.getActivePage() : document;
+        if (!page) {
+            return;
+        }
         Array.prototype.forEach.call(
-            document.querySelectorAll('.kp-recommendations-section'),
+            page.querySelectorAll('.kp-recommendations-section'),
             bindRecommendationSection
         );
     }
@@ -107,13 +112,10 @@
         timer = setTimeout(bindCurrentCarousels, 120);
     }
 
-    var observer = new MutationObserver(scheduleBind);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-    window.addEventListener('hashchange', scheduleBind);
-    window.addEventListener('popstate', scheduleBind);
-    document.addEventListener('viewshow', scheduleBind, true);
-    scheduleBind();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(scheduleBind);
+    } else {
+        scheduleBind();
+    }
 }());

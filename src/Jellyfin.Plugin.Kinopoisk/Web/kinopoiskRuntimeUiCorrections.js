@@ -9,6 +9,10 @@
     var scrollerSequence = 0;
 
     function getVisibleDetailPage() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getActivePage();
+        }
         var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
         for (var index = 0; index < pages.length; index++) {
             var page = pages[index];
@@ -148,11 +152,11 @@
     }
 
     ensureStyles();
-    var observer = new MutationObserver(scheduleRender);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('hashchange', scheduleRender);
-    window.addEventListener('popstate', scheduleRender);
-    document.addEventListener('viewshow', scheduleRender, true);
-    scheduleRender();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(scheduleRender);
+    } else {
+        scheduleRender();
+    }
     console.info('[КиноПоиск] Корректировки навигации зарегистрированы.');
 }());

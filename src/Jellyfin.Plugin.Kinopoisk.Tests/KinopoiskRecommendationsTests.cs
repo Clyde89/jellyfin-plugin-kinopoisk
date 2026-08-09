@@ -38,7 +38,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("overview", script);
             Assert.Contains("imdbId", script);
             Assert.Contains("mediaType", script);
-            Assert.Contains(".kp-recommendations-items>.card{width:12.4em", script);
+            Assert.Contains("--kp-native-card-width", script);
+            Assert.Contains("applyNativeCardWidth", script);
+            Assert.Contains("applyProtectedImage", script);
+            Assert.DoesNotContain("width:12.4em", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("width:10.8em", script, StringComparison.Ordinal);
             Assert.Contains("function findInsertionAnchor(page)", script);
             Assert.Contains("page.querySelector('#similarCollapsible')", script);
             Assert.Contains("page.querySelector('.similarCollapsible')", script);

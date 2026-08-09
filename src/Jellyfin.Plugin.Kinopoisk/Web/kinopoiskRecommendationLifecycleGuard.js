@@ -20,6 +20,10 @@
     }
 
     function getVisibleDetailPage() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getActivePage();
+        }
         var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
         for (var index = 0; index < pages.length; index++) {
             if (isVisible(pages[index]) && !pages[index].classList.contains('hide')) {
@@ -97,8 +101,12 @@
 
     function alignAll() {
         alignTimer = null;
+        var page = getVisibleDetailPage();
+        if (!page) {
+            return;
+        }
         Array.prototype.forEach.call(
-            document.querySelectorAll('.kp-recommendations-section'),
+            page.querySelectorAll('.kp-recommendations-section'),
             alignSection
         );
     }
@@ -138,12 +146,12 @@
     }
 
     ensureStyles();
-    var observer = new MutationObserver(scheduleAlignment);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener('resize', scheduleAlignment);
-    window.addEventListener('hashchange', scheduleAlignment);
-    window.addEventListener('popstate', scheduleAlignment);
-    document.addEventListener('viewshow', scheduleAlignment, true);
-    scheduleAlignment();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(scheduleAlignment);
+    } else {
+        scheduleAlignment();
+    }
     console.info('[КиноПоиск] Геометрическое выравнивание навигации зарегистрировано.');
 }());

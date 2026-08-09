@@ -113,7 +113,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldAssembleEmbeddedWebClientBundle()
         {
-            Assert.Equal(13, KinopoiskWebClientBundle.ResourceCount);
+            Assert.Equal(14, KinopoiskWebClientBundle.ResourceCount);
             Assert.Equal(64, KinopoiskWebClientBundle.Sha256.Length);
             Assert.Equal(
                 KinopoiskWebClientBundle.Sha256[..16],
@@ -122,6 +122,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Encoding.UTF8.GetBytes(KinopoiskWebClientBundle.Content),
                 KinopoiskWebClientBundle.Bytes);
             Assert.Contains(".btnPlayTrailer", KinopoiskWebClientBundle.Content);
+            Assert.Contains(
+                "Единый жизненный цикл карточки зарегистрирован",
+                KinopoiskWebClientBundle.Content);
             Assert.Contains("Похожие и рекомендации", KinopoiskWebClientBundle.Content);
             Assert.Contains("kp-recommendations-scroller", KinopoiskWebClientBundle.Content);
             Assert.Contains(

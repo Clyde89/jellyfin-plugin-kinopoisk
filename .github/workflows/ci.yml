@@ -110,6 +110,12 @@ jobs:
             node --check "$script"
           done
 
+      - name: Восстановлены зависимости DOM-тестов
+        run: npm ci --ignore-scripts
+
+      - name: Выполнены DOM-тесты клиентской карточки
+        run: npm run test:web
+
       - name: Рассчитаны контрольные суммы
         shell: bash
         run: |

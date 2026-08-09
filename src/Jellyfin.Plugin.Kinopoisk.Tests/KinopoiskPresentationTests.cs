@@ -79,7 +79,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("/KinopoiskPresentation/", script);
             Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
             Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
-            Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
+            Assert.Contains("releaseDates", script, StringComparison.Ordinal);
+            Assert.Contains("Мировая премьера", script, StringComparison.Ordinal);
+            Assert.Contains("Премьера в России", script, StringComparison.Ordinal);
+            Assert.Contains("Все даты", script, StringComparison.Ordinal);
+            Assert.Contains("kp-standalone-release-dates", script, StringComparison.Ordinal);
+            Assert.Contains("window.JellyfinEnhanced", script, StringComparison.Ordinal);
+            Assert.Contains("applyProtectedImage", script, StringComparison.Ordinal);
             Assert.Contains("Факты и интересные детали", script);
             Assert.Contains("Бюджет и сборы", script);
             Assert.Contains("Награды и номинации", script);
@@ -89,6 +95,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("textContent", script);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("kinopoiskapiunofficial.tech/api", script, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("image.src = imageUrl", script, StringComparison.Ordinal);
         }
 
         private sealed class FakeApiClient :

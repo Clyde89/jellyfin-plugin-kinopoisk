@@ -10,7 +10,7 @@ BIN="$ROOT/bin"
 CONFIG="$ROOT/config"
 PLUGIN_ROOT="$CONFIG/plugins"
 OLD_DIR="$PLUGIN_ROOT/КиноПоиск_10.11.0.0"
-NEW_DIR="$PLUGIN_ROOT/КиноПоиск_10.11.0.6"
+NEW_DIR="$PLUGIN_ROOT/КиноПоиск_10.11.0.7"
 COMPOSE="$ROOT/compose.jellyfin.yaml"
 OVERRIDE="$ROOT/compose.jellyfin.kinopoisk-web.yaml"
 WEBROOT="$ROOT/web/kinopoisk"
@@ -162,9 +162,9 @@ case "${1:-}" in
     mode="$(cat "$FAKE_STATE/mode")"
     if [[ "$mode" == "runtime" ]]; then
       cat <<'LOG'
-[INF] Loaded assembly Jellyfin.Plugin.Kinopoisk, Version=10.11.0.6, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.6/Jellyfin.Plugin.Kinopoisk.dll
-[INF] Loaded assembly KinopoiskUnofficialInfo.ApiClient, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.6/KinopoiskUnofficialInfo.ApiClient.dll
-[INF] Loaded plugin: КиноПоиск 10.11.0.6
+[INF] Loaded assembly Jellyfin.Plugin.Kinopoisk, Version=10.11.0.7, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.7/Jellyfin.Plugin.Kinopoisk.dll
+[INF] Loaded assembly KinopoiskUnofficialInfo.ApiClient, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null from /config/plugins/КиноПоиск_10.11.0.7/KinopoiskUnofficialInfo.ApiClient.dll
+[INF] Loaded plugin: КиноПоиск 10.11.0.7
 [INF] Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.
 LOG
     else
@@ -368,7 +368,7 @@ bash "$PKG/install-media-core-autonomous.sh" apply --confirm > "$ROOT/apply.log"
 python3 - "$NEW_DIR/meta.json" <<'PY'
 import json
 import sys
-assert json.load(open(sys.argv[1], encoding="utf-8"))["version"] == "10.11.0.6"
+assert json.load(open(sys.argv[1], encoding="utf-8"))["version"] == "10.11.0.7"
 PY
 
 transaction="$(cat "$BACKUPS/LATEST")"

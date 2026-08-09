@@ -11,7 +11,6 @@
     var reviewStates = new Map();
     var itemCache = new Map();
     var spoilerCache = new Map();
-    var renderTimer = null;
 
     var reviewTypeLabels = {
         POSITIVE: 'Положительная',
@@ -49,6 +48,10 @@
     }
 
     function getCurrentItemId() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getCurrentItemId();
+        }
         var candidates = [window.location.search || ''];
         var hash = window.location.hash || '';
         var queryIndex = hash.indexOf('?');
@@ -80,6 +83,10 @@
     }
 
     function getAuthHeaders() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getAuthHeaders('application/json');
+        }
         var apiClient = getApiClient();
         var token = apiClient && typeof apiClient.accessToken === 'function'
             ? apiClient.accessToken()
@@ -92,6 +99,10 @@
     }
 
     function fetchJson(path) {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.fetchJson(path);
+        }
         var apiClient = getApiClient();
         if (!apiClient) {
             return Promise.reject(new Error('ApiClient недоступен.'));
@@ -108,6 +119,10 @@
     }
 
     function fetchCurrentItem(itemId) {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.fetchItem(itemId);
+        }
         if (!itemCache.has(itemId)) {
             var apiClient = getApiClient();
             if (!apiClient || typeof apiClient.getItem !== 'function') {
@@ -183,9 +198,13 @@
     }
 
     function getVisiblePage() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getActivePage();
+        }
         return document.querySelector('#itemDetailPage:not(.hide)')
             || document.querySelector('.itemDetailPage:not(.hide)')
-            || document;
+            || null;
     }
 
     function findStandardReviewSection(page) {
@@ -630,11 +649,11 @@
         if (spoilerCache.has(itemId)) {
             return spoilerCache.get(itemId);
         }
+        var enhanced = window.JellyfinEnhanced;
+        if (!enhanced || !enhanced.pluginConfig || !enhanced.spoilerBlur) {
+            return Promise.resolve(false);
+        }
         var promise = (function () {
-            var enhanced = window.JellyfinEnhanced;
-            if (!enhanced || !enhanced.pluginConfig || !enhanced.spoilerBlur) {
-                return Promise.resolve(false);
-            }
             if (!enhanced.pluginConfig.SpoilerBlurEnabled
                 || enhanced.pluginConfig.SpoilerStripReviews === false) {
                 return Promise.resolve(false);
@@ -702,13 +721,13 @@
         }
     }
 
-    function renderCurrentItem() {
-        var itemId = getCurrentItemId();
-        if (!itemId) {
+    function renderCurrentItem(context) {
+        if (!context || !context.isCurrent()) {
             return;
         }
+        var itemId = context.itemId;
         fetchCurrentItem(itemId).then(function (item) {
-            if (!item || getCurrentItemId() !== itemId) {
+            if (!item || !context.isCurrent()) {
                 return;
             }
             var itemType = String(pick(item, 'Type', 'type') || '');
@@ -720,10 +739,10 @@
                 return;
             }
             shouldSuppressForSpoilerMode(item).then(function (suppressed) {
-                if (getCurrentItemId() !== itemId) {
+                if (!context.isCurrent()) {
                     return;
                 }
-                var page = getVisiblePage();
+                var page = context.page;
                 if (suppressed) {
                     removeSuppressedElements(page);
                     return;
@@ -736,20 +755,10 @@
         });
     }
 
-    function scheduleRender() {
-        clearTimeout(renderTimer);
-        renderTimer = setTimeout(renderCurrentItem, 300);
-    }
-
     ensureStyles();
-    var observer = new MutationObserver(scheduleRender);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-    window.addEventListener('hashchange', scheduleRender);
-    window.addEventListener('popstate', scheduleRender);
-    document.addEventListener('viewshow', scheduleRender, true);
-    scheduleRender();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(renderCurrentItem);
+    }
     console.info('[КиноПоиск] Интеграция рецензий зарегистрирована.');
 }());

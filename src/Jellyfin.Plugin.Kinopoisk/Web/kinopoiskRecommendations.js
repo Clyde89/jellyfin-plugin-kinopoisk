@@ -13,6 +13,7 @@
     var retryTimers = [];
     var renderGeneration = 0;
     var activeItemId = null;
+    var activeLifecycleGeneration = 0;
     var retryDelays = [0, 120, 280, 520, 900, 1450, 2200, 3400, 5200, 8000];
 
     function pick(object) {
@@ -33,6 +34,10 @@
     }
 
     function getCurrentItemId() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getCurrentItemId();
+        }
         var candidates = [window.location.search || ''];
         var hash = window.location.hash || '';
         var queryIndex = hash.indexOf('?');
@@ -64,6 +69,10 @@
     }
 
     function getAuthHeaders() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getAuthHeaders('application/json');
+        }
         var apiClient = getApiClient();
         var token = apiClient && typeof apiClient.accessToken === 'function'
             ? apiClient.accessToken()
@@ -76,6 +85,10 @@
     }
 
     function fetchJson(path) {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.fetchJson(path);
+        }
         var apiClient = getApiClient();
         if (!apiClient) {
             return Promise.reject(new Error('ApiClient недоступен.'));
@@ -92,6 +105,10 @@
     }
 
     function fetchCurrentItem(itemId) {
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        return lifecycle.fetchItem(itemId);
+    }
     var apiClient = getApiClient();
     if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
         return Promise.resolve(null);
@@ -124,6 +141,10 @@
     }
 
     function normalizeImageUrl(value) {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.normalizeImageUrl(value);
+        }
         if (!value) {
             return null;
         }
@@ -163,18 +184,22 @@
             '.kp-recommendations-status{padding:1em;opacity:.72}',
             '.kp-recommendations-scroller{overflow-x:auto;padding:.7em 0 1em;scrollbar-width:thin}',
             '.kp-recommendations-items{display:flex;gap:1em;padding:.25em 1em .5em .25em}',
-            '.kp-recommendations-items>.card{width:12.4em;flex:0 0 12.4em}',
+            '.kp-recommendations-items>.card{width:var(--kp-native-card-width);flex:0 0 var(--kp-native-card-width)}',
             '.kp-similar-card .cardImageContainer{background-position:center;background-size:cover}',
             '.kp-similar-card__source{font-size:.86em;opacity:.86;white-space:nowrap}',
             '.kp-similar-card__rating{display:flex;align-items:center;gap:.25em;color:#bdbdbd;white-space:nowrap}',
             '.kp-similar-card__star{color:#ffd700;font-size:1.15em;line-height:1}',
             '.kp-similar-card__fallback-button{opacity:.65;cursor:not-allowed}',
-            '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}.kp-recommendations-items>.card{width:10.8em;flex-basis:10.8em}}'
+            '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}}'
         ].join('');
         document.head.appendChild(style);
     }
 
     function getVisiblePage() {
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        return lifecycle.getActivePage();
+    }
     var pages = document.querySelectorAll('#itemDetailPage, .itemDetailPage');
     for (var index = 0; index < pages.length; index++) {
         var page = pages[index];
@@ -188,6 +213,25 @@
     }
     return null;
 }
+
+    function applyNativeCardWidth(page, section) {
+        var preferred = page.querySelector(
+            '#similarCollapsible .card:not(.kp-similar-card),'
+            + '.similarCollapsible .card:not(.kp-similar-card)'
+        );
+        var cards = preferred ? [preferred] : page.querySelectorAll('.card');
+        for (var index = 0; index < cards.length; index++) {
+            var card = cards[index];
+            if (section.contains(card) || card.classList.contains('kp-similar-card')) {
+                continue;
+            }
+            var width = card.getBoundingClientRect().width;
+            if (width >= 80 && width <= 600) {
+                section.style.setProperty('--kp-native-card-width', width.toFixed(2) + 'px');
+                return;
+            }
+        }
+    }
 
     function findInsertionAnchor(page) {
     return page.querySelector('#similarCollapsible')
@@ -507,7 +551,10 @@
         scalable.appendChild(createElement('div', 'cardPadder cardPadder-overflowPortrait'));
         var image = createElement('div', 'cardImageContainer coveredImage cardContent');
         if (imageUrl) {
-            image.style.backgroundImage = 'url("' + imageUrl + '")';
+            var lifecycle = window.KinopoiskDetailPageLifecycle;
+            if (lifecycle) {
+                lifecycle.applyProtectedImage(image, imageUrl, 'background');
+            }
         }
         var badge = createElement(
             'span',
@@ -554,7 +601,10 @@
         );
         var image = card.querySelector('.cardImageContainer');
         if (image && imageUrl) {
-            image.style.backgroundImage = 'url("' + imageUrl + '")';
+            var lifecycle = window.KinopoiskDetailPageLifecycle;
+            if (lifecycle) {
+                lifecycle.applyProtectedImage(image, imageUrl, 'background');
+            }
         }
         var meta = card.querySelector('.jellyseerr-meta');
         if (meta) {
@@ -765,6 +815,7 @@ function renderCurrentItem(itemId, expectedGeneration) {
 
         var existing = page.querySelector('#kinopoiskRecommendationsSection');
         if (existing && existing.dataset.itemId === itemId) {
+            applyNativeCardWidth(page, existing);
             clearRetryTimers();
             return;
         }
@@ -791,10 +842,9 @@ function renderCurrentItem(itemId, expectedGeneration) {
         }
 
         removeLegacySeerrSections(page);
-        anchor.parentNode.insertBefore(
-            createSection(itemId, item, kinopoiskId),
-            anchor.nextSibling
-        );
+        var section = createSection(itemId, item, kinopoiskId);
+        applyNativeCardWidth(page, section);
+        anchor.parentNode.insertBefore(section, anchor.nextSibling);
         clearRetryTimers();
     });
 }
@@ -819,6 +869,25 @@ function startRenderCycle() {
     });
 }
 
+function handleLifecycleContext(context) {
+    if (!context || !context.isCurrent()) {
+        return;
+    }
+    if (activeItemId !== context.itemId
+        || activeLifecycleGeneration !== context.generation) {
+        renderGeneration += 1;
+        activeItemId = context.itemId;
+        activeLifecycleGeneration = context.generation;
+        clearRetryTimers();
+        var expectedGeneration = renderGeneration;
+        retryDelays.forEach(function (delay) {
+            queueRenderAttempt(context.itemId, expectedGeneration, delay);
+        });
+        return;
+    }
+    scheduleImmediateRender();
+}
+
 function scheduleImmediateRender() {
     var itemId = getCurrentItemId();
     if (itemId !== activeItemId) {
@@ -836,25 +905,11 @@ function scheduleImmediateRender() {
 }
 
 ensureStyles();
-var observer = new MutationObserver(scheduleImmediateRender);
-observer.observe(document.documentElement, { childList: true, subtree: true });
-window.addEventListener('hashchange', startRenderCycle);
-window.addEventListener('popstate', startRenderCycle);
-document.addEventListener('viewshow', startRenderCycle, true);
-window.setInterval(function () {
-    var itemId = getCurrentItemId();
-    if (itemId !== activeItemId) {
-        startRenderCycle();
-        return;
-    }
-    if (!itemId) {
-        return;
-    }
-    var page = getVisiblePage();
-    if (!sectionMatches(page, itemId)) {
-        scheduleImmediateRender();
-    }
-}, 2000);
-startRenderCycle();
+var lifecycle = window.KinopoiskDetailPageLifecycle;
+if (lifecycle) {
+    lifecycle.subscribe(handleLifecycleContext);
+} else {
+    startRenderCycle();
+}
 console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
 }());
