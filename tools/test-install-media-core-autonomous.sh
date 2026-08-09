@@ -370,7 +370,7 @@ grep -Fq "$LEGACY_OVERRIDE_CONTENT" "$transaction/compose.override.before.yaml"
 grep -Fq 'data-kinopoisk-managed="external"' "$transaction/index.before.html"
 grep -Fq 'Runtime Web Bootstrap: проверен' "$transaction/install-summary.txt"
 
-grep -Fq 'Runtime Web Bootstrap' "$ROOT/apply.log"
+grep -Fq 'Runtime Bootstrap:  проверен' "$ROOT/apply.log"
 grep -Fq 'Legacy Web mount:   удалён' "$ROOT/apply.log"
 
 bash "$PKG/install-media-core-autonomous.sh" verify "$transaction" > "$ROOT/verify.log"
