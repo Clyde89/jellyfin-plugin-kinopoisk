@@ -275,7 +275,7 @@ write_headers() {
     cat > "$headers" <<'HEADERS'
 HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
-ETag: "1111111111111111111111111111111111111111111111111111111111111111"
+ETag: "kp-1111111111111111111111111111111111111111111111111111111111111111"
 X-Kinopoisk-Web-Bootstrap: runtime
 Cache-Control: no-cache
 

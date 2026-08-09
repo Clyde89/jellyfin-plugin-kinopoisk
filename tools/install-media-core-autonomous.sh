@@ -423,7 +423,7 @@ if re.search(r'data-kinopoisk-managed="external"', html, re.IGNORECASE):
     raise SystemExit("В HTTP-ответе остался legacy external-блок.")
 if not re.search(r"(?im)^x-kinopoisk-web-bootstrap:\s*runtime\s*$", headers):
     raise SystemExit("Ответ index.html не содержит X-Kinopoisk-Web-Bootstrap: runtime.")
-if not re.search(r"(?im)^etag:\s*\"[0-9a-f]{64}\"\s*$", headers):
+if not re.search(r"(?im)^etag:\s*\"kp-[0-9a-f]{64}\"\s*$", headers):
     raise SystemExit("Ответ index.html не содержит корректный Runtime ETag.")
 print("Runtime index.html: bootstrap-блок, заголовок и ETag подтверждены.")
 PY
