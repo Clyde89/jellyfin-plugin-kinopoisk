@@ -141,7 +141,9 @@ jobs:
         - устанавливает отдельный каталог КиноПоиск_${version};
         - пересоздаёт только Jellyfin из базового Compose проекта media-core-jellyfin;
         - не затрагивает jellyfin-egress-proxy;
-        - проверяет health, Jellyfin 10.11.11, ReadonlyRootfs и отсутствие mount index.html;
+        - проверяет health и дожидается готовности опубликованного Jellyfin API;
+        - повторяет только временные ошибки API, а постоянные ошибки завершает немедленно;
+        - проверяет Jellyfin 10.11.11, ReadonlyRootfs и отсутствие mount index.html;
         - проверяет Runtime Web Bootstrap, композитный режим Jellyfin Enhanced,
           MIME, ETag, 304 и состав WebClient.js;
         - подтверждает отсутствие автозапуска Preview и Apply;

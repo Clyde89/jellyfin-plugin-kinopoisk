@@ -4,6 +4,15 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 ROOT="$(mktemp -d)"
+TEST_BINARY_ROOT="${KINOPOISK_TEST_BINARY_ROOT:-}"
+
+if [[ -n "$TEST_BINARY_ROOT" ]]; then
+  MAIN_BINARY_ROOT="$TEST_BINARY_ROOT"
+  API_CLIENT_BINARY_ROOT="$TEST_BINARY_ROOT"
+else
+  MAIN_BINARY_ROOT="$REPO_ROOT/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0"
+  API_CLIENT_BINARY_ROOT="$REPO_ROOT/src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0"
+fi
 
 PKG="$ROOT/package"
 BIN="$ROOT/bin"
@@ -18,6 +27,7 @@ MANAGED_INDEX="$WEBROOT/index.html"
 BACKUPS="$ROOT/backups"
 STATE="$ROOT/fake-state"
 DOCKER_LOG="$ROOT/docker.log"
+PUBLIC_API_COUNTER="$ROOT/public-api.counter"
 EXPECTED_TARGET="/jellyfin/jellyfin-web/index.html"
 LEGACY_OVERRIDE_CONTENT='services: legacy-runtime-test'
 LEGACY_INDEX_CONTENT='<!doctype html><html><body data-kinopoisk-managed="external">legacy</body></html>'
@@ -66,10 +76,10 @@ mkdir -p \
   "$STATE"
 
 cp "$REPO_ROOT/tools/install-media-core-autonomous.sh" "$PKG/"
-cp "$REPO_ROOT/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll" "$PKG/"
-cp "$REPO_ROOT/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.pdb" "$PKG/"
-cp "$REPO_ROOT/src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll" "$PKG/"
-cp "$REPO_ROOT/src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.pdb" "$PKG/"
+cp "$MAIN_BINARY_ROOT/Jellyfin.Plugin.Kinopoisk.dll" "$PKG/"
+cp "$MAIN_BINARY_ROOT/Jellyfin.Plugin.Kinopoisk.pdb" "$PKG/"
+cp "$API_CLIENT_BINARY_ROOT/KinopoiskUnofficialInfo.ApiClient.dll" "$PKG/"
+cp "$API_CLIENT_BINARY_ROOT/KinopoiskUnofficialInfo.ApiClient.pdb" "$PKG/"
 chmod 0755 "$PKG/install-media-core-autonomous.sh"
 
 printf 'old main\n' > "$OLD_DIR/Jellyfin.Plugin.Kinopoisk.dll"
@@ -251,6 +261,9 @@ while (($#)); do
     --max-time)
       shift 2
       ;;
+    --connect-timeout)
+      shift 2
+      ;;
     -f|-s|-S|-fsS|-sS)
       shift
       ;;
@@ -299,7 +312,26 @@ HEADERS
 
 case "$url" in
   */System/Info/Public)
+    if [[ -n "${FAKE_PUBLIC_API_FAILURES:-}" ]]; then
+      api_attempt=0
+      if [[ -f "${FAKE_PUBLIC_API_COUNTER:?}" ]]; then
+        read -r api_attempt < "$FAKE_PUBLIC_API_COUNTER"
+      fi
+      api_attempt=$((api_attempt + 1))
+      printf '%s\n' "$api_attempt" > "$FAKE_PUBLIC_API_COUNTER"
+      if [[ "$api_attempt" -le "$FAKE_PUBLIC_API_FAILURES" ]]; then
+        printf '%s\n' 'curl: (7) Failed to connect to fake port 8096' >&2
+        [[ -n "$write_format" ]] && printf '000'
+        exit 7
+      fi
+    fi
+    if [[ "${FAKE_PUBLIC_API_HTTP_STATUS:-200}" != "200" ]]; then
+      write_body '{"error":"fake"}'
+      [[ -n "$write_format" ]] && printf '%s' "$FAKE_PUBLIC_API_HTTP_STATUS"
+      exit 0
+    fi
     write_body '{"ServerName":"fake","Version":"10.11.11"}'
+    [[ -n "$write_format" ]] && printf '200'
     ;;
 
   */web/index.html)
@@ -359,7 +391,9 @@ grep -Fq 'Режим plan: изменения файлов и контейнер
 [[ -f "$MANAGED_INDEX" ]]
 [[ "$(cat "$STATE/mode")" == "legacy" ]]
 
-bash "$PKG/install-media-core-autonomous.sh" apply --confirm > "$ROOT/apply.log"
+FAKE_PUBLIC_API_FAILURES=2 \
+FAKE_PUBLIC_API_COUNTER="$PUBLIC_API_COUNTER" \
+  bash "$PKG/install-media-core-autonomous.sh" apply --confirm > "$ROOT/apply.log"
 [[ -d "$NEW_DIR" ]]
 [[ ! -d "$OLD_DIR" ]]
 [[ ! -e "$OVERRIDE" ]]
@@ -383,6 +417,22 @@ grep -Fq 'Runtime Web Bootstrap: проверен' "$transaction/install-summary
 grep -Fq 'Runtime Bootstrap:  проверен' "$ROOT/apply.log"
 grep -Fq 'Legacy Web mount:   удалён' "$ROOT/apply.log"
 grep -Fq 'сильный ETag "media-core-runtime-' "$ROOT/apply.log"
+[[ "$(cat "$PUBLIC_API_COUNTER")" == "3" ]]
+grep -Fq 'Jellyfin API временно недоступен: попытка 1/30; curl=7;' "$ROOT/apply.log"
+grep -Fq 'Jellyfin API временно недоступен: попытка 2/30; curl=7;' "$ROOT/apply.log"
+grep -Fq 'Jellyfin API доступен: попытка 3/30; HTTP=200.' "$ROOT/apply.log"
+
+if FAKE_PUBLIC_API_HTTP_STATUS=404 \
+  bash "$PKG/install-media-core-autonomous.sh" verify "$transaction" \
+  > "$ROOT/verify-http-404.log" 2>&1; then
+  printf '%s\n' 'Проверка с постоянным HTTP 404 неожиданно завершилась успешно.' >&2
+  exit 1
+fi
+grep -Fq 'Jellyfin API вернул постоянный HTTP-статус 404.' "$ROOT/verify-http-404.log"
+if grep -Fq 'попытка 2/30' "$ROOT/verify-http-404.log"; then
+  printf '%s\n' 'Постоянный HTTP 404 был ошибочно отправлен на повторную проверку.' >&2
+  exit 1
+fi
 
 bash "$PKG/install-media-core-autonomous.sh" verify "$transaction" > "$ROOT/verify.log"
 grep -Fq 'ПОЛНАЯ RUNTIME-ПРОВЕРКА САМОДОСТАТОЧНОГО ПЛАГИНА УСПЕШНО ЗАВЕРШЕНА.' \

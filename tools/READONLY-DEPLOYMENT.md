@@ -14,6 +14,9 @@ JavaScript Injector исключён из обязательных зависи�
 - Сильный ETag и ответ `304 Not Modified` добавлены для runtime HTML и `WebClient.js`.
 - Для композитного HTML, дополнительно изменённого Jellyfin Enhanced, учтено штатное
   удаление устаревшего ETag внешним middleware; собственный ETag `WebClient.js` сохранён.
+- Добавлен отдельный барьер готовности опубликованного Jellyfin API после `healthy`:
+  временные транспортные ошибки и HTTP 408/425/429/5xx проверяются повторно,
+  а постоянные ошибки завершают проверку немедленно.
 - Работа с `ReadonlyRootfs=true` подтверждена постоянными runtime-проверками.
 
 ## Состав автономного комплекта
@@ -67,7 +70,9 @@ chmod 750 install-media-core-autonomous.sh
 8. Удалены только распознанные legacy-файлы external Web-слоя.
 9. Jellyfin пересоздан только из базового Compose проекта `media-core-jellyfin`.
 10. `jellyfin-egress-proxy` сохранён без пересоздания и перезапуска.
-11. Подтверждены `healthy`, Jellyfin 10.11.11 и `ReadonlyRootfs=true`.
+11. Подтверждены `healthy`, готовность опубликованного Jellyfin API, Jellyfin 10.11.11
+    и `ReadonlyRootfs=true`. Для короткого окна недоступности Docker-порта добавлены
+    до 30 проверок API с интервалом 2 секунды; постоянные HTTP-ошибки не повторяются.
 12. Подтверждено отсутствие mount на штатный `index.html`.
 13. Подтверждены Runtime Web Bootstrap и единственный runtime-блок. Для самостоятельного
     ответа подтверждены сильный ETag и `304 Not Modified`; отсутствие ETag разрешено только

@@ -373,6 +373,68 @@ wait_healthy() {
   fail "Jellyfin не перешёл в healthy за отведённое время."
 }
 
+wait_public_api() {
+  local info_file="$1"
+  local attempts="${2:-30}"
+  local delay="${3:-2}"
+  local partial_file="${info_file}.partial"
+  local error_file="${info_file}.curl-error"
+  local attempt curl_code http_code error_text
+
+  for attempt in $(seq 1 "$attempts"); do
+    rm -f -- "$partial_file" "$error_file"
+    curl_code=0
+    http_code="$(
+      curl -sS \
+        --connect-timeout 3 \
+        --max-time 15 \
+        -o "$partial_file" \
+        -w '%{http_code}' \
+        "$BASE_URL/System/Info/Public" \
+        2> "$error_file"
+    )" || curl_code=$?
+
+    if [[ "$curl_code" -eq 0 && "$http_code" == "200" ]]; then
+      mv -- "$partial_file" "$info_file"
+      rm -f -- "$error_file"
+      log "Jellyfin API доступен: попытка ${attempt}/${attempts}; HTTP=200."
+      return 0
+    fi
+
+    error_text="$(tr '\n' ' ' < "$error_file" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    if [[ "$curl_code" -ne 0 ]]; then
+      case "$curl_code" in
+        5|6|7|18|28|35|52|55|56|92)
+          log "Jellyfin API временно недоступен: попытка ${attempt}/${attempts}; curl=${curl_code}; ${error_text:-нет подробностей}."
+          ;;
+        *)
+          rm -f -- "$partial_file" "$error_file"
+          fail "Проверка Jellyfin API завершилась постоянной ошибкой curl=${curl_code}: ${error_text:-нет подробностей}."
+          return 1
+          ;;
+      esac
+    else
+      case "$http_code" in
+        408|425|429|500|502|503|504)
+          log "Jellyfin API временно недоступен: попытка ${attempt}/${attempts}; HTTP=${http_code}."
+          ;;
+        *)
+          rm -f -- "$partial_file" "$error_file"
+          fail "Jellyfin API вернул постоянный HTTP-статус ${http_code:-неизвестен}."
+          return 1
+          ;;
+      esac
+    fi
+
+    rm -f -- "$partial_file" "$error_file"
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      sleep "$delay"
+    fi
+  done
+
+  fail "Jellyfin API не стал доступен за ${attempts} попыток."
+}
+
 verify_http_runtime() {
   local workdir="$1"
   local info_file="$workdir/system-info.json"
@@ -382,7 +444,7 @@ verify_http_runtime() {
   local js_headers="$workdir/web-client.headers"
   local index_etag index_code js_etag js_code
 
-  curl -fsS --max-time 15 "$BASE_URL/System/Info/Public" -o "$info_file"
+  wait_public_api "$info_file" 30 2
   python3 - "$info_file" "$EXPECTED_JELLYFIN_VERSION" <<'PY'
 import json
 import sys
