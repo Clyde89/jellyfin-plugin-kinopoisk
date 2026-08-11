@@ -28,6 +28,10 @@
     }
 
     function getCurrentItemId() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getCurrentItemId();
+        }
         var candidates = [window.location.search || ''];
         var hash = window.location.hash || '';
         var queryIndex = hash.indexOf('?');
@@ -308,6 +312,10 @@
     }
 
     function normalizeImageUrl(value) {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.normalizeImageUrl(value);
+        }
         if (!value) {
             return null;
         }
@@ -373,7 +381,10 @@
         );
         var image = card.querySelector('.cardImageContainer');
         if (image && imageUrl) {
-            image.style.backgroundImage = 'url("' + imageUrl + '")';
+            var lifecycle = window.KinopoiskDetailPageLifecycle;
+            if (lifecycle) {
+                lifecycle.applyProtectedImage(image, imageUrl, 'background');
+            }
         }
         var meta = card.querySelector('.jellyseerr-meta');
         if (meta) {
@@ -391,19 +402,23 @@
 
         var key = 'items:' + itemId;
         if (!cache.has(key)) {
-            var request = apiClient
-                .getItem(apiClient.getCurrentUserId(), itemId)
+            var lifecycle = window.KinopoiskDetailPageLifecycle;
+            var itemRequest = lifecycle
+                ? lifecycle.fetchItem(itemId)
+                : apiClient.getItem(apiClient.getCurrentUserId(), itemId);
+            var request = itemRequest
                 .then(function (currentItem) {
                     var kinopoiskId = String(getProviderId(currentItem, 'kinopoisk') || '');
                     if (!/^\d+$/.test(kinopoiskId)) {
                         return [];
                     }
-                    return fetchJson(
-                        apiClient,
-                        '/KinopoiskPresentation/'
-                            + encodeURIComponent(kinopoiskId)
-                            + '/similars'
-                    ).then(function (response) {
+                    var path = '/KinopoiskPresentation/'
+                        + encodeURIComponent(kinopoiskId)
+                        + '/similars';
+                    var dataRequest = lifecycle
+                        ? lifecycle.fetchJson(path)
+                        : fetchJson(apiClient, path);
+                    return dataRequest.then(function (response) {
                         return asArray(pick(response, 'items', 'Items'));
                     });
                 }).catch(function () {
@@ -429,8 +444,13 @@
                 byId[String(pick(item, 'kinopoiskId', 'KinopoiskId') || '')] = item;
             });
 
+            var lifecycle = window.KinopoiskDetailPageLifecycle;
+            var page = lifecycle ? lifecycle.getActivePage() : document;
+            if (!page) {
+                return;
+            }
             Array.prototype.forEach.call(
-                document.querySelectorAll('.kp-similar-card[data-kinopoisk-id]'),
+                page.querySelectorAll('.kp-similar-card[data-kinopoisk-id]'),
                 function (fallback) {
                     if (!fallback.querySelector('.kp-similar-card__fallback-button')
                         || fallback.dataset.kpSeerrFallbackState) {
@@ -470,14 +490,11 @@
         renderTimer = setTimeout(processFallbackCards, 500);
     }
 
-    var observer = new MutationObserver(scheduleProcessing);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-    window.addEventListener('hashchange', scheduleProcessing);
-    window.addEventListener('popstate', scheduleProcessing);
-    document.addEventListener('viewshow', scheduleProcessing, true);
-    scheduleProcessing();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(scheduleProcessing);
+    } else {
+        scheduleProcessing();
+    }
     console.info('[КиноПоиск] Резервное сопоставление карточек через Seerr зарегистрировано.');
 }());

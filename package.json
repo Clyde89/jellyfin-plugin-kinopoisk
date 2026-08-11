@@ -1,0 +1,10 @@
+{
+  "name": "jellyfin-plugin-kinopoisk-web-tests",
+  "private": true,
+  "scripts": {
+    "test:web": "node --test tests/web/*.test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "29.1.1"
+  }
+}

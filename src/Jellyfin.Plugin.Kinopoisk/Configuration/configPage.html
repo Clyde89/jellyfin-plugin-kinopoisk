@@ -91,6 +91,20 @@
                         </div>
                     </div>
 
+                    <h2>Веб-интеграция</h2>
+    <div class="checkboxContainer checkboxContainer-withDescription">
+        <label><input id="EnableWebBootstrap" type="checkbox" is="emby-checkbox" /><span>Самодостаточная веб-интеграция КиноПоиска</span></label>
+        <div class="fieldDescription checkboxFieldDescription">Runtime Web Bootstrap подключает встроенный WebClient.js к Jellyfin Web в памяти процесса. Файл index.html на диске не изменён.</div>
+    </div>
+    <div class="kinopoiskStatusCard">
+        <div><strong>Runtime Bootstrap:</strong> <span id="WebBootstrapStatus">ещё не проверялся</span></div>
+        <div><strong>Режим:</strong> <code id="WebBootstrapMode">runtime-http</code></div>
+        <div><strong>Версия bundle:</strong> <code id="WebBootstrapBundleVersion">—</code></div>
+        <div><strong>Преобразовано index.html:</strong> <span id="WebBootstrapTransforms">0</span></div>
+        <div><strong>Ошибки fail-open:</strong> <span id="WebBootstrapFailures">0</span></div>
+        <div><strong>Последний ETag:</strong> <code id="WebBootstrapLastEtag">—</code></div>
+    </div>
+
                     <h2>Стандартные функции Jellyfin</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableMovieMetadata" type="checkbox" is="emby-checkbox" /><span>Метаданные фильмов</span></label>
@@ -309,6 +323,7 @@
 
         function applyConfiguration(config) {
             setValue('#ApiToken', config.ApiToken, '');
+            setCheckbox('#EnableWebBootstrap', config.EnableWebBootstrap, true);
             setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
             setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
             setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
@@ -366,6 +381,17 @@
                 ? 'diagnostics/kinopoisk-diagnostic-' + config.DiagnosticSessionId + '.jsonl'
                 : 'diagnostics/');
 
+            var webBootstrap = config.WebBootstrap || {};
+    var webBootstrapStatus = !config.EnableWebBootstrap
+        ? 'выключен администратором'
+        : (webBootstrap.PipelineRegistered ? 'активен' : 'ожидает регистрации pipeline');
+    $('#WebBootstrapStatus').text(webBootstrapStatus);
+    $('#WebBootstrapMode').text(webBootstrap.Mode || 'runtime-http');
+    $('#WebBootstrapBundleVersion').text(webBootstrap.BundleVersion || '—');
+    $('#WebBootstrapTransforms').text(webBootstrap.TransformedResponses || 0);
+    $('#WebBootstrapFailures').text(webBootstrap.Failures || 0);
+    $('#WebBootstrapLastEtag').text(webBootstrap.LastEtag || '—');
+
             var diagnostics = config.Diagnostics || {};
             $('#QuotaAccountType').text(diagnostics.AccountType || 'ещё не проверялся');
             $('#QuotaDaily').text(formatQuota(diagnostics.DailyQuotaUsed, diagnostics.DailyQuotaValue));
@@ -386,6 +412,7 @@
 
         function copyFormToConfiguration(config) {
             config.ApiToken = $('#ApiToken').val();
+            config.EnableWebBootstrap = $('#EnableWebBootstrap').prop('checked');
             config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
             config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
             config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');

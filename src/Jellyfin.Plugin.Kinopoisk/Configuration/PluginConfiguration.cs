@@ -1,5 +1,6 @@
 using System;
 using System.Xml.Serialization;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Model.Plugins;
 
@@ -8,6 +9,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
     public class PluginConfiguration : BasePluginConfiguration
     {
         public string ApiToken { get; set; } = string.Empty;
+
+        public bool EnableWebBootstrap { get; set; } = true;
 
         public bool EnableMovieMetadata { get; set; } = true;
 
@@ -117,6 +120,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         [XmlIgnore]
         public KinopoiskDiagnosticsSnapshot Diagnostics
             => KinopoiskDiagnostics.Shared.GetSnapshot();
+
+        [XmlIgnore]
+        public KinopoiskWebBootstrapSnapshot WebBootstrap
+            => KinopoiskWebBootstrapState.GetSnapshot(EnableWebBootstrap);
 
         public void Normalize()
         {

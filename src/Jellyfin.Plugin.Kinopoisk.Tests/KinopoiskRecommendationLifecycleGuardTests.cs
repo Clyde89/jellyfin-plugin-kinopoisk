@@ -25,8 +25,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("var anchor = findInsertionAnchor(page);", script);
             Assert.Contains("anchor.isConnected", script);
             Assert.Contains("scheduleImmediateRender", script);
-            Assert.Contains("window.setInterval", script);
-            Assert.Contains("2000", script);
+            Assert.Contains("handleLifecycleContext", script);
+            Assert.Contains("lifecycle.subscribe(handleLifecycleContext)", script);
+            Assert.DoesNotContain("window.setInterval", script, StringComparison.Ordinal);
             Assert.DoesNotContain(".libraryPage:not(.hide)", script, StringComparison.Ordinal);
             Assert.DoesNotContain("setTimeout(renderCurrentItem, 350)", script, StringComparison.Ordinal);
         }

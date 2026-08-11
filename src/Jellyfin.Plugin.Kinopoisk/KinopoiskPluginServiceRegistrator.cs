@@ -9,6 +9,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Providers;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -110,7 +111,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<ILogger<KinopoiskImageBinaryCache>>()
             ));
             serviceCollection.AddHostedService<KinopoiskQuotaMonitor>();
-            serviceCollection.AddHostedService<KinopoiskStandaloneWebClientService>();
+            serviceCollection.AddSingleton<KinopoiskWebBootstrapState>();
+            serviceCollection.AddSingleton<IStartupFilter, KinopoiskWebBootstrapStartupFilter>();
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();
             serviceCollection.AddSingleton<IProviderIdResolver<SeriesInfo>, VideoResolver<SeriesInfo>>();

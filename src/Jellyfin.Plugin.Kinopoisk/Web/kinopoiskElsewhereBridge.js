@@ -31,6 +31,10 @@
     }
 
     function getCurrentItemId() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getCurrentItemId();
+        }
         var candidates = [window.location.search || ''];
         var hash = window.location.hash || '';
         var queryIndex = hash.indexOf('?');
@@ -140,6 +144,10 @@
     }
 
     function getVisiblePage() {
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        if (lifecycle) {
+            return lifecycle.getActivePage();
+        }
         return document.querySelector('#itemDetailPage:not(.hide)')
             || document.querySelector('.itemDetailPage:not(.hide)')
             || document;
@@ -212,6 +220,9 @@
             return;
         }
         var page = getVisiblePage();
+        if (!page) {
+            return;
+        }
         if (activeItemId !== itemId) {
             activeItemId = itemId;
             removeBridgeLinks(page, itemId);
@@ -262,14 +273,11 @@
         renderTimer = setTimeout(renderCurrentItem, 300);
     }
 
-    var observer = new MutationObserver(scheduleRender);
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-    window.addEventListener('hashchange', scheduleRender);
-    window.addEventListener('popstate', scheduleRender);
-    document.addEventListener('viewshow', scheduleRender, true);
-    scheduleRender();
+    var lifecycle = window.KinopoiskDetailPageLifecycle;
+    if (lifecycle) {
+        lifecycle.subscribe(scheduleRender);
+    } else {
+        scheduleRender();
+    }
     console.info('[КиноПоиск] Совместимый мост Jellyfin Elsewhere зарегистрирован.');
 }());

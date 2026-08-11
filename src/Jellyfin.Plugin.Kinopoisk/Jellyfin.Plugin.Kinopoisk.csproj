@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <DebugType>portable</DebugType>
-    <Version>10.11.0.5</Version>
+    <Version>10.11.0.7</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
@@ -24,6 +24,7 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <None Remove="Configuration\runtimeStatusRefresh.html" />
+    <None Remove="Web\kinopoiskDetailPageLifecycle.js" />
     <None Remove="Web\kinopoiskWidgetTrailerPlayer.js" />
     <None Remove="Web\kinopoiskEnhancedPresentation.js" />
     <None Remove="Web\kinopoiskReviewsIntegration.js" />
@@ -39,6 +40,9 @@
     <None Remove="Web\kinopoiskRecommendationScrollbarStyle.js" />
     <EmbeddedResource Include="$(GeneratedConfigPage)">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Configuration.configPage.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskDetailPageLifecycle.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskDetailPageLifecycle.js</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskWidgetTrailerPlayer.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskWidgetTrailerPlayer.js</LogicalName>
@@ -94,6 +98,10 @@
       Lines="@(RuntimeStatusRefreshLines)"
       Overwrite="false" />
   </Target>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.Data" Version="10.11.11" />

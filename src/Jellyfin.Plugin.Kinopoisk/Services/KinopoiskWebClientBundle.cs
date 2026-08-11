@@ -14,6 +14,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     {
         private static readonly string[] ResourceNames =
         {
+            "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskDetailPageLifecycle.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskWidgetTrailerPlayer.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedPresentation.js",
             "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskReviewsIntegration.js",

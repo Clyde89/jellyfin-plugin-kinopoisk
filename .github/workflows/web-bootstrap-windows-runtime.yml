@@ -1,0 +1,263 @@
+name: Проверка Runtime Web Bootstrap Windows
+
+on:
+  push:
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-bootstrap-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-runtime:
+    name: Jellyfin Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      JELLYFIN_PORTABLE_URL: https://ams1.mirror.jellyfin.org/files/server/windows/latest-stable/amd64/jellyfin_10.11.11-amd64.zip
+
+    steps:
+      - name: Получен исходный код
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+
+      - name: Установлен .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Собран плагин
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
+          dotnet build src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj `
+            --configuration Release `
+            --no-restore `
+            --warnaserror
+
+      - name: Получен официальный portable Jellyfin 10.11.11
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'jellyfin-10.11.11-amd64.zip'
+          $root = Join-Path $env:RUNNER_TEMP 'jellyfin-windows-runtime'
+          Invoke-WebRequest -Uri $env:JELLYFIN_PORTABLE_URL -OutFile $archive -UseBasicParsing
+          Expand-Archive -LiteralPath $archive -DestinationPath $root -Force
+
+          $exe = Get-ChildItem -Path $root -Filter jellyfin.exe -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'jellyfin.exe не найден в официальном portable ZIP.' }
+
+          $webDir = Join-Path $exe.Directory.FullName 'jellyfin-web'
+          $index = Join-Path $webDir 'index.html'
+          if (-not (Test-Path $index -PathType Leaf)) { throw "Штатный index.html не найден: $index" }
+
+          "JELLYFIN_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "JELLYFIN_WEB_DIR=$webDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "STOCK_INDEX_SHA256=$((Get-FileHash -Algorithm SHA256 $index).Hash.ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Подготовлен чистый Windows-профиль
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          [xml]$project = Get-Content 'src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version плагина не найден.' }
+
+          $data = Join-Path $env:RUNNER_TEMP 'jellyfin-windows-data'
+          $config = Join-Path $data 'config'
+          $cache = Join-Path $data 'cache'
+          $log = Join-Path $data 'log'
+          $plugin = Join-Path $data "plugins\КиноПоиск_$version"
+          $pluginConfig = Join-Path $data 'plugins\configurations'
+          New-Item -ItemType Directory -Force -Path $config, $cache, $log, $plugin, $pluginConfig | Out-Null
+
+          $output = 'src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          Copy-Item (Join-Path $output 'Jellyfin.Plugin.Kinopoisk.dll') $plugin
+          Copy-Item (Join-Path $output 'KinopoiskUnofficialInfo.ApiClient.dll') $plugin
+
+          @"
+          {
+            "category": "Metadata",
+            "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+            "name": "КиноПоиск",
+            "owner": "Clyde89; LinFor; skrashevich",
+            "targetAbi": "10.11.0.0",
+            "timestamp": "2026-08-08T00:00:00Z",
+            "version": "$version",
+            "status": "Active",
+            "autoUpdate": false
+          }
+          "@ | Set-Content -Path (Join-Path $plugin 'meta.json') -Encoding utf8
+
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <ApiToken>runtime-windows-token</ApiToken>
+            <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+            <EnableWebBootstrap>true</EnableWebBootstrap>
+          </PluginConfiguration>
+          '@ | Set-Content -Path (Join-Path $pluginConfig 'Jellyfin.Plugin.Kinopoisk.xml') -Encoding utf8
+
+          "JELLYFIN_TEST_DATA=$data" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "JELLYFIN_TEST_CONFIG=$config" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "JELLYFIN_TEST_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "JELLYFIN_TEST_LOG=$log" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Запущен и проверен настоящий Jellyfin Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $stdout = Join-Path $env:RUNNER_TEMP 'jellyfin-windows.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'jellyfin-windows.stderr.log'
+          $arguments = @(
+              '--datadir', $env:JELLYFIN_TEST_DATA,
+              '--configdir', $env:JELLYFIN_TEST_CONFIG,
+              '--cachedir', $env:JELLYFIN_TEST_CACHE,
+              '--logdir', $env:JELLYFIN_TEST_LOG,
+              '--webdir', $env:JELLYFIN_WEB_DIR
+          )
+          $process = Start-Process -FilePath $env:JELLYFIN_EXE -ArgumentList $arguments -PassThru `
+              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          try {
+              $ready = $false
+              for ($attempt = 1; $attempt -le 120; $attempt++) {
+                  Start-Sleep -Seconds 1
+                  if ($process.HasExited) {
+                      throw "Jellyfin завершился раньше готовности с кодом $($process.ExitCode)."
+                  }
+
+                  try {
+                      $health = (Invoke-WebRequest -Uri 'http://127.0.0.1:8096/health' -UseBasicParsing -TimeoutSec 2).Content.Trim('"').Trim()
+                  } catch {
+                      $health = ''
+                  }
+
+                  $combined = ''
+                  if (Test-Path $stdout) { $combined += (Get-Content $stdout -Raw -ErrorAction SilentlyContinue) }
+                  if (Test-Path $stderr) { $combined += (Get-Content $stderr -Raw -ErrorAction SilentlyContinue) }
+                  $diskLogs = Get-ChildItem $env:JELLYFIN_TEST_LOG -File -ErrorAction SilentlyContinue |
+                      ForEach-Object { Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue }
+                  $combined += ($diskLogs -join "`n")
+
+                  if ($health -eq 'Healthy' -and $combined.Contains('Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.')) {
+                      Write-Host "Windows Jellyfin готов: попытка $attempt/120"
+                      $ready = $true
+                      break
+                  }
+              }
+              if (-not $ready) { throw 'Jellyfin Windows или Runtime Web Bootstrap не достигли готового состояния.' }
+              if ($process.HasExited) { throw 'Jellyfin завершился перед HTTP-проверкой.' }
+
+              $indexPath = Join-Path $env:JELLYFIN_WEB_DIR 'index.html'
+              $runtimeHash = (Get-FileHash -Algorithm SHA256 $indexPath).Hash.ToLowerInvariant()
+              Write-Host "Stock index SHA256:   $env:STOCK_INDEX_SHA256"
+              Write-Host "Runtime index SHA256: $runtimeHash"
+              if ($runtimeHash -ne $env:STOCK_INDEX_SHA256) { throw 'Штатный Windows index.html был изменён.' }
+
+              $headers = Join-Path $env:RUNNER_TEMP 'windows-index.headers'
+              $html = Join-Path $env:RUNNER_TEMP 'windows-index.html'
+              & curl.exe -fsS -D $headers -o $html 'http://127.0.0.1:8096/web/index.html'
+              if ($LASTEXITCODE -ne 0) { throw 'Не получен Windows index.html.' }
+
+              $value = Get-Content $html -Raw -Encoding utf8
+              foreach ($marker in @(
+                  '<!-- KINOPOISK_WEB_CLIENT_BEGIN -->',
+                  '<!-- KINOPOISK_WEB_CLIENT_END -->',
+                  'data-kinopoisk-managed="runtime"',
+                  '../Kinopoisk/WebClient.js?v='
+              )) {
+                  $count = [regex]::Matches($value, [regex]::Escape($marker)).Count
+                  Write-Host "Marker [$marker] count=$count"
+                  if ($count -ne 1) { throw "Маркер отсутствует или продублирован: $marker" }
+              }
+
+              $headerText = Get-Content $headers -Raw -Encoding utf8
+              if ($headerText -notmatch '(?im)^X-Kinopoisk-Web-Bootstrap:\s*runtime\s*$') {
+                  throw 'Runtime HTTP-заголовок отсутствует.'
+              }
+              $etagMatch = [regex]::Match($headerText, '(?im)^ETag:\s*(.+?)\r?$')
+              if (-not $etagMatch.Success) { throw 'Runtime ETag отсутствует.' }
+              $etag = $etagMatch.Groups[1].Value.Trim()
+
+              $webClientHeaders = Join-Path $env:RUNNER_TEMP 'windows-webclient.headers'
+              $webClient = Join-Path $env:RUNNER_TEMP 'Windows-WebClient.js'
+              & curl.exe -fsS -D $webClientHeaders -o $webClient 'http://127.0.0.1:8096/Kinopoisk/WebClient.js'
+              if ($LASTEXITCODE -ne 0) { throw 'WebClient.js не получен на Windows.' }
+              $webClientText = Get-Content $webClient -Raw -Encoding utf8
+              if (-not $webClientText.Contains('kinopoiskRecommendationLifecycleGuard')) {
+                  throw 'WebClient.js не содержит ожидаемый ASCII-маркер bundle.'
+              }
+
+              $conditionalHeaders = Join-Path $env:RUNNER_TEMP 'windows-304.headers'
+              $conditionalBody = Join-Path $env:RUNNER_TEMP 'windows-304.body'
+              $status = & curl.exe -sS -D $conditionalHeaders -o $conditionalBody `
+                  -H "If-None-Match: $etag" -w '%{http_code}' 'http://127.0.0.1:8096/web/index.html'
+              if ($LASTEXITCODE -ne 0) { throw 'Условный запрос index.html завершился ошибкой.' }
+              if ($status -ne '304') { throw "Ожидался HTTP 304, получен $status." }
+              if ((Test-Path $conditionalBody) -and (Get-Item $conditionalBody).Length -ne 0) {
+                  throw 'Ответ 304 содержит тело.'
+              }
+
+              Write-Host 'Windows Runtime Web Bootstrap подтверждён.'
+          }
+          finally {
+              if ($process -and -not $process.HasExited) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                  $process.WaitForExit(5000) | Out-Null
+              }
+          }
+
+      - name: Сохранена диагностика Windows runtime
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: web-bootstrap-windows-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/jellyfin-windows.stdout.log
+            ${{ runner.temp }}/jellyfin-windows.stderr.log
+            ${{ runner.temp }}/windows-index.headers
+            ${{ runner.temp }}/windows-index.html
+            ${{ runner.temp }}/windows-webclient.headers
+            ${{ runner.temp }}/Windows-WebClient.js
+            ${{ runner.temp }}/windows-304.headers
+            ${{ runner.temp }}/windows-304.body
+            ${{ runner.temp }}/jellyfin-windows-data/log/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Выведен журнал Jellyfin Windows
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          foreach ($name in @('jellyfin-windows.stdout.log', 'jellyfin-windows.stderr.log')) {
+              $path = Join-Path $env:RUNNER_TEMP $name
+              if (Test-Path $path) {
+                  Write-Host "=== $name ==="
+                  Get-Content $path -Tail 220 -ErrorAction SilentlyContinue
+              }
+          }
+          Get-ChildItem $env:JELLYFIN_TEST_LOG -File -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                  Write-Host "=== $($_.Name) ==="
+                  Get-Content $_.FullName -Tail 220 -ErrorAction SilentlyContinue
+              }
