@@ -30,8 +30,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var page = ReadConfigurationPage();
 
             Assert.Contains("class=\"kinopoiskExternalLink\"", page);
+            Assert.Contains("background: rgba(0, 164, 220, 0.22);", page);
+            Assert.Contains("text-decoration-color: #35c8ff;", page);
             Assert.Contains("focus-visible", page);
             Assert.Contains("общий предел не задан", page);
+        }
+
+        [Fact]
+        public void ShouldVisuallyDistinguishSelectedConfigurationTab()
+        {
+            var page = ReadConfigurationPage();
+
+            Assert.Contains(".kinopoiskTabButton[aria-selected=\"true\"]", page);
+            Assert.Contains("background: #00a4dc;", page);
+            Assert.Contains("color: #fff;", page);
+            Assert.Contains("attr('aria-selected', diagnostics ? 'false' : 'true')", page);
+            Assert.Contains("attr('aria-selected', diagnostics ? 'true' : 'false')", page);
         }
 
         [Fact]
@@ -56,6 +70,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("id=\"EnableMovieMetadata\"", page);
             Assert.Contains("id=\"EnablePersistentCache\"", page);
             Assert.Contains("id=\"EnableImageBinaryCache\"", page);
+            Assert.Contains("Веб-интеграция КиноПоиска", page);
         }
 
         [Fact]

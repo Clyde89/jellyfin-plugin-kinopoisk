@@ -12,7 +12,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
 {
     public class KinopoiskApiClientTests
     {
-        private const string ApiToken = "85d30ae5-d875-4c5f-900d-8e37bb20625e";
+        private const string ApiToken = "test-token-for-recorded-responses";
         private readonly ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
         private readonly VCR _vcr;
         private readonly Mock<IHttpClientFactory> _clientFactoryMock;
