@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using Jellyfin.Plugin.Kinopoisk.Presentation;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
@@ -87,6 +88,26 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
                 sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>()
             ));
+
+            serviceCollection
+                .AddHttpClient(KinopoiskTrailerStreamResolver.HttpClientName)
+                .ConfigureHttpClient(client =>
+                {
+                    client.Timeout = TimeSpan.FromSeconds(8);
+                })
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    AllowAutoRedirect = false,
+                    AutomaticDecompression = DecompressionMethods.GZip
+                        | DecompressionMethods.Deflate
+                        | DecompressionMethods.Brotli,
+                    ConnectTimeout = TimeSpan.FromSeconds(3),
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                    UseCookies = false
+                });
+            serviceCollection.AddSingleton<IKinopoiskTrailerStreamResolver,
+                KinopoiskTrailerStreamResolver>();
+            serviceCollection.AddSingleton<KinopoiskTrailerPlaybackService>();
 
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();

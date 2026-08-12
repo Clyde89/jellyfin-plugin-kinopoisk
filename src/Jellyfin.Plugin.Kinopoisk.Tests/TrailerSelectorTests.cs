@@ -104,6 +104,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldAlwaysPrioritizeKinopoiskWidgetBeforeYoutube()
+        {
+            var response = CreateResponse(
+                Video(
+                    "Трейлер",
+                    "https://widgets.kinopoisk.ru/discovery/film/430/trailer/1",
+                    VideoResponse_itemsSite.KINOPOISK_WIDGET),
+                Video(
+                    "Официальный дублированный трейлер",
+                    "https://youtu.be/YOUTUBE001"));
+
+            var result = KinopoiskTrailerSelector.Select(
+                response,
+                new KinopoiskTrailerSelectionOptions());
+
+            Assert.Equal(2, result.Count);
+            Assert.StartsWith("https://widgets.kinopoisk.ru/", result[0].Url);
+            Assert.Equal("https://www.youtube.com/watch?v=YOUTUBE001", result[1].Url);
+        }
+
+        [Fact]
         public void ShouldRespectTeaserAdditionalVideoAndLimitSettings()
         {
             var response = CreateResponse(

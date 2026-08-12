@@ -38,6 +38,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     services,
                     descriptor => descriptor.ServiceType == typeof(IStartupFilter)
                         && descriptor.ImplementationType == typeof(KinopoiskWebBootstrapStartupFilter));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(IKinopoiskTrailerStreamResolver)
+                        && descriptor.ImplementationType == typeof(KinopoiskTrailerStreamResolver));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(KinopoiskTrailerPlaybackService));
                 Assert.DoesNotContain(
                     services,
                     descriptor => descriptor.ServiceType == typeof(IHostedService)
