@@ -7,7 +7,7 @@ httpInteractions:
       Accept:
       - application/json
       X-API-KEY:
-      - 85d30ae5-d875-4c5f-900d-8e37bb20625e
+      - test-token-for-recorded-responses
   response:
     status:
       code: 200
