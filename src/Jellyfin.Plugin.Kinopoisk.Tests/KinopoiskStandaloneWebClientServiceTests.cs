@@ -133,9 +133,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains(
                 "Объединённый блок рекомендаций зарегистрирован",
                 KinopoiskWebClientBundle.Content);
-    Assert.Contains(
-        "Геометрическое выравнивание навигации зарегистрировано",
-        KinopoiskWebClientBundle.Content);
+            Assert.Contains(
+                "is=\"emby-scroller\"",
+                KinopoiskWebClientBundle.Content);
+            Assert.DoesNotContain(
+                "Геометрическое выравнивание навигации зарегистрировано",
+                KinopoiskWebClientBundle.Content);
         }
 
         [Fact]
