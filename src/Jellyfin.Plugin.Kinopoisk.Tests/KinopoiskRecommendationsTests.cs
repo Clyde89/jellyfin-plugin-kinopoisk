@@ -41,8 +41,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("--kp-native-card-width", script);
             Assert.Contains("applyNativeCardWidth", script);
             Assert.Contains("applyProtectedImage", script);
+            Assert.Contains("is=\"emby-scroller\"", script);
+            Assert.Contains("is=\"emby-itemscontainer\"", script);
+            Assert.Contains("scrollSlider focuscontainer-x itemsContainer", script);
+            Assert.Contains("padded-top-focusscale padded-bottom-focusscale no-padding", script);
+            Assert.Contains("data-centerfocus=\"true\"", script);
+            Assert.Contains("detailVerticalSection verticalSection-extrabottompadding", script);
+            Assert.Contains("scrollToBeginning", script);
             Assert.DoesNotContain("width:12.4em", script, StringComparison.Ordinal);
             Assert.DoesNotContain("width:10.8em", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("overflow-x:auto", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("scrollBy({ left:", script, StringComparison.Ordinal);
             Assert.Contains("function findInsertionAnchor(page)", script);
             Assert.Contains("page.querySelector('#similarCollapsible')", script);
             Assert.Contains("page.querySelector('.similarCollapsible')", script);
@@ -79,6 +88,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 "AddSingleton<IStartupFilter, KinopoiskWebBootstrapStartupFilter>()",
                 registrator);
             Assert.Contains("kinopoiskRecommendations.js", bundle);
+            Assert.DoesNotContain("kinopoiskCarouselRebind.js", bundle);
+            Assert.DoesNotContain("kinopoiskRecommendationLifecycleGuard.js", bundle);
             Assert.Contains("new KinopoiskSimilarApiClient(", registrator);
             Assert.Contains(
                 "sp.GetRequiredService<IKinopoiskApiClient>()",

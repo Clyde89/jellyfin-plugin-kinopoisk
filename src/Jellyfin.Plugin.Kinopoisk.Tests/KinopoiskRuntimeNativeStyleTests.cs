@@ -25,6 +25,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("'chevron_right'", script);
             Assert.Contains("navigation.hidden = !hasOverflow", script);
             Assert.Contains("maximum > 20", script);
+            Assert.Contains("tmdb-reviews-section", script);
+            Assert.DoesNotContain("kp-recommendations-section", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("kp-recommendations-scroller", script, StringComparison.Ordinal);
             Assert.DoesNotContain("@media(hover:hover)", script, StringComparison.Ordinal);
             Assert.DoesNotContain("kp-runtime-release", script, StringComparison.Ordinal);
             Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);

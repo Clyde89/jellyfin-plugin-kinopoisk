@@ -23,6 +23,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("classList.remove('material-icons')", script);
             Assert.Contains("navigation.hidden = !hasOverflow", script);
             Assert.Contains("@media(hover:hover) and (pointer:fine)", script);
+            Assert.Contains("tmdb-reviews-section", script);
+            Assert.DoesNotContain("kp-recommendations-section", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("kp-recommendations-scroller", script, StringComparison.Ordinal);
             Assert.DoesNotContain("kp-runtime-release", script, StringComparison.Ordinal);
             Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
             Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
@@ -44,16 +47,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var polishIndex = source.IndexOf(
                 "kinopoiskRuntimePolish.js",
                 StringComparison.Ordinal);
-            var rebindIndex = source.IndexOf(
-                "kinopoiskCarouselRebind.js",
-                StringComparison.Ordinal);
             var correctionsIndex = source.IndexOf(
                 "kinopoiskRuntimeUiCorrections.js",
                 StringComparison.Ordinal);
 
             Assert.True(polishIndex >= 0);
-            Assert.True(rebindIndex > polishIndex);
-            Assert.True(correctionsIndex > rebindIndex);
+            Assert.True(correctionsIndex > polishIndex);
+            Assert.DoesNotContain("kinopoiskCarouselRebind.js", source);
         }
     }
 }
