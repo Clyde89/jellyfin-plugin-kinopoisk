@@ -69,6 +69,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             KinopoiskTrailerSelectionOptions options)
         {
             options ??= new KinopoiskTrailerSelectionOptions();
+            var maximumTrailers = Math.Clamp(options.MaximumTrailers, 1, 20);
             var items = response?.Items?.Where(item => item is not null).ToArray()
                 ?? Array.Empty<VideoResponse_items>();
 
@@ -114,7 +115,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             KinopoiskTrailerSelectionOptions options)
         {
             options ??= new KinopoiskTrailerSelectionOptions();
-            var maximumTrailers = Math.Clamp(options.MaximumTrailers, 1, 20);
             var items = response?.Items?.Where(item => item is not null).ToArray()
                 ?? Array.Empty<VideoResponse_items>();
 
