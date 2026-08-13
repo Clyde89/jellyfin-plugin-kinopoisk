@@ -36,7 +36,7 @@
         style.textContent = [
             '.kp-runtime-navigation[hidden],.kp-carousel-navigation[hidden]{display:none!important}',
             '.kp-runtime-navigation-button,.kp-carousel-button{font-family:inherit!important;font-size:1.8em!important;font-weight:400!important;line-height:1!important;padding:0!important}',
-            '@media(hover:hover) and (pointer:fine){.kp-recommendations-section .kp-runtime-navigation,.tmdb-reviews-section .kp-carousel-navigation,.tmdb-reviews-section .kp-runtime-navigation{opacity:0;pointer-events:none;transition:opacity .16s ease}.kp-recommendations-section:hover .kp-runtime-navigation,.kp-recommendations-section:focus-within .kp-runtime-navigation,.tmdb-reviews-section:hover .kp-carousel-navigation,.tmdb-reviews-section:focus-within .kp-carousel-navigation,.tmdb-reviews-section:hover .kp-runtime-navigation,.tmdb-reviews-section:focus-within .kp-runtime-navigation{opacity:1;pointer-events:auto}}'
+            '@media(hover:hover) and (pointer:fine){.tmdb-reviews-section .kp-carousel-navigation,.tmdb-reviews-section .kp-runtime-navigation{opacity:0;pointer-events:none;transition:opacity .16s ease}.tmdb-reviews-section:hover .kp-carousel-navigation,.tmdb-reviews-section:focus-within .kp-carousel-navigation,.tmdb-reviews-section:hover .kp-runtime-navigation,.tmdb-reviews-section:focus-within .kp-runtime-navigation{opacity:1;pointer-events:auto}}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -113,16 +113,6 @@
     }
 
     function patchCarousels(page) {
-        Array.prototype.forEach.call(
-            page.querySelectorAll('.kp-recommendations-section'),
-            function (section) {
-                normalizeNavigation(
-                    section.querySelector('.kp-runtime-navigation'),
-                    section.querySelector('.kp-recommendations-scroller'),
-                    'рекомендации'
-                );
-            }
-        );
         Array.prototype.forEach.call(
             page.querySelectorAll('.tmdb-reviews-section'),
             function (section) {

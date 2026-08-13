@@ -253,7 +253,7 @@ jobs:
             -o "$RUNNER_TEMP/WebClient.js" \
             http://127.0.0.1:8096/Kinopoisk/WebClient.js
           grep -Eiq '^Content-Type:[[:space:]]*application/javascript' "$RUNNER_TEMP/webclient.headers"
-          grep -F 'kinopoiskRecommendationLifecycleGuard' "$RUNNER_TEMP/WebClient.js" >/dev/null
+          grep -F '__kinopoiskRecommendationsInstalled' "$RUNNER_TEMP/WebClient.js" >/dev/null
 
           status="$(curl -sS \
             -o "$RUNNER_TEMP/index-304.body" \

@@ -175,16 +175,13 @@
         var style = document.createElement('style');
         style.id = 'kinopoiskRecommendationsStyles';
         style.textContent = [
-            '.kp-recommendations-section{margin-top:1.4em}',
-            '.kp-recommendations-header{display:flex;align-items:center;gap:.8em;flex-wrap:wrap;padding-right:1em}',
+            '.kp-recommendations-header{display:flex;align-items:center;gap:.8em;flex-wrap:wrap}',
             '.kp-recommendations-title{margin-right:auto}',
             '.kp-recommendations-tabs{display:flex;gap:.45em;flex-wrap:wrap}',
             '.kp-recommendations-tab{border:1px solid rgba(255,255,255,.16)!important;border-radius:999px!important;background:rgba(255,255,255,.06)!important;color:inherit!important;padding:.4em .72em!important;cursor:pointer;font:inherit;min-width:0}',
             '.kp-recommendations-tab.is-active{background:rgba(255,255,255,.18)!important;border-color:rgba(255,255,255,.34)!important}',
-            '.kp-recommendations-status{padding:1em;opacity:.72}',
-            '.kp-recommendations-scroller{overflow-x:auto;padding:.7em 0 1em;scrollbar-width:thin}',
-            '.kp-recommendations-items{display:flex;gap:1em;padding:.25em 1em .5em .25em}',
-            '.kp-recommendations-items>.card{width:var(--kp-native-card-width);flex:0 0 var(--kp-native-card-width)}',
+            '.kp-recommendations-status{display:inline-block;padding:.7em 0 1em;opacity:.72}',
+            '.kp-recommendations-items>.card{width:var(--kp-native-card-width);vertical-align:top}',
             '.kp-similar-card .cardImageContainer{background-position:center;background-size:cover}',
             '.kp-similar-card__source{font-size:.86em;opacity:.86;white-space:nowrap}',
             '.kp-similar-card__rating{display:flex;align-items:center;gap:.25em;color:#bdbdbd;white-space:nowrap}',
@@ -193,6 +190,30 @@
             '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}}'
         ].join('');
         document.head.appendChild(style);
+    }
+
+    function createNativeScroller() {
+        var host = document.createElement('div');
+        host.innerHTML = [
+            '<div is="emby-scroller" class="kp-recommendations-scroller padded-top-focusscale padded-bottom-focusscale no-padding" data-centerfocus="true">',
+            '<div is="emby-itemscontainer" class="kp-recommendations-items scrollSlider focuscontainer-x itemsContainer"></div>',
+            '</div>'
+        ].join('');
+        var scroller = host.firstElementChild;
+        return {
+            scroller: scroller,
+            items: scroller.querySelector('.kp-recommendations-items')
+        };
+    }
+
+    function resetNativeScroller(scroller) {
+        window.requestAnimationFrame(function () {
+            if (typeof scroller.scrollToBeginning === 'function') {
+                scroller.scrollToBeginning();
+            } else {
+                scroller.scrollLeft = 0;
+            }
+        });
     }
 
     function getVisiblePage() {
@@ -623,14 +644,12 @@
             return;
         }
         var enhanced = window.JellyfinEnhanced;
-        var scroller = createElement('div', 'kp-recommendations-scroller');
-        var list = createElement('div', 'kp-recommendations-items');
         items.forEach(function (item) {
             var fallback = createKinopoiskFallbackCard(item);
             if (!fallback) {
                 return;
             }
-            list.appendChild(fallback);
+            container.appendChild(fallback);
             getKinopoiskCardData(item).then(function (resolved) {
                 if (!resolved
                     || !fallback.isConnected
@@ -650,8 +669,6 @@
                 }
             });
         });
-        scroller.appendChild(list);
-        container.appendChild(scroller);
     }
 
     function renderExtended(container, result) {
@@ -668,22 +685,18 @@
         }
 
         var enhanced = window.JellyfinEnhanced;
-        var scroller = createElement('div', 'kp-recommendations-scroller');
-        var list = createElement('div', 'kp-recommendations-items');
         items.forEach(function (item) {
             var card = enhanced.jellyseerrUI.createJellyseerrCard(item, true, true);
             if (card) {
-                list.appendChild(card);
+                container.appendChild(card);
             }
         });
-        scroller.appendChild(list);
-        container.appendChild(scroller);
     }
 
     function createSection(itemId, item, kinopoiskId) {
         var section = createElement(
             'section',
-            'verticalSection emby-scroller-container kp-recommendations-section'
+            'verticalSection detailVerticalSection verticalSection-extrabottompadding kp-recommendations-section'
         );
         section.id = 'kinopoiskRecommendationsSection';
         section.dataset.itemId = itemId;
@@ -691,12 +704,13 @@
         var header = createElement('div', 'kp-recommendations-header');
         header.appendChild(createElement(
             'h2',
-            'sectionTitle sectionTitle-cards focuscontainer-x padded-right kp-recommendations-title',
+            'sectionTitle sectionTitle-cards padded-right kp-recommendations-title',
             'Похожие и рекомендации'
         ));
         var tabs = createElement('div', 'kp-recommendations-tabs');
         tabs.setAttribute('role', 'tablist');
-        var content = createElement('div', 'kp-recommendations-content');
+        var nativeScroller = createNativeScroller();
+        var content = nativeScroller.items;
         var activeSource = 'kinopoisk';
         var loaded = Object.create(null);
 
@@ -726,6 +740,7 @@
                 } else {
                     renderExtended(content, loaded[source]);
                 }
+                resetNativeScroller(nativeScroller.scroller);
                 return;
             }
 
@@ -743,6 +758,7 @@
                 } else {
                     renderExtended(content, result);
                 }
+                resetNativeScroller(nativeScroller.scroller);
             }).catch(function (error) {
                 console.warn('[КиноПоиск] Источник рекомендаций не загружен.', error);
                 if (activeSource === source) {
@@ -772,7 +788,7 @@
         });
 
         header.appendChild(tabs);
-        section.append(header, content);
+        section.append(header, nativeScroller.scroller);
         setActive('kinopoisk');
         return section;
     }

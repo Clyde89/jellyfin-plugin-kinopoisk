@@ -25,30 +25,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("ArrowRight", script);
             Assert.Contains("scrollBy", script);
             Assert.Contains("scrollbar-width:none", script);
+            Assert.Contains("tmdb-review-swipe-container", script);
+            Assert.DoesNotContain("kp-recommendations-section", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("kp-recommendations-scroller", script, StringComparison.Ordinal);
             Assert.DoesNotContain("releaseCache", script, StringComparison.Ordinal);
             Assert.DoesNotContain("/release_dates", script, StringComparison.Ordinal);
             Assert.DoesNotContain("mediaInfoItem-releaseDate", script, StringComparison.Ordinal);
             Assert.DoesNotContain("calendar_month", script, StringComparison.Ordinal);
             Assert.DoesNotContain("KinopoiskTmdbResolver", script, StringComparison.Ordinal);
-        }
-
-        [Fact]
-        public void ShouldEmbedCarouselRebindScript()
-        {
-            const string resourceName =
-                "Jellyfin.Plugin.Kinopoisk.Web.kinopoiskCarouselRebind.js";
-            var assembly = typeof(global::Jellyfin.Plugin.Kinopoisk.Plugin).Assembly;
-            Assert.Contains(resourceName, assembly.GetManifestResourceNames());
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            Assert.NotNull(stream);
-            using var reader = new StreamReader(stream!);
-            var script = reader.ReadToEnd();
-
-            Assert.Contains("kpBoundScrollerId", script);
-            Assert.Contains("kp-recommendations-scroller", script);
-            Assert.Contains("chevron_left", script);
-            Assert.Contains("chevron_right", script);
-            Assert.Contains("scrollBy", script);
         }
 
         [Fact]
@@ -64,7 +48,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.Contains("kinopoiskEnhancedPresentation.js", source);
             Assert.Contains("kinopoiskRuntimePolish.js", source);
-            Assert.Contains("kinopoiskCarouselRebind.js", source);
+            Assert.DoesNotContain("kinopoiskCarouselRebind.js", source);
             Assert.Contains("CreateBundle", source);
         }
     }

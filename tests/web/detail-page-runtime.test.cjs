@@ -274,6 +274,19 @@ test('ширина рекомендаций взята у штатной кар�
     );
     const section = window.document.querySelector('#kinopoiskRecommendationsSection');
     assert.equal(section.style.getPropertyValue('--kp-native-card-width'), '244.00px');
+    assert.equal(section.classList.contains('detailVerticalSection'), true);
+    assert.equal(section.classList.contains('verticalSection-extrabottompadding'), true);
+    const nativeScroller = section.querySelector('.kp-recommendations-scroller');
+    assert.equal(nativeScroller.parentElement, section);
+    assert.equal(nativeScroller.getAttribute('is'), 'emby-scroller');
+    assert.equal(nativeScroller.getAttribute('data-centerfocus'), 'true');
+    assert.equal(nativeScroller.classList.contains('no-padding'), true);
+    const nativeItems = nativeScroller.querySelector('.kp-recommendations-items');
+    assert.equal(nativeItems.getAttribute('is'), 'emby-itemscontainer');
+    assert.equal(nativeItems.classList.contains('scrollSlider'), true);
+    assert.equal(nativeItems.classList.contains('itemsContainer'), true);
+    assert.equal(section.querySelector('.kp-runtime-navigation'), null);
+    assert.equal(section.querySelector('.kp-native-navigation'), null);
     const image = section.querySelector('.cardImageContainer');
     await waitFor(
         () => image.style.backgroundImage.includes('blob:kinopoisk-'),
@@ -285,5 +298,18 @@ test('ширина рекомендаций взята у штатной кар�
         requests.some(request => request.url === 'https://kinopoiskapiunofficial.tech/images/posters/kp/101.jpg'),
         false
     );
+    const tabs = section.querySelectorAll('.kp-recommendations-tab');
+    tabs[1].click();
+    await waitFor(
+        () => nativeItems.textContent.includes('Интеграция Jellyfin Enhanced недоступна.'),
+        'Вкладка The Movie Database не была открыта в штатном scroller.'
+    );
+    assert.equal(section.querySelector('.kp-recommendations-scroller'), nativeScroller);
+    tabs[0].click();
+    await waitFor(
+        () => nativeItems.querySelector('.kp-similar-card'),
+        'Вкладка КиноПоиска не была восстановлена в штатном scroller.'
+    );
+    assert.equal(section.querySelector('.kp-recommendations-scroller'), nativeScroller);
     runtime.dom.window.close();
 });

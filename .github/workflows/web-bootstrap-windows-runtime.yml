@@ -203,7 +203,7 @@ jobs:
               & curl.exe -fsS -D $webClientHeaders -o $webClient 'http://127.0.0.1:8096/Kinopoisk/WebClient.js'
               if ($LASTEXITCODE -ne 0) { throw 'WebClient.js не получен на Windows.' }
               $webClientText = Get-Content $webClient -Raw -Encoding utf8
-              if (-not $webClientText.Contains('kinopoiskRecommendationLifecycleGuard')) {
+              if (-not $webClientText.Contains('__kinopoiskRecommendationsInstalled')) {
                   throw 'WebClient.js не содержит ожидаемый ASCII-маркер bundle.'
               }
 
