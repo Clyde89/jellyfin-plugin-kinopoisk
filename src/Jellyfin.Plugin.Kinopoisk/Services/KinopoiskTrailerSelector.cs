@@ -90,7 +90,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     .OrderByDescending(candidate => candidate.Score)
                     .ThenBy(candidate => candidate.OriginalIndex)
                     .First())
-                .OrderByDescending(candidate => candidate.Score)
+                .OrderBy(candidate => candidate.SourcePriority)
+                .ThenByDescending(candidate => candidate.Score)
                 .ThenBy(candidate => candidate.OriginalIndex)
                 .Take(maximumTrailers)
                 .ToArray();
@@ -103,6 +104,35 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     Name = candidate.DisplayName,
                     Url = candidate.CanonicalUrl
                 })
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Возвращает нормализованные кандидаты вместе с типом источника.
+        /// </summary>
+        internal static IReadOnlyList<KinopoiskTrailerCandidate> SelectCandidates(
+            VideoResponse response,
+            KinopoiskTrailerSelectionOptions options)
+        {
+            options ??= new KinopoiskTrailerSelectionOptions();
+            var items = response?.Items?.Where(item => item is not null).ToArray()
+                ?? Array.Empty<VideoResponse_items>();
+
+            return items
+                .Select((item, index) => CreateCandidate(item, index, options))
+                .Where(candidate => candidate is not null)
+                .GroupBy(candidate => candidate.Identity, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group
+                    .OrderByDescending(candidate => candidate.Score)
+                    .ThenBy(candidate => candidate.OriginalIndex)
+                    .First())
+                .OrderBy(candidate => candidate.SourcePriority)
+                .ThenByDescending(candidate => candidate.Score)
+                .ThenBy(candidate => candidate.OriginalIndex)
+                .Select(candidate => new KinopoiskTrailerCandidate(
+                    candidate.CanonicalUrl,
+                    candidate.DisplayName,
+                    candidate.SourceKind))
                 .ToArray();
         }
 
@@ -182,7 +212,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     item,
                     out var identity,
                     out var canonicalUrl,
-                    out var sourcePriority))
+                    out var sourcePriority,
+                    out var sourceKind))
             {
                 return null;
             }
@@ -234,6 +265,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 canonicalUrl,
                 displayName,
                 item.Site,
+                sourceKind,
+                sourcePriority,
                 score,
                 index);
         }
@@ -242,11 +275,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             VideoResponse_items item,
             out string identity,
             out string canonicalUrl,
-            out int sourcePriority)
+            out int sourcePriority,
+            out KinopoiskTrailerSourceKind sourceKind)
         {
             identity = null;
             canonicalUrl = null;
             sourcePriority = 0;
+            sourceKind = KinopoiskTrailerSourceKind.Unknown;
 
             if (item is null || string.IsNullOrWhiteSpace(item.Url))
                 return false;
@@ -258,7 +293,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                         return false;
 
                     identity = "youtube:" + videoId;
-                    sourcePriority = 300;
+                    sourcePriority = 1;
+                    sourceKind = KinopoiskTrailerSourceKind.YouTube;
                     return true;
 
                 case VideoResponse_itemsSite.KINOPOISK_WIDGET:
@@ -271,7 +307,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     }
 
                     identity = "kinopoisk-widget:" + canonicalUrl;
-                    sourcePriority = 250;
+                    sourcePriority = 0;
+                    sourceKind = KinopoiskTrailerSourceKind.KinopoiskWidget;
                     return true;
 
                 case VideoResponse_itemsSite.YANDEX_DISK:
@@ -284,7 +321,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     }
 
                     identity = "yandex-disk:" + canonicalUrl;
-                    sourcePriority = 100;
+                    sourcePriority = 2;
+                    sourceKind = KinopoiskTrailerSourceKind.YandexDisk;
                     return true;
 
                 default:
@@ -414,9 +452,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             string CanonicalUrl,
             string DisplayName,
             VideoResponse_itemsSite Site,
+            KinopoiskTrailerSourceKind SourceKind,
+            int SourcePriority,
             int Score,
             int OriginalIndex);
     }
+
+    internal enum KinopoiskTrailerSourceKind
+    {
+        Unknown,
+        KinopoiskWidget,
+        YouTube,
+        YandexDisk
+    }
+
+    internal sealed record KinopoiskTrailerCandidate(
+        string Url,
+        string Name,
+        KinopoiskTrailerSourceKind SourceKind);
 
     /// <summary>
     /// Содержит параметры отбора трейлеров КиноПоиска.

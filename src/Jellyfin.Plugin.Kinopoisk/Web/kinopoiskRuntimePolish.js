@@ -48,9 +48,9 @@
             '.kp-runtime-navigation-button{display:inline-flex;align-items:center;justify-content:center;width:2.45em;height:2.45em;border:0;border-radius:50%;background:rgba(0,0,0,.52);color:inherit;cursor:pointer;font:inherit}',
             '.kp-runtime-navigation-button:hover,.kp-runtime-navigation-button:focus-visible{background:rgba(0,0,0,.78);outline:2px solid rgba(255,255,255,.65);outline-offset:2px}',
             '.kp-runtime-navigation-button:disabled{opacity:.28;cursor:default;outline:0}',
-            '.kp-recommendations-scroller,.tmdb-review-swipe-container{scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-inline:contain}',
-            '.kp-recommendations-scroller::-webkit-scrollbar,.tmdb-review-swipe-container::-webkit-scrollbar{display:none}',
-            '.kp-recommendations-items>* ,.tmdb-review-swipe-container>*{scroll-snap-align:start}'
+            '.tmdb-review-swipe-container{scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-inline:contain}',
+            '.tmdb-review-swipe-container::-webkit-scrollbar{display:none}',
+            '.tmdb-review-swipe-container>*{scroll-snap-align:start}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -139,16 +139,6 @@
     }
 
     function enhanceCarousels(page) {
-        Array.prototype.forEach.call(
-            page.querySelectorAll('.kp-recommendations-section'),
-            function (section) {
-                ensureNavigation(
-                    section.querySelector('.kp-recommendations-header'),
-                    section.querySelector('.kp-recommendations-scroller'),
-                    'рекомендации'
-                );
-            }
-        );
         Array.prototype.forEach.call(
             page.querySelectorAll('.tmdb-reviews-section'),
             function (section) {

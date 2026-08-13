@@ -52,7 +52,7 @@
             '.kp-native-navigation .emby-scrollbuttons-button>.material-icons{display:block;min-width:24px;min-height:24px;font-size:1.7em;line-height:1}',
             '.kp-native-navigation .emby-scrollbuttons-button:disabled{opacity:.3;cursor:default}',
             '.kp-native-navigation .emby-scrollbuttons-button:not(:disabled):hover,.kp-native-navigation .emby-scrollbuttons-button:not(:disabled):focus-visible{background:rgba(255,255,255,.12);outline:0}',
-            '.kp-recommendations-header,.kp-review-toolbar{position:relative}'
+            '.kp-review-toolbar{position:relative}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -193,16 +193,6 @@
     }
 
     function patchCarousels(page) {
-        Array.prototype.forEach.call(
-            page.querySelectorAll('.kp-recommendations-section'),
-            function (section) {
-                bindNavigation(
-                    section.querySelector('.kp-recommendations-header'),
-                    section.querySelector('.kp-recommendations-scroller'),
-                    'рекомендации'
-                );
-            }
-        );
         Array.prototype.forEach.call(
             page.querySelectorAll('.tmdb-reviews-section'),
             function (section) {

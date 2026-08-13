@@ -113,7 +113,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [Fact]
         public void ShouldAssembleEmbeddedWebClientBundle()
         {
-            Assert.Equal(14, KinopoiskWebClientBundle.ResourceCount);
+            Assert.Equal(12, KinopoiskWebClientBundle.ResourceCount);
             Assert.Equal(64, KinopoiskWebClientBundle.Sha256.Length);
             Assert.Equal(
                 KinopoiskWebClientBundle.Sha256[..16],
@@ -133,9 +133,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains(
                 "Объединённый блок рекомендаций зарегистрирован",
                 KinopoiskWebClientBundle.Content);
-    Assert.Contains(
-        "Геометрическое выравнивание навигации зарегистрировано",
-        KinopoiskWebClientBundle.Content);
+            Assert.Contains(
+                "is=\"emby-scroller\"",
+                KinopoiskWebClientBundle.Content);
+            Assert.DoesNotContain(
+                "Геометрическое выравнивание навигации зарегистрировано",
+                KinopoiskWebClientBundle.Content);
         }
 
         [Fact]
