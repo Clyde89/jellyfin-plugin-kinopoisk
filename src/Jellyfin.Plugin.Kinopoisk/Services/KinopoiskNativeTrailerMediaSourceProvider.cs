@@ -64,7 +64,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
             var cached = _cache.TryGet(kinopoiskId);
             if (cached is not null)
+            {
+                _cache.RecordHit();
                 return new[] { CreateCachedSource(item, cached) };
+            }
+
+            if (_cache.Enabled)
+                _cache.RecordMiss();
 
             if (_warmupService is not null)
             {

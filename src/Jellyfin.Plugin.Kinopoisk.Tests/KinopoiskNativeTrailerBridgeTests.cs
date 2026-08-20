@@ -153,9 +153,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     }
                 }
             };
+            var cache = new FakeNativeTrailerCache();
             var provider = new KinopoiskNativeTrailerMediaSourceProvider(
                 playback,
-                new FakeNativeTrailerCache());
+                cache);
             var trailer = new Trailer
             {
                 Id = Guid.Parse("6cab727b-fba5-6868-c53d-bddd7aa8ecc5"),
@@ -186,6 +187,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 stream.Type == MediaStreamType.Audio
                 && string.Equals(stream.Codec, "aac", StringComparison.Ordinal)
                 && stream.Channels == 2);
+            Assert.Equal(0, cache.HitCount);
+            Assert.Equal(1, cache.MissCount);
         }
 
         [Fact]
@@ -203,9 +206,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                     }
                 }
             };
+            var cache = new FakeNativeTrailerCache();
             var provider = new KinopoiskNativeTrailerMediaSourceProvider(
                 playback,
-                new FakeNativeTrailerCache());
+                cache);
 
             Assert.Empty(await provider.GetMediaSources(
                 new Trailer { ExtraType = ExtraType.Trailer },
@@ -214,6 +218,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             var marked = new Trailer { ExtraType = ExtraType.Trailer };
             marked.ProviderIds[KinopoiskNativeTrailerBridge.BridgeProviderId] = "6638363";
             Assert.Empty(await provider.GetMediaSources(marked, CancellationToken.None));
+            Assert.Equal(0, cache.HitCount);
+            Assert.Equal(1, cache.MissCount);
         }
 
         [Fact]
@@ -224,6 +230,20 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             Assert.NotNull(authorize);
             Assert.Equal(Policies.RequiresElevation, authorize!.Policy);
+        }
+
+        [Fact]
+        public void ShouldProtectCacheStatisticsWithAdministratorPolicy()
+        {
+            var controllerAuthorize = typeof(KinopoiskNativeTrailerCacheController)
+                .GetCustomAttribute<AuthorizeAttribute>();
+            var statisticsAuthorize = typeof(KinopoiskNativeTrailerCacheController)
+                .GetMethod("GetStatistics")!
+                .GetCustomAttribute<AuthorizeAttribute>();
+
+            Assert.NotNull(controllerAuthorize);
+            Assert.NotNull(statisticsAuthorize);
+            Assert.Equal(Policies.RequiresElevation, statisticsAuthorize!.Policy);
         }
 
         [Fact]
@@ -246,6 +266,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         {
             var capabilities = new KinopoiskPlaybackCapabilities();
 
+            Assert.True(capabilities.YoutubeFallback);
+            Assert.Equal("client-direct", capabilities.YoutubePlaybackRoute);
+            Assert.False(capabilities.YoutubeServerProxy);
             Assert.False(capabilities.NativeTrailerBridge.Experimental);
             Assert.Empty(capabilities.NativeTrailerBridge.AllowedKinopoiskIds);
             Assert.True(capabilities.NativeTrailerBridge.AllKinopoiskMovies);
@@ -379,6 +402,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 stream.Type == MediaStreamType.Audio
                 && stream.Codec == "aac"
                 && stream.Channels == 2);
+            Assert.Equal(1, cache.HitCount);
+            Assert.Equal(0, cache.MissCount);
         }
 
         private sealed class FakePlaybackService : IKinopoiskTrailerPlaybackService
@@ -397,10 +422,18 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 
             public KinopoiskNativeTrailerCacheEntry Entry { get; set; }
 
+            public long HitCount { get; private set; }
+
+            public long MissCount { get; private set; }
+
             public string GetExpectedPath(int kinopoiskId) => Entry?.Path ?? string.Empty;
 
             public KinopoiskNativeTrailerCacheEntry TryGet(int kinopoiskId, bool touch = true)
                 => Entry;
+
+            public void RecordHit() => HitCount++;
+
+            public void RecordMiss() => MissCount++;
 
             public Task<KinopoiskNativeTrailerCacheEntry> GetOrCreate(
                 int kinopoiskId,

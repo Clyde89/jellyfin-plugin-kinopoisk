@@ -44,6 +44,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
             var configuration = Plugin.Instance?.Configuration;
             if (configuration is not null)
             {
+                capabilities.YoutubeFallback = configuration.EnableYoutubeTrailerFallback;
                 capabilities.NativeTrailerBridge.LocalTrailerCache
                     = configuration.EnableNativeTrailerCache;
                 capabilities.NativeTrailerBridge.LocalTrailerCacheMaximumBytes

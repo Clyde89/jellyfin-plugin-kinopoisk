@@ -25,6 +25,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.EnableSeasonEpisodeMetadata);
             Assert.True(configuration.EnablePeopleMetadata);
             Assert.True(configuration.EnableTrailers);
+            Assert.True(configuration.EnableYoutubeTrailerFallback);
             Assert.True(configuration.EnableImages);
             Assert.True(configuration.EnablePrecisePremiereDate);
             Assert.True(configuration.EnableRuntimeFallback);

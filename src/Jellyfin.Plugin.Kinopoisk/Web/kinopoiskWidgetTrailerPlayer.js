@@ -22,6 +22,7 @@
     var bypassNativeClick = false;
     var activeDialog = null;
     var bodyOverflow = '';
+    var preparationNotice = null;
 
     function getCurrentItemId() {
         var candidates = [window.location.search || ''];
@@ -43,6 +44,74 @@
 
     function getApiClient() {
         return window.ApiClient || null;
+    }
+
+    function getKinopoiskId(item) {
+        var providerIds = item && item.ProviderIds;
+        if (!providerIds || typeof providerIds !== 'object') {
+            return null;
+        }
+        var keys = Object.keys(providerIds);
+        for (var index = 0; index < keys.length; index++) {
+            if (keys[index].toLowerCase() === 'kinopoisk') {
+                var value = Number(providerIds[keys[index]]);
+                return Number.isInteger(value) && value > 0 ? value : null;
+            }
+        }
+        return null;
+    }
+
+    function fetchPreparationStatus(kinopoiskId) {
+        var apiClient = getApiClient();
+        if (!apiClient || !kinopoiskId) {
+            return Promise.resolve(null);
+        }
+        var token = typeof apiClient.accessToken === 'function'
+            ? apiClient.accessToken()
+            : '';
+        return fetch(apiClient.getUrl('/KinopoiskPlayback/cache/status/' + encodeURIComponent(kinopoiskId)), {
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers: {
+                'Accept': 'application/json',
+                'X-Emby-Token': token
+            }
+        }).then(function (response) {
+            return response.ok ? response.json() : null;
+        }).catch(function () {
+            return null;
+        });
+    }
+
+    function showPreparationNotice(message) {
+        if (preparationNotice) {
+            preparationNotice.remove();
+        }
+        var notice = document.createElement('div');
+        notice.id = 'kinopoiskTrailerPreparationNotice';
+        notice.setAttribute('role', 'status');
+        notice.setAttribute('aria-live', 'polite');
+        notice.textContent = message || 'Трейлер подготавливается на сервере…';
+        notice.style.position = 'fixed';
+        notice.style.left = '50%';
+        notice.style.bottom = '8vh';
+        notice.style.transform = 'translateX(-50%)';
+        notice.style.zIndex = '100002';
+        notice.style.maxWidth = 'min(34rem, calc(100vw - 2rem))';
+        notice.style.padding = '0.8rem 1rem';
+        notice.style.borderRadius = '0.55rem';
+        notice.style.background = 'rgba(18,18,24,0.94)';
+        notice.style.boxShadow = '0 0.4rem 1.4rem rgba(0,0,0,0.45)';
+        notice.style.color = '#fff';
+        notice.style.textAlign = 'center';
+        document.body.appendChild(notice);
+        preparationNotice = notice;
+        window.setTimeout(function () {
+            if (preparationNotice === notice) {
+                preparationNotice = null;
+                notice.remove();
+            }
+        }, 5000);
     }
 
     function normalizeUrl(rawUrl) {
@@ -349,7 +418,14 @@
 
         fetchCurrentItem().then(function (item) {
             if (Number(item && item.LocalTrailerCount || 0) > 0) {
-                restoreNativeClick(button);
+                var kinopoiskId = getKinopoiskId(item);
+                fetchPreparationStatus(kinopoiskId).then(function (status) {
+                    var state = status && String(status.State || status.state || '').toLowerCase();
+                    if (state === 'preparing' || state === 'missing') {
+                        showPreparationNotice(status.Message || status.message);
+                    }
+                    restoreNativeClick(button);
+                });
                 return;
             }
 

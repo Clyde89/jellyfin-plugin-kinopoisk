@@ -75,6 +75,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
     /// </summary>
     public sealed class KinopoiskNativeTrailerCacheSnapshot
     {
+        public int SchemaVersion { get; set; } = 1;
+
         public bool Enabled { get; set; }
 
         public long MaximumBytes { get; set; }
@@ -84,5 +86,77 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         public long CurrentBytes { get; set; }
 
         public int FileCount { get; set; }
+
+        public DateTimeOffset StatisticsSinceUtc { get; set; }
+
+        public long HitCount { get; set; }
+
+        public long MissCount { get; set; }
+
+        public double HitRatePercent { get; set; }
+
+        public long WriteCount { get; set; }
+
+        public long WriteBytes { get; set; }
+
+        public long FailedWriteCount { get; set; }
+
+        public long EvictedFileCount { get; set; }
+
+        public long EvictedBytes { get; set; }
+
+        public long CleanupCount { get; set; }
+    }
+
+    /// <summary>
+    /// Состояние фоновой подготовки локальных трейлеров.
+    /// </summary>
+    public sealed class KinopoiskNativeTrailerWarmupSnapshot
+    {
+        public int ActiveCount { get; set; }
+
+        public long StartedCount { get; set; }
+
+        public long CompletedCount { get; set; }
+
+        public long UnavailableCount { get; set; }
+
+        public long FailedCount { get; set; }
+
+        public DateTimeOffset? LastStartedUtc { get; set; }
+
+        public DateTimeOffset? LastCompletedUtc { get; set; }
+
+        public DateTimeOffset? LastFailureUtc { get; set; }
+    }
+
+    /// <summary>
+    /// Полная административная статистика серверного кэша трейлеров.
+    /// </summary>
+    public sealed class KinopoiskNativeTrailerCacheStatistics
+    {
+        public int SchemaVersion { get; set; } = 1;
+
+        public KinopoiskNativeTrailerCacheSnapshot Cache { get; set; } = new();
+
+        public KinopoiskNativeTrailerWarmupSnapshot Warmup { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Безопасное пользовательское состояние подготовки одного трейлера.
+    /// </summary>
+    public sealed class KinopoiskNativeTrailerPreparationStatus
+    {
+        public int SchemaVersion { get; set; } = 1;
+
+        public int KinopoiskId { get; set; }
+
+        public string State { get; set; } = "missing";
+
+        public bool CacheReady { get; set; }
+
+        public bool Preparing { get; set; }
+
+        public string Message { get; set; } = string.Empty;
     }
 }
