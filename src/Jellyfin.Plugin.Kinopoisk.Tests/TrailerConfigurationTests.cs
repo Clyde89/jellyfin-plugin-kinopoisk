@@ -17,6 +17,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.IncludeTrailerTeasers);
             Assert.False(configuration.IncludeAdditionalTrailerVideos);
             Assert.True(configuration.PrefixTrailerNames);
+            Assert.True(configuration.EnableYoutubeTrailerFallback);
         }
 
         [Theory]

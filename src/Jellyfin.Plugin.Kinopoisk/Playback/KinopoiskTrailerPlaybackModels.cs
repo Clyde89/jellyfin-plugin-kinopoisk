@@ -20,6 +20,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Playback
 
         public bool HlsProxy { get; set; }
 
+        public bool YoutubeFallback { get; set; } = true;
+
+        public string YoutubePlaybackRoute { get; set; } = "client-direct";
+
+        public bool YoutubeServerProxy { get; set; }
+
         public KinopoiskNativeTrailerBridgeCapabilities NativeTrailerBridge { get; set; }
             = new();
     }

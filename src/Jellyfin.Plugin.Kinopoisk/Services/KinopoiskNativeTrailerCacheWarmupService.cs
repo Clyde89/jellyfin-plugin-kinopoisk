@@ -22,6 +22,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             int kinopoiskId,
             TimeSpan maximumWait,
             CancellationToken cancellationToken);
+
+        bool IsPreparing(int kinopoiskId);
+
+        KinopoiskNativeTrailerWarmupSnapshot GetSnapshot();
     }
 
     /// <inheritdoc />
@@ -35,6 +39,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private readonly ConcurrentDictionary<
             int,
             Lazy<Task<KinopoiskNativeTrailerCacheEntry?>>> _operations = new();
+        private long _startedCount;
+        private long _completedCount;
+        private long _unavailableCount;
+        private long _failedCount;
+        private long _lastStartedUtcTicks;
+        private long _lastCompletedUtcTicks;
+        private long _lastFailureUtcTicks;
 
         public KinopoiskNativeTrailerCacheWarmupService(
             IKinopoiskTrailerPlaybackService playbackService,
@@ -90,17 +101,39 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
         }
 
+        /// <inheritdoc />
+        public bool IsPreparing(int kinopoiskId)
+            => kinopoiskId > 0 && _operations.ContainsKey(kinopoiskId);
+
+        /// <inheritdoc />
+        public KinopoiskNativeTrailerWarmupSnapshot GetSnapshot()
+            => new()
+            {
+                ActiveCount = _operations.Count,
+                StartedCount = Interlocked.Read(ref _startedCount),
+                CompletedCount = Interlocked.Read(ref _completedCount),
+                UnavailableCount = Interlocked.Read(ref _unavailableCount),
+                FailedCount = Interlocked.Read(ref _failedCount),
+                LastStartedUtc = ReadTimestamp(ref _lastStartedUtcTicks),
+                LastCompletedUtc = ReadTimestamp(ref _lastCompletedUtcTicks),
+                LastFailureUtc = ReadTimestamp(ref _lastFailureUtcTicks)
+            };
+
         private async Task<KinopoiskNativeTrailerCacheEntry?> Warmup(int kinopoiskId)
         {
             var cached = _cache.TryGet(kinopoiskId);
             if (cached is not null)
                 return cached;
 
-            var operation = _operations.GetOrAdd(
-                kinopoiskId,
-                id => new Lazy<Task<KinopoiskNativeTrailerCacheEntry?>>(
-                    () => WarmupCore(id),
-                    LazyThreadSafetyMode.ExecutionAndPublication));
+            var candidate = new Lazy<Task<KinopoiskNativeTrailerCacheEntry?>>(
+                () => WarmupCore(kinopoiskId),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            var operation = _operations.GetOrAdd(kinopoiskId, candidate);
+            if (ReferenceEquals(operation, candidate))
+            {
+                Interlocked.Increment(ref _startedCount);
+                Interlocked.Exchange(ref _lastStartedUtcTicks, DateTime.UtcNow.Ticks);
+            }
             try
             {
                 return await operation.Value.ConfigureAwait(false);
@@ -124,6 +157,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     .ConfigureAwait(false);
                 if (!IsKinopoiskHls(playback))
                 {
+                    Interlocked.Increment(ref _unavailableCount);
+                    Interlocked.Exchange(ref _lastFailureUtcTicks, DateTime.UtcNow.Ticks);
                     _logger.LogInformation(
                         "Локальный MP4 не подготовлен для Kinopoisk ID {KinopoiskId}: HLS КиноПоиска отсутствует",
                         kinopoiskId);
@@ -138,6 +173,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     .ConfigureAwait(false);
                 if (entry is not null)
                 {
+                    Interlocked.Increment(ref _completedCount);
+                    Interlocked.Exchange(ref _lastCompletedUtcTicks, DateTime.UtcNow.Ticks);
                     _logger.LogInformation(
                         "Локальный MP4-трейлер подготовлен для Kinopoisk ID {KinopoiskId}: {Path}",
                         kinopoiskId,
@@ -152,6 +189,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             }
             catch (Exception exception)
             {
+                Interlocked.Increment(ref _failedCount);
+                Interlocked.Exchange(ref _lastFailureUtcTicks, DateTime.UtcNow.Ticks);
                 _logger.LogWarning(
                     exception,
                     "Фоновая подготовка локального трейлера для Kinopoisk ID {KinopoiskId} завершилась ошибкой",
@@ -175,5 +214,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     UriKind.Absolute,
                     out var mediaUri)
                 && mediaUri.Scheme == Uri.UriSchemeHttps;
+
+        private static DateTimeOffset? ReadTimestamp(ref long ticks)
+        {
+            var value = Interlocked.Read(ref ticks);
+            return value > 0
+                ? new DateTimeOffset(value, TimeSpan.Zero)
+                : null;
+        }
     }
 }

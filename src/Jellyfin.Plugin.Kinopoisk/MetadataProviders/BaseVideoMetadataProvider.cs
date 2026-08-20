@@ -452,7 +452,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                         PreferRussianTrailers = configuration?.PreferRussianTrailers ?? true,
                         IncludeTeasers = configuration?.IncludeTrailerTeasers ?? true,
                         IncludeAdditionalVideos = configuration?.IncludeAdditionalTrailerVideos ?? false,
-                        PrefixTrailerNames = configuration?.PrefixTrailerNames ?? true
+                        PrefixTrailerNames = configuration?.PrefixTrailerNames ?? true,
+                        EnableYoutubeFallback = configuration?.EnableYoutubeTrailerFallback ?? true
                     });
 
                 if (remoteTrailers.Count > 0)

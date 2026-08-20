@@ -82,6 +82,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var candidates = items
                 .Select((item, index) => CreateCandidate(item, index, options))
                 .Where(candidate => candidate is not null)
+                .Where(candidate => options.EnableYoutubeFallback
+                    || candidate.SourceKind != KinopoiskTrailerSourceKind.YouTube)
                 .ToArray();
 
             var selected = candidates
@@ -121,6 +123,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             return items
                 .Select((item, index) => CreateCandidate(item, index, options))
                 .Where(candidate => candidate is not null)
+                .Where(candidate => options.EnableYoutubeFallback
+                    || candidate.SourceKind != KinopoiskTrailerSourceKind.YouTube)
                 .GroupBy(candidate => candidate.Identity, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group
                     .OrderByDescending(candidate => candidate.Score)
@@ -505,5 +509,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         /// Получает или задаёт признак добавления названия источника к заголовку ролика.
         /// </summary>
         public bool PrefixTrailerNames { get; set; } = true;
+
+        /// <summary>
+        /// Получает или задаёт признак использования YouTube, если HLS КиноПоиска отсутствует.
+        /// </summary>
+        public bool EnableYoutubeFallback { get; set; } = true;
     }
 }

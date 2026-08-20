@@ -142,6 +142,10 @@
                     <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeTrailerTeasers" type="checkbox" is="emby-checkbox" /><span>Включать тизеры</span></label></div>
                     <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="IncludeAdditionalTrailerVideos" type="checkbox" is="emby-checkbox" /><span>Включать дополнительные ролики</span></label></div>
                     <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="PrefixTrailerNames" type="checkbox" is="emby-checkbox" /><span>Добавлять источник к названию</span></label></div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input id="EnableYoutubeTrailerFallback" type="checkbox" is="emby-checkbox" /><span>Использовать YouTube, если трейлер КиноПоиска недоступен</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">Открывается официальный YouTube-плеер. Его сетевой трафик идёт от клиентского устройства; серверный маршрут настраивается отдельно на шлюзе сети.</div>
+                    </div>
 
                     <h2>Полнота стандартных метаданных</h2>
                     <div class="selectContainer">
@@ -232,6 +236,22 @@
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheMaximumMegabytes">Максимальный общий размер, МБ</label><input id="NativeTrailerCacheMaximumMegabytes" type="number" min="256" max="16384" step="1" is="emby-input" /><div class="fieldDescription">По умолчанию 4096 МБ. При превышении сначала удаляются давно не использовавшиеся файлы.</div></div>
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheRetentionDays">Удалять неиспользуемые файлы через, дней</label><input id="NativeTrailerCacheRetentionDays" type="number" min="7" max="365" step="1" is="emby-input" /><div class="fieldDescription">Плановая очистка выполняется еженедельно по воскресеньям в 04:15.</div></div>
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheMaximumFileMegabytes">Максимальный размер одного трейлера, МБ</label><input id="NativeTrailerCacheMaximumFileMegabytes" type="number" min="64" max="2048" step="1" is="emby-input" /></div>
+
+                    <div class="kinopoiskStatusCard" aria-live="polite">
+                        <h3>Статистика кэша трейлеров</h3>
+                        <div><strong>Занято:</strong> <span id="TrailerCacheCurrentBytes">0 байт</span> из <span id="TrailerCacheMaximumBytes">0 байт</span></div>
+                        <div><strong>Сохранено трейлеров:</strong> <span id="TrailerCacheFileCount">0</span></div>
+                        <div><strong>Попадания:</strong> <span id="TrailerCacheHits">0</span></div>
+                        <div><strong>Промахи:</strong> <span id="TrailerCacheMisses">0</span></div>
+                        <div><strong>Доля попаданий:</strong> <span id="TrailerCacheHitRate">0 %</span></div>
+                        <div><strong>Подготовлено за текущий запуск:</strong> <span id="TrailerCacheWrites">0</span> (<span id="TrailerCacheWriteBytes">0 байт</span>)</div>
+                        <div><strong>Ошибки подготовки:</strong> <span id="TrailerCacheFailedWrites">0</span></div>
+                        <div><strong>Удалено ротацией:</strong> <span id="TrailerCacheEvictedFiles">0</span> (<span id="TrailerCacheEvictedBytes">0 байт</span>)</div>
+                        <div><strong>Сейчас подготавливается:</strong> <span id="TrailerCacheActiveWarmups">0</span></div>
+                        <div><strong>Статистика с:</strong> <span id="TrailerCacheStatisticsSince">ещё не загружена</span></div>
+                        <div class="kinopoiskActions"><button id="RefreshTrailerCacheStatistics" type="button" is="emby-button" class="raised button-submit block"><span>Обновить статистику</span></button></div>
+                        <div id="TrailerCacheStatisticsError" class="fieldDescription kinopoiskWarning" hidden></div>
+                    </div>
 
                     <h2>Контроль квоты</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableQuotaMonitoring" type="checkbox" is="emby-checkbox" /><span>Контроль API-ключа и квоты</span></label></div>
@@ -335,7 +355,48 @@
             var bytes = Number(value || 0);
             if (bytes < 1024) return bytes + ' байт';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КиБ';
-            return (bytes / 1024 / 1024).toFixed(1) + ' МиБ';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' МиБ';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' ГиБ';
+        }
+
+        function loadTrailerCacheStatistics() {
+            var token = typeof ApiClient.accessToken === 'function' ? ApiClient.accessToken() : '';
+            return fetch(ApiClient.getUrl('/KinopoiskPlayback/cache/statistics'), {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: {
+                    'Accept': 'application/json',
+                    'Authorization': 'MediaBrowser Token="' + token + '"',
+                    'X-Emby-Token': token
+                }
+            }).then(function (response) {
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return response.json();
+            }).then(function (statistics) {
+                var cache = statistics.Cache || statistics.cache || {};
+                var warmup = statistics.Warmup || statistics.warmup || {};
+                $('#TrailerCacheCurrentBytes').text(formatBytes(cache.CurrentBytes || cache.currentBytes));
+                $('#TrailerCacheMaximumBytes').text(formatBytes(cache.MaximumBytes || cache.maximumBytes));
+                $('#TrailerCacheFileCount').text(cache.FileCount || cache.fileCount || 0);
+                $('#TrailerCacheHits').text(cache.HitCount || cache.hitCount || 0);
+                $('#TrailerCacheMisses').text(cache.MissCount || cache.missCount || 0);
+                $('#TrailerCacheHitRate').text(Number(cache.HitRatePercent || cache.hitRatePercent || 0).toFixed(2) + ' %');
+                $('#TrailerCacheWrites').text(cache.WriteCount || cache.writeCount || 0);
+                $('#TrailerCacheWriteBytes').text(formatBytes(cache.WriteBytes || cache.writeBytes));
+                $('#TrailerCacheFailedWrites').text(cache.FailedWriteCount || cache.failedWriteCount || 0);
+                $('#TrailerCacheEvictedFiles').text(cache.EvictedFileCount || cache.evictedFileCount || 0);
+                $('#TrailerCacheEvictedBytes').text(formatBytes(cache.EvictedBytes || cache.evictedBytes));
+                $('#TrailerCacheActiveWarmups').text(warmup.ActiveCount || warmup.activeCount || 0);
+                $('#TrailerCacheStatisticsSince').text(formatDate(cache.StatisticsSinceUtc || cache.statisticsSinceUtc));
+                $('#TrailerCacheStatisticsError').prop('hidden', true).text('');
+                return statistics;
+            }).catch(function (error) {
+                $('#TrailerCacheStatisticsError')
+                    .prop('hidden', false)
+                    .text('Статистика временно недоступна: ' + error.message);
+                console.warn('[КиноПоиск] Статистика кэша трейлеров не загружена.', error);
+                return null;
+            });
         }
 
         function showTab(panelId) {
@@ -362,6 +423,7 @@
             setCheckbox('#IncludeTrailerTeasers', config.IncludeTrailerTeasers, true);
             setCheckbox('#IncludeAdditionalTrailerVideos', config.IncludeAdditionalTrailerVideos, false);
             setCheckbox('#PrefixTrailerNames', config.PrefixTrailerNames, true);
+            setCheckbox('#EnableYoutubeTrailerFallback', config.EnableYoutubeTrailerFallback, true);
             setValue('#CommunityRatingSource', config.CommunityRatingSource, 'KinopoiskWithImdbFallback');
             setValue('#CriticRatingSource', config.CriticRatingSource, 'RussianWithWorldFallback');
             setCheckbox('#EnablePrecisePremiereDate', config.EnablePrecisePremiereDate, true);
@@ -458,6 +520,7 @@
             config.IncludeTrailerTeasers = $('#IncludeTrailerTeasers').prop('checked');
             config.IncludeAdditionalTrailerVideos = $('#IncludeAdditionalTrailerVideos').prop('checked');
             config.PrefixTrailerNames = $('#PrefixTrailerNames').prop('checked');
+            config.EnableYoutubeTrailerFallback = $('#EnableYoutubeTrailerFallback').prop('checked');
             config.CommunityRatingSource = $('#CommunityRatingSource').val();
             config.CriticRatingSource = $('#CriticRatingSource').val();
             config.EnablePrecisePremiereDate = $('#EnablePrecisePremiereDate').prop('checked');
@@ -522,11 +585,13 @@
             try { activeTab = sessionStorage.getItem('kinopoisk.activeTab') || activeTab; } catch (_) { }
             showTab(activeTab);
             loadConfiguration();
+            loadTrailerCacheStatistics();
         });
 
         $('#KinopoiskSettingsTab').on('click', function () { showTab('KinopoiskSettingsPanel'); });
         $('#KinopoiskDiagnosticsTab').on('click', function () { showTab('KinopoiskDiagnosticsPanel'); });
         $('#RefreshDiagnosticStatus').on('click', loadConfiguration);
+        $('#RefreshTrailerCacheStatistics').on('click', loadTrailerCacheStatistics);
 
         $('#StartDiagnosticSession').on('click', function () {
             Dashboard.showLoadingMsg();

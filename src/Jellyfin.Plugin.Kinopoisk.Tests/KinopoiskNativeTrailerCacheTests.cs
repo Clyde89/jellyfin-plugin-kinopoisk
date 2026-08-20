@@ -70,6 +70,37 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Assert.False(File.Exists(older));
                 Assert.True(File.Exists(newer));
                 Assert.True(result.RemainingBytes <= options.MaximumCacheBytes);
+                var snapshot = cache.GetSnapshot();
+                Assert.Equal(1, snapshot.EvictedFileCount);
+                Assert.Equal(160L * 1024L * 1024L, snapshot.EvictedBytes);
+                Assert.Equal(1, snapshot.CleanupCount);
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        [Fact]
+        public void ShouldExposePlaybackHitAndMissStatistics()
+        {
+            var directory = CreateTemporaryDirectory();
+            try
+            {
+                var cache = CreateCache(new KinopoiskNativeTrailerCacheOptions
+                {
+                    CachePath = directory
+                });
+
+                cache.RecordHit();
+                cache.RecordHit();
+                cache.RecordMiss();
+
+                var snapshot = cache.GetSnapshot();
+                Assert.Equal(2, snapshot.HitCount);
+                Assert.Equal(1, snapshot.MissCount);
+                Assert.Equal(66.67, snapshot.HitRatePercent);
+                Assert.True(snapshot.StatisticsSinceUtc <= DateTimeOffset.UtcNow);
             }
             finally
             {
@@ -136,6 +167,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             public string GetExpectedPath(int kinopoiskId) => string.Empty;
 
             public KinopoiskNativeTrailerCacheEntry? TryGet(int kinopoiskId, bool touch = true) => null;
+
+            public void RecordHit()
+            {
+            }
+
+            public void RecordMiss()
+            {
+            }
 
             public Task<KinopoiskNativeTrailerCacheEntry?> GetOrCreate(
                 int kinopoiskId,

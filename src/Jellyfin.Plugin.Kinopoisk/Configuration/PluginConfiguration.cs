@@ -34,6 +34,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
 
         public bool PrefixTrailerNames { get; set; } = true;
 
+        public bool EnableYoutubeTrailerFallback { get; set; } = true;
+
         public bool EnableImages { get; set; } = true;
 
         public CommunityRatingSource CommunityRatingSource { get; set; }

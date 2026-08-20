@@ -90,6 +90,20 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldExposeTrailerCacheStatisticsAndYoutubeRouteBoundary()
+        {
+            var page = ReadConfigurationPage();
+
+            Assert.Contains("id=\"TrailerCacheCurrentBytes\"", page);
+            Assert.Contains("id=\"TrailerCacheFileCount\"", page);
+            Assert.Contains("id=\"TrailerCacheHits\"", page);
+            Assert.Contains("id=\"TrailerCacheMisses\"", page);
+            Assert.Contains("/KinopoiskPlayback/cache/statistics", page);
+            Assert.Contains("id=\"EnableYoutubeTrailerFallback\"", page);
+            Assert.Contains("сетевой трафик идёт от клиентского устройства", page);
+        }
+
+        [Fact]
         public void ShouldRefreshLocalProviderStatusEverySixtySecondsOnlyWhileVisible()
         {
             var page = ReadConfigurationPage();

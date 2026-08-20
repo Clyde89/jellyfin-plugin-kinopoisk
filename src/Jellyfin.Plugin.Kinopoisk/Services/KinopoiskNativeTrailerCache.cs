@@ -32,6 +32,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private readonly ConcurrentDictionary<int, SemaphoreSlim> _entryGates = new();
         private readonly ConcurrentDictionary<int, DateTimeOffset> _lastTouches = new();
         private readonly SemaphoreSlim _cleanupGate = new(1, 1);
+        private readonly DateTimeOffset _statisticsSinceUtc = DateTimeOffset.UtcNow;
+        private long _hitCount;
+        private long _missCount;
+        private long _writeCount;
+        private long _writeBytes;
+        private long _failedWriteCount;
+        private long _evictedFileCount;
+        private long _evictedBytes;
+        private long _cleanupCount;
 
         public KinopoiskNativeTrailerCache(
             KinopoiskNativeTrailerCacheOptions options,
@@ -85,6 +94,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             return entry;
         }
 
+        /// <inheritdoc />
+        public void RecordHit()
+            => Interlocked.Increment(ref _hitCount);
+
+        /// <inheritdoc />
+        public void RecordMiss()
+            => Interlocked.Increment(ref _missCount);
+
         public async Task<KinopoiskNativeTrailerCacheEntry?> GetOrCreate(
             int kinopoiskId,
             KinopoiskTrailerPlaybackSource source,
@@ -128,11 +145,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                     File.Move(temporaryDataPath, paths.DataPath, true);
                     File.Move(temporaryMetadataPath, paths.MetadataPath, true);
                     Touch(kinopoiskId, paths, created, true);
+                    Interlocked.Increment(ref _writeCount);
+                    Interlocked.Add(ref _writeBytes, created.ContentLength);
                     await CleanupInternal(paths.DataPath, cancellationToken).ConfigureAwait(false);
                     return TryGet(kinopoiskId);
                 }
                 catch
                 {
+                    Interlocked.Increment(ref _failedWriteCount);
                     TryDelete(temporaryDataPath);
                     TryDelete(temporaryMetadataPath);
                     throw;
@@ -152,12 +172,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         {
             if (!Enabled || !Directory.Exists(_options.CachePath))
             {
-                return new KinopoiskNativeTrailerCacheSnapshot
-                {
-                    Enabled = Enabled,
-                    MaximumBytes = NormalizeMaximumBytes(),
-                    RetentionDays = (int)Math.Ceiling(NormalizeExpiration().TotalDays)
-                };
+                return CreateSnapshot(0, 0);
             }
 
             try
@@ -165,25 +180,44 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 var files = new DirectoryInfo(_options.CachePath)
                     .EnumerateFiles("kinopoisk-*.mp4", SearchOption.TopDirectoryOnly)
                     .ToArray();
-                return new KinopoiskNativeTrailerCacheSnapshot
-                {
-                    Enabled = true,
-                    MaximumBytes = NormalizeMaximumBytes(),
-                    RetentionDays = (int)Math.Ceiling(NormalizeExpiration().TotalDays),
-                    CurrentBytes = files.Sum(file => file.Length),
-                    FileCount = files.Length
-                };
+                return CreateSnapshot(
+                    files.Sum(file => file.Length),
+                    files.Length);
             }
             catch (Exception exception)
             {
                 _logger.LogDebug(exception, "Не удалось сформировать снимок локального кэша трейлеров");
-                return new KinopoiskNativeTrailerCacheSnapshot
-                {
-                    Enabled = true,
-                    MaximumBytes = NormalizeMaximumBytes(),
-                    RetentionDays = (int)Math.Ceiling(NormalizeExpiration().TotalDays)
-                };
+                return CreateSnapshot(0, 0);
             }
+        }
+
+        private KinopoiskNativeTrailerCacheSnapshot CreateSnapshot(
+            long currentBytes,
+            int fileCount)
+        {
+            var hits = Interlocked.Read(ref _hitCount);
+            var misses = Interlocked.Read(ref _missCount);
+            var total = hits + misses;
+            return new KinopoiskNativeTrailerCacheSnapshot
+            {
+                Enabled = Enabled,
+                MaximumBytes = NormalizeMaximumBytes(),
+                RetentionDays = (int)Math.Ceiling(NormalizeExpiration().TotalDays),
+                CurrentBytes = Math.Max(0, currentBytes),
+                FileCount = Math.Max(0, fileCount),
+                StatisticsSinceUtc = _statisticsSinceUtc,
+                HitCount = hits,
+                MissCount = misses,
+                HitRatePercent = total > 0
+                    ? Math.Round(hits * 100D / total, 2)
+                    : 0,
+                WriteCount = Interlocked.Read(ref _writeCount),
+                WriteBytes = Interlocked.Read(ref _writeBytes),
+                FailedWriteCount = Interlocked.Read(ref _failedWriteCount),
+                EvictedFileCount = Interlocked.Read(ref _evictedFileCount),
+                EvictedBytes = Interlocked.Read(ref _evictedBytes),
+                CleanupCount = Interlocked.Read(ref _cleanupCount)
+            };
         }
 
         private async Task<KinopoiskNativeTrailerCacheCleanupResult> CleanupInternal(
@@ -197,6 +231,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             await _cleanupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                Interlocked.Increment(ref _cleanupCount);
                 cancellationToken.ThrowIfCancellationRequested();
                 var directory = new DirectoryInfo(_options.CachePath);
                 var temporaryCutoff = DateTime.UtcNow.AddDays(-1);
@@ -263,6 +298,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
                 result.RemainingBytes = Math.Max(0, totalBytes);
                 result.RemainingFiles = files.Count(file => file.Exists);
+                var evictedFiles = result.RemovedExpiredFiles + result.RemovedCapacityFiles;
+                if (evictedFiles > 0)
+                {
+                    Interlocked.Add(ref _evictedFileCount, evictedFiles);
+                    Interlocked.Add(ref _evictedBytes, result.RemovedBytes);
+                }
                 return result;
             }
             finally

@@ -125,6 +125,27 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldExcludeYoutubeWhenFallbackIsDisabled()
+        {
+            var response = CreateResponse(
+                Video(
+                    "Трейлер КиноПоиска",
+                    "https://widgets.kinopoisk.ru/discovery/film/430/trailer/1",
+                    VideoResponse_itemsSite.KINOPOISK_WIDGET),
+                Video("YouTube trailer", "https://youtu.be/YOUTUBE001"));
+
+            var result = KinopoiskTrailerSelector.Select(
+                response,
+                new KinopoiskTrailerSelectionOptions
+                {
+                    EnableYoutubeFallback = false
+                });
+
+            var trailer = Assert.Single(result);
+            Assert.StartsWith("https://widgets.kinopoisk.ru/", trailer.Url);
+        }
+
+        [Fact]
         public void ShouldRespectTeaserAdditionalVideoAndLimitSettings()
         {
             var response = CreateResponse(

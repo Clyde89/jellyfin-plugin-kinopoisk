@@ -17,6 +17,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
         KinopoiskNativeTrailerCacheEntry? TryGet(int kinopoiskId, bool touch = true);
 
+        void RecordHit();
+
+        void RecordMiss();
+
         Task<KinopoiskNativeTrailerCacheEntry?> GetOrCreate(
             int kinopoiskId,
             KinopoiskTrailerPlaybackSource source,

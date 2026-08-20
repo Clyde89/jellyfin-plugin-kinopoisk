@@ -52,7 +52,11 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .ConfigureAwait(false);
             var candidates = KinopoiskTrailerSelector.SelectCandidates(
                 response,
-                new KinopoiskTrailerSelectionOptions());
+                new KinopoiskTrailerSelectionOptions
+                {
+                    EnableYoutubeFallback = Plugin.Instance?.Configuration
+                        ?.EnableYoutubeTrailerFallback ?? true
+                });
             var youtubeSources = candidates
                 .Where(candidate => candidate.SourceKind == KinopoiskTrailerSourceKind.YouTube)
                 .Select(ToYoutubeSource)
