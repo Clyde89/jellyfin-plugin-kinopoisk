@@ -22,7 +22,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                     ?? EmptyKinopoiskDistributionApiClient.Instance,
                 providerIdResolver,
                 logger,
-                httpClientFactory)
+                httpClientFactory,
+                null)
         {
         }
 
@@ -32,13 +33,15 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             IKinopoiskDistributionApiClient distributionApiClient,
             IProviderIdResolver<MovieInfo> providerIdResolver,
             ILogger<MovieMetadataProvider> logger,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IKinopoiskNativeTrailerCacheWarmupService trailerCacheWarmupService)
             : base(
                 kinopoiskApiClient,
                 distributionApiClient,
                 providerIdResolver,
                 logger,
-                httpClientFactory)
+                httpClientFactory,
+                trailerCacheWarmupService)
         {
         }
 

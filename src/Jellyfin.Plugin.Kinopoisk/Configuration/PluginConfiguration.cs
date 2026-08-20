@@ -96,6 +96,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
 
         public int ImageBinaryCacheMaximumFileMegabytes { get; set; } = 25;
 
+        public bool EnableNativeTrailerCache { get; set; } = true;
+
+        public KinopoiskTrailerCachePopulationMode NativeTrailerCachePopulationMode { get; set; }
+            = KinopoiskTrailerCachePopulationMode.OnDemand;
+
+        public KinopoiskTrailerCacheClientScope NativeTrailerCacheClientScope { get; set; }
+            = KinopoiskTrailerCacheClientScope.AllClients;
+
+        public int NativeTrailerCachePlaybackWaitSeconds { get; set; } = 25;
+
+        public int NativeTrailerCacheMaximumMegabytes { get; set; } = 4096;
+
+        public int NativeTrailerCacheRetentionDays { get; set; } = 30;
+
+        public int NativeTrailerCacheMaximumFileMegabytes { get; set; } = 512;
+
         public bool EnableQuotaMonitoring { get; set; } = true;
 
         public int QuotaCheckIntervalHours { get; set; } = 6;
@@ -141,6 +157,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
             if (!Enum.IsDefined(DiagnosticLogLevel))
                 DiagnosticLogLevel = KinopoiskDiagnosticLevel.Detailed;
 
+            if (!Enum.IsDefined(NativeTrailerCachePopulationMode))
+                NativeTrailerCachePopulationMode = KinopoiskTrailerCachePopulationMode.OnDemand;
+
+            if (!Enum.IsDefined(NativeTrailerCacheClientScope))
+                NativeTrailerCacheClientScope = KinopoiskTrailerCacheClientScope.AllClients;
+
             MaximumTrailers = Math.Clamp(MaximumTrailers, 1, 20);
             MinimumFranchiseItems = Math.Clamp(MinimumFranchiseItems, 2, 1000);
             MetadataCacheHours = Math.Clamp(MetadataCacheHours, 1, 8760);
@@ -160,6 +182,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
                 ImageBinaryCacheMaximumFileMegabytes,
                 1,
                 100);
+            NativeTrailerCacheMaximumMegabytes = Math.Clamp(
+                NativeTrailerCacheMaximumMegabytes,
+                256,
+                16384);
+            NativeTrailerCacheRetentionDays = Math.Clamp(
+                NativeTrailerCacheRetentionDays,
+                7,
+                365);
+            NativeTrailerCacheMaximumFileMegabytes = Math.Clamp(
+                NativeTrailerCacheMaximumFileMegabytes,
+                64,
+                2048);
+            NativeTrailerCachePlaybackWaitSeconds = Math.Clamp(
+                NativeTrailerCachePlaybackWaitSeconds,
+                0,
+                60);
             QuotaCheckIntervalHours = Math.Clamp(QuotaCheckIntervalHours, 1, 168);
             DiagnosticSessionHours = Math.Clamp(DiagnosticSessionHours, 1, 24);
             DiagnosticMaximumFileMegabytes = Math.Clamp(

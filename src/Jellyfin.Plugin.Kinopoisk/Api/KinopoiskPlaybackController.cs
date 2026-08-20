@@ -40,7 +40,25 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
         {
             Response.Headers.CacheControl = "private, max-age=300";
             Response.Headers.Vary = "Authorization";
-            return Ok(new KinopoiskPlaybackCapabilities());
+            var capabilities = new KinopoiskPlaybackCapabilities();
+            var configuration = Plugin.Instance?.Configuration;
+            if (configuration is not null)
+            {
+                capabilities.NativeTrailerBridge.LocalTrailerCache
+                    = configuration.EnableNativeTrailerCache;
+                capabilities.NativeTrailerBridge.LocalTrailerCacheMaximumBytes
+                    = configuration.NativeTrailerCacheMaximumMegabytes * 1024L * 1024L;
+                capabilities.NativeTrailerBridge.LocalTrailerCacheRetentionDays
+                    = configuration.NativeTrailerCacheRetentionDays;
+                capabilities.NativeTrailerBridge.CachePopulationMode
+                    = configuration.NativeTrailerCachePopulationMode.ToString();
+                capabilities.NativeTrailerBridge.ClientScope
+                    = configuration.NativeTrailerCacheClientScope.ToString();
+                capabilities.NativeTrailerBridge.PlaybackStartupWaitSeconds
+                    = configuration.NativeTrailerCachePlaybackWaitSeconds;
+            }
+
+            return Ok(capabilities);
         }
 
         [HttpGet("trailers/{kinopoiskId:int}")]

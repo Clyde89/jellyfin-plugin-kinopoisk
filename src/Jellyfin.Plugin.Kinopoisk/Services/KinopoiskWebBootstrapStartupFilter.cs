@@ -30,10 +30,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
             return applicationBuilder =>
             {
+                applicationBuilder.UseMiddleware<KinopoiskNativeTrailerLazyPrepareMiddleware>();
                 applicationBuilder.UseMiddleware<KinopoiskWebBootstrapMiddleware>();
                 _state.MarkPipelineRegistered();
                 _logger.LogInformation(
                     "Runtime Web Bootstrap КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.");
+                _logger.LogInformation(
+                    "Ленивый NativeTrailerBridge КиноПоиска зарегистрирован в HTTP pipeline Jellyfin.");
                 next(applicationBuilder);
             };
         }

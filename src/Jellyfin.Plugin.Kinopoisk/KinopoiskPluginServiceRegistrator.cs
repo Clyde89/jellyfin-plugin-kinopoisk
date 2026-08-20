@@ -8,6 +8,7 @@ using Jellyfin.Plugin.Kinopoisk.Services;
 using KinopoiskUnofficialInfo.ApiClient;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Providers;
 using Microsoft.AspNetCore.Hosting;
@@ -108,6 +109,19 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton<IKinopoiskTrailerStreamResolver,
                 KinopoiskTrailerStreamResolver>();
             serviceCollection.AddSingleton<KinopoiskTrailerPlaybackService>();
+            serviceCollection.AddSingleton<IKinopoiskTrailerPlaybackService>((sp) =>
+                sp.GetRequiredService<KinopoiskTrailerPlaybackService>());
+            serviceCollection.AddSingleton(_ => CreateNativeTrailerCacheOptions());
+            serviceCollection.AddSingleton<KinopoiskNativeTrailerRemuxer>();
+            serviceCollection.AddSingleton<KinopoiskNativeTrailerCache>();
+            serviceCollection.AddSingleton<IKinopoiskNativeTrailerCache>((sp) =>
+                sp.GetRequiredService<KinopoiskNativeTrailerCache>());
+            serviceCollection.AddSingleton<KinopoiskNativeTrailerCacheWarmupService>();
+            serviceCollection.AddSingleton<IKinopoiskNativeTrailerCacheWarmupService>((sp) =>
+                sp.GetRequiredService<KinopoiskNativeTrailerCacheWarmupService>());
+            serviceCollection.AddSingleton<KinopoiskNativeTrailerBridge>();
+            serviceCollection.AddSingleton<IMediaSourceProvider,
+                KinopoiskNativeTrailerMediaSourceProvider>();
 
             serviceCollection.AddSingleton<KinopoiskFranchisePlanner>();
             serviceCollection.AddSingleton<KinopoiskFranchisePreviewService>();
@@ -199,6 +213,38 @@ namespace Jellyfin.Plugin.Kinopoisk
                         1,
                         100)
                     * 1024L * 1024L
+            };
+        }
+
+        private static KinopoiskNativeTrailerCacheOptions CreateNativeTrailerCacheOptions()
+        {
+            var configuration = Plugin.Instance.Configuration;
+            return new KinopoiskNativeTrailerCacheOptions
+            {
+                Enabled = configuration.EnableNativeTrailerCache,
+                CachePath = Path.Combine(
+                    Plugin.Instance.DataFolderPath,
+                    "cache",
+                    "trailers"),
+                MaximumCacheBytes = Math.Clamp(
+                        configuration.NativeTrailerCacheMaximumMegabytes,
+                        256,
+                        16384)
+                    * 1024L * 1024L,
+                MaximumFileBytes = Math.Clamp(
+                        configuration.NativeTrailerCacheMaximumFileMegabytes,
+                        64,
+                        2048)
+                    * 1024L * 1024L,
+                UnusedExpiration = TimeSpan.FromDays(Math.Clamp(
+                    configuration.NativeTrailerCacheRetentionDays,
+                    7,
+                    365)),
+                RemuxTimeout = TimeSpan.FromMinutes(10),
+                PlaybackStartupWait = TimeSpan.FromSeconds(Math.Clamp(
+                    configuration.NativeTrailerCachePlaybackWaitSeconds,
+                    0,
+                    60))
             };
         }
     }

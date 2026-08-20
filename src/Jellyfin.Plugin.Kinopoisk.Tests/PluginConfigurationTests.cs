@@ -1,5 +1,6 @@
 using System;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
+using Jellyfin.Plugin.Kinopoisk.Services;
 using Xunit;
 
 namespace Jellyfin.Plugin.Kinopoisk.Tests
@@ -34,6 +35,14 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.True(configuration.UseStaleCacheOnFailure);
             Assert.True(configuration.EnableImageBinaryCache);
             Assert.True(configuration.UseStaleImageCacheOnFailure);
+            Assert.True(configuration.EnableNativeTrailerCache);
+            Assert.Equal(
+                KinopoiskTrailerCachePopulationMode.OnDemand,
+                configuration.NativeTrailerCachePopulationMode);
+            Assert.Equal(
+                KinopoiskTrailerCacheClientScope.AllClients,
+                configuration.NativeTrailerCacheClientScope);
+            Assert.Equal(25, configuration.NativeTrailerCachePlaybackWaitSeconds);
             Assert.True(configuration.EnableQuotaMonitoring);
             Assert.False(configuration.EnableDiagnosticMode);
             Assert.Equal(DiagnosticLogLevel.Detailed, configuration.DiagnosticLogLevel);
@@ -68,6 +77,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 ImageBinaryCacheDays = 0,
                 ImageBinaryCacheMaximumMegabytes = 20000,
                 ImageBinaryCacheMaximumFileMegabytes = 1000,
+                NativeTrailerCachePopulationMode = (KinopoiskTrailerCachePopulationMode)999,
+                NativeTrailerCacheClientScope = (KinopoiskTrailerCacheClientScope)999,
+                NativeTrailerCachePlaybackWaitSeconds = 1000,
                 QuotaCheckIntervalHours = 1000,
                 DiagnosticSessionHours = 100,
                 DiagnosticMaximumFileMegabytes = 1,
@@ -92,6 +104,13 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal(1, configuration.ImageBinaryCacheDays);
             Assert.Equal(16384, configuration.ImageBinaryCacheMaximumMegabytes);
             Assert.Equal(100, configuration.ImageBinaryCacheMaximumFileMegabytes);
+            Assert.Equal(
+                KinopoiskTrailerCachePopulationMode.OnDemand,
+                configuration.NativeTrailerCachePopulationMode);
+            Assert.Equal(
+                KinopoiskTrailerCacheClientScope.AllClients,
+                configuration.NativeTrailerCacheClientScope);
+            Assert.Equal(60, configuration.NativeTrailerCachePlaybackWaitSeconds);
             Assert.Equal(168, configuration.QuotaCheckIntervalHours);
             Assert.Equal(24, configuration.DiagnosticSessionHours);
             Assert.Equal(5, configuration.DiagnosticMaximumFileMegabytes);

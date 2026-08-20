@@ -24,13 +24,15 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         private readonly IKinopoiskApiClient _apiClient;
         private readonly IKinopoiskDistributionApiClient _distributionApiClient;
         private readonly IProviderIdResolver<TLookupInfoType> _providerIdResolver;
+        private readonly IKinopoiskNativeTrailerCacheWarmupService _trailerCacheWarmupService;
 
         protected BaseVideoMetadataProvider(
             IKinopoiskApiClient kinopoiskApiClient,
             IKinopoiskDistributionApiClient distributionApiClient,
             IProviderIdResolver<TLookupInfoType> providerIdResolver,
             ILogger logger,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IKinopoiskNativeTrailerCacheWarmupService trailerCacheWarmupService = null)
             : base(httpClientFactory)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -39,6 +41,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 ?? throw new ArgumentNullException(nameof(distributionApiClient));
             _providerIdResolver = providerIdResolver
                 ?? throw new ArgumentNullException(nameof(providerIdResolver));
+            _trailerCacheWarmupService = trailerCacheWarmupService;
         }
 
         protected abstract TItemType ConvertResponseToItem(Film apiResponse);
@@ -454,6 +457,18 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
                 if (remoteTrailers.Count > 0)
                     result.Item.RemoteTrailers = remoteTrailers;
+
+                if (_trailerCacheWarmupService is not null
+                    && typeof(TLookupInfoType) == typeof(MovieInfo)
+                    && configuration?.EnableNativeTrailerCache == true
+                    && configuration.NativeTrailerCachePopulationMode
+                        == KinopoiskTrailerCachePopulationMode.DuringMetadataScan
+                    && KinopoiskNativeTrailerBridge.TrySelectKinopoiskWidget(
+                        remoteTrailers,
+                        out _))
+                {
+                    _trailerCacheWarmupService.Start(kinopoiskId);
+                }
 
                 _logger.LogDebug(
                     "Для Kinopoisk ID {KinopoiskId} отобрано поддерживаемых трейлеров: {TrailerCount}",
