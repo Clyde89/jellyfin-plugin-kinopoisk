@@ -207,6 +207,32 @@
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumMegabytes">Максимальный общий размер, МБ</label><input id="ImageBinaryCacheMaximumMegabytes" type="number" min="64" max="16384" step="1" is="emby-input" /></div>
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="ImageBinaryCacheMaximumFileMegabytes">Максимальный размер одного файла, МБ</label><input id="ImageBinaryCacheMaximumFileMegabytes" type="number" min="1" max="100" step="1" is="emby-input" /></div>
 
+                    <h2>Единый серверный кэш трейлеров</h2>
+                    <div class="fieldDescription" style="margin-bottom: 1em;">
+                        HLS-трейлер КиноПоиска один раз сохраняется как MP4 без перекодирования. Повторные запуски используют штатное локальное воспроизведение Jellyfin; при отсутствии файла автоматически остаётся серверный резерв. Изменение этих параметров требует перезапуска Jellyfin.
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableNativeTrailerCache" type="checkbox" is="emby-checkbox" /><span>Включить серверный MP4-кэш и штатные LocalTrailer</span></label><div class="fieldDescription checkboxFieldDescription">Общий выключатель механизма для всех клиентов.</div></div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="NativeTrailerCacheClientScope">Клиенты</label>
+                        <select id="NativeTrailerCacheClientScope" is="emby-select" class="emby-select-withcolor emby-select">
+                            <option value="AllClients">Все клиенты Jellyfin</option>
+                            <option value="AndroidTvOnly">Только Jellyfin Android TV</option>
+                        </select>
+                        <div class="fieldDescription">Для всех клиентов браузерная и мобильная версии также передают воспроизведение штатному плееру Jellyfin.</div>
+                    </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="NativeTrailerCachePopulationMode">Когда подготавливать MP4</label>
+                        <select id="NativeTrailerCachePopulationMode" is="emby-select" class="emby-select-withcolor emby-select">
+                            <option value="OnDemand">Лениво — при открытии карточки</option>
+                            <option value="DuringMetadataScan">Заранее — при сканировании метаданных</option>
+                        </select>
+                        <div class="fieldDescription">Ленивый режим не расходует место на фильмы, карточки которых никто не открывает.</div>
+                    </div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCachePlaybackWaitSeconds">Ожидание кэша при первом запуске, секунд</label><input id="NativeTrailerCachePlaybackWaitSeconds" type="number" min="0" max="60" step="1" is="emby-input" /><div class="fieldDescription">По умолчанию 25 секунд. После тайм-аута Jellyfin автоматически использует серверный потоковый резерв.</div></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheMaximumMegabytes">Максимальный общий размер, МБ</label><input id="NativeTrailerCacheMaximumMegabytes" type="number" min="256" max="16384" step="1" is="emby-input" /><div class="fieldDescription">По умолчанию 4096 МБ. При превышении сначала удаляются давно не использовавшиеся файлы.</div></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheRetentionDays">Удалять неиспользуемые файлы через, дней</label><input id="NativeTrailerCacheRetentionDays" type="number" min="7" max="365" step="1" is="emby-input" /><div class="fieldDescription">Плановая очистка выполняется еженедельно по воскресеньям в 04:15.</div></div>
+                    <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="NativeTrailerCacheMaximumFileMegabytes">Максимальный размер одного трейлера, МБ</label><input id="NativeTrailerCacheMaximumFileMegabytes" type="number" min="64" max="2048" step="1" is="emby-input" /></div>
+
                     <h2>Контроль квоты</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription"><label><input id="EnableQuotaMonitoring" type="checkbox" is="emby-checkbox" /><span>Контроль API-ключа и квоты</span></label></div>
                     <div class="inputContainer"><label class="inputeLabel inputLabelUnfocused" for="QuotaCheckIntervalHours">Интервал проверки квоты, часов</label><input id="QuotaCheckIntervalHours" type="number" min="1" max="168" step="1" is="emby-input" /></div>
@@ -362,6 +388,13 @@
             setValue('#ImageBinaryCacheDays', config.ImageBinaryCacheDays, 30);
             setValue('#ImageBinaryCacheMaximumMegabytes', config.ImageBinaryCacheMaximumMegabytes, 2048);
             setValue('#ImageBinaryCacheMaximumFileMegabytes', config.ImageBinaryCacheMaximumFileMegabytes, 25);
+            setCheckbox('#EnableNativeTrailerCache', config.EnableNativeTrailerCache, true);
+            setValue('#NativeTrailerCacheClientScope', config.NativeTrailerCacheClientScope, 'AllClients');
+            setValue('#NativeTrailerCachePopulationMode', config.NativeTrailerCachePopulationMode, 'OnDemand');
+            setValue('#NativeTrailerCachePlaybackWaitSeconds', config.NativeTrailerCachePlaybackWaitSeconds, 25);
+            setValue('#NativeTrailerCacheMaximumMegabytes', config.NativeTrailerCacheMaximumMegabytes, 4096);
+            setValue('#NativeTrailerCacheRetentionDays', config.NativeTrailerCacheRetentionDays, 30);
+            setValue('#NativeTrailerCacheMaximumFileMegabytes', config.NativeTrailerCacheMaximumFileMegabytes, 512);
             setCheckbox('#EnableQuotaMonitoring', config.EnableQuotaMonitoring, true);
             setValue('#QuotaCheckIntervalHours', config.QuotaCheckIntervalHours, 6);
             setCheckbox('#EnableDiagnosticMode', config.EnableDiagnosticMode, false);
@@ -451,6 +484,13 @@
             config.ImageBinaryCacheDays = readInteger('#ImageBinaryCacheDays', 30);
             config.ImageBinaryCacheMaximumMegabytes = readInteger('#ImageBinaryCacheMaximumMegabytes', 2048);
             config.ImageBinaryCacheMaximumFileMegabytes = readInteger('#ImageBinaryCacheMaximumFileMegabytes', 25);
+            config.EnableNativeTrailerCache = $('#EnableNativeTrailerCache').prop('checked');
+            config.NativeTrailerCacheClientScope = $('#NativeTrailerCacheClientScope').val();
+            config.NativeTrailerCachePopulationMode = $('#NativeTrailerCachePopulationMode').val();
+            config.NativeTrailerCachePlaybackWaitSeconds = readInteger('#NativeTrailerCachePlaybackWaitSeconds', 25);
+            config.NativeTrailerCacheMaximumMegabytes = readInteger('#NativeTrailerCacheMaximumMegabytes', 4096);
+            config.NativeTrailerCacheRetentionDays = readInteger('#NativeTrailerCacheRetentionDays', 30);
+            config.NativeTrailerCacheMaximumFileMegabytes = readInteger('#NativeTrailerCacheMaximumFileMegabytes', 512);
             config.EnableQuotaMonitoring = $('#EnableQuotaMonitoring').prop('checked');
             config.QuotaCheckIntervalHours = readInteger('#QuotaCheckIntervalHours', 6);
             config.EnableDiagnosticMode = $('#EnableDiagnosticMode').prop('checked');

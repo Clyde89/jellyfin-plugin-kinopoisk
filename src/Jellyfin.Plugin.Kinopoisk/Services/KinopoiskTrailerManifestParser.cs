@@ -21,7 +21,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var normalized = NormalizeEscapes(WebUtility.HtmlDecode(html));
             return HlsUrlRegex()
                 .Matches(normalized)
-                .Select(match => match.Groups["url"].Value.TrimEnd(')', ']', '}', ',', ';'))
+                .Select(match => TrimDocumentEnvelope(
+                    match.Groups["url"].Value.TrimEnd(')', ']', '}', ',', ';')))
                 .Select(value => KinopoiskTrailerUrlPolicy.TryNormalizeManifestUrl(
                     value,
                     out var uri)
@@ -61,9 +62,28 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 .Replace("\\u003D", "=", StringComparison.OrdinalIgnoreCase)
                 .Replace("\\/", "/", StringComparison.Ordinal);
 
+        private static string TrimDocumentEnvelope(string value)
+        {
+            var manifestEnd = value.IndexOf(".m3u8", StringComparison.OrdinalIgnoreCase);
+            if (manifestEnd < 0)
+                return value;
+
+            var boundary = EncodedDocumentBoundaryRegex().Match(
+                value,
+                manifestEnd + ".m3u8".Length);
+            return boundary.Success
+                ? value[..boundary.Index]
+                : value;
+        }
+
         [GeneratedRegex(
             "(?<url>https://[^\\s\\\"'<>\\\\]+?\\.m3u8(?:\\?[^\\s\\\"'<>\\\\]*)?)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
         private static partial Regex HlsUrlRegex();
+
+        [GeneratedRegex(
+            "%(?:22|27)(?:%(?:2C|5D|7D)|[,}\\]])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        private static partial Regex EncodedDocumentBoundaryRegex();
     }
 }

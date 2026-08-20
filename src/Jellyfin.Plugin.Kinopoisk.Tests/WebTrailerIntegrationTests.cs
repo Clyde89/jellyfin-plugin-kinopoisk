@@ -29,6 +29,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("document.addEventListener('click', onTrailerClick, true)", script);
             Assert.Contains("event.stopImmediatePropagation()", script);
             Assert.Contains("apiClient.getItem", script);
+            Assert.Contains("LocalTrailerCount", script);
             Assert.Contains("allowfullscreen", script);
             Assert.Contains("noopener,noreferrer", script);
             Assert.Contains("strict-origin-when-cross-origin", script);

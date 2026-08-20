@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Jellyfin.Plugin.Kinopoisk.MetadataProviders;
 using Jellyfin.Plugin.Kinopoisk.Services;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,6 +46,21 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 Assert.Contains(
                     services,
                     descriptor => descriptor.ServiceType == typeof(KinopoiskTrailerPlaybackService));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(IKinopoiskTrailerPlaybackService));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(KinopoiskNativeTrailerBridge));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType
+                        == typeof(IKinopoiskNativeTrailerCacheWarmupService));
+                Assert.Contains(
+                    services,
+                    descriptor => descriptor.ServiceType == typeof(IMediaSourceProvider)
+                        && descriptor.ImplementationType
+                            == typeof(KinopoiskNativeTrailerMediaSourceProvider));
                 Assert.DoesNotContain(
                     services,
                     descriptor => descriptor.ServiceType == typeof(IHostedService)

@@ -57,5 +57,32 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Equal("https://strm.yandex.ru/trailer/master.m3u8", result[0].AbsoluteUri);
             Assert.Equal("https://strm.yandex.ru/trailer/1080.m3u8", result[1].AbsoluteUri);
         }
+
+        [Fact]
+        public void ShouldTrimPercentEncodedWidgetStateAfterManifestUrl()
+        {
+            const string Html = """
+                <div data-state="https://strm.yandex.ru/vod/master.m3u8?ottsessionid=abc123&amp;packager=1%22%2C%22img%22%3A%7B%22previewUrl%22%3A%7B%7D%7D&amp;vsid=ignored">
+                """;
+
+            var result = KinopoiskTrailerManifestParser.Extract(Html);
+            var manifest = Assert.Single(result);
+
+            Assert.Equal(
+                "https://strm.yandex.ru/vod/master.m3u8?ottsessionid=abc123&packager=1",
+                manifest.AbsoluteUri);
+        }
+
+        [Fact]
+        public void ShouldPreservePercentEncodedQuoteInsideManifestParameter()
+        {
+            const string Html =
+                "https://strm.yandex.ru/vod/master.m3u8?token=prefix%22value&packager=1";
+
+            var result = KinopoiskTrailerManifestParser.Extract(Html);
+            var manifest = Assert.Single(result);
+
+            Assert.Equal(Html, manifest.AbsoluteUri);
+        }
     }
 }

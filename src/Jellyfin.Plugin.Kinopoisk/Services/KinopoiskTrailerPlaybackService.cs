@@ -11,10 +11,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Kinopoisk.Services
 {
+    public interface IKinopoiskTrailerPlaybackService
+    {
+        Task<KinopoiskTrailerPlaybackResponse?> Get(
+            int kinopoiskId,
+            CancellationToken cancellationToken);
+    }
+
     /// <summary>
     /// Выбирает воспроизводимый трейлер по правилу КиноПоиск, затем YouTube.
     /// </summary>
-    public sealed class KinopoiskTrailerPlaybackService
+    public sealed class KinopoiskTrailerPlaybackService : IKinopoiskTrailerPlaybackService
     {
         private static readonly TimeSpan ResolutionTimeout = TimeSpan.FromSeconds(6);
 

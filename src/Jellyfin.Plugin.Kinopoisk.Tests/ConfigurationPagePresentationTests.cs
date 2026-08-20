@@ -74,6 +74,22 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public void ShouldExposeUnifiedTrailerCacheModes()
+        {
+            var page = ReadConfigurationPage();
+
+            Assert.Contains("id=\"EnableNativeTrailerCache\"", page);
+            Assert.Contains("id=\"NativeTrailerCacheClientScope\"", page);
+            Assert.Contains("value=\"AllClients\"", page);
+            Assert.Contains("value=\"AndroidTvOnly\"", page);
+            Assert.Contains("id=\"NativeTrailerCachePopulationMode\"", page);
+            Assert.Contains("value=\"OnDemand\"", page);
+            Assert.Contains("value=\"DuringMetadataScan\"", page);
+            Assert.Contains("id=\"NativeTrailerCachePlaybackWaitSeconds\"", page);
+            Assert.Contains("Изменение этих параметров требует перезапуска Jellyfin", page);
+        }
+
+        [Fact]
         public void ShouldRefreshLocalProviderStatusEverySixtySecondsOnlyWhileVisible()
         {
             var page = ReadConfigurationPage();

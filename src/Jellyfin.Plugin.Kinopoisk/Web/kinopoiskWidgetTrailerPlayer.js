@@ -348,6 +348,11 @@
         event.stopImmediatePropagation();
 
         fetchCurrentItem().then(function (item) {
+            if (Number(item && item.LocalTrailerCount || 0) > 0) {
+                restoreNativeClick(button);
+                return;
+            }
+
             var trailers = getRemoteTrailers(item);
             var hasKinopoiskWidget = trailers.some(function (trailer) {
                 return trailer.kind === 'kinopoisk-widget';
