@@ -74,7 +74,7 @@
             cache: 'no-store',
             headers: {
                 'Accept': 'application/json',
-                'X-Emby-Token': token
+                'Authorization': 'MediaBrowser Token="' + String(token || '').replace(/"/g, '') + '"'
             }
         }).then(function (response) {
             return response.ok ? response.json() : null;
