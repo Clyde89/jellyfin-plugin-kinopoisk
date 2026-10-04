@@ -67,6 +67,17 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.NotEqual(first, anotherMovie);
         }
 
+        [Theory]
+        [InlineData(301, "b437fe50-eec6-8516-d132-05b694d3200c", "70a90f0a-9458-c751-4638-dc40cac0bdfc")]
+        [InlineData(6638363, "332671f3-da1a-7070-5c89-262278931e5c", "fe3fcfee-52eb-8355-46d0-6831b5e2db22")]
+        public void ShouldPreserveTrailerIdsFromPreviousRelease(int kinopoiskId, string legacyId, string androidTvId)
+        {
+            var movieId = Guid.Parse("19e6730c-cb15-4ed2-8f5b-278109a83bb3");
+
+            Assert.Equal(Guid.Parse(legacyId), KinopoiskNativeTrailerBridge.CreateTrailerId(movieId, kinopoiskId));
+            Assert.Equal(Guid.Parse(androidTvId), KinopoiskNativeTrailerBridge.CreateAndroidTvTrailerId(movieId, kinopoiskId));
+        }
+
         [Fact]
         public void ShouldCreateAndroidTvPlayableTrailerWithFilteredPlaceholder()
         {

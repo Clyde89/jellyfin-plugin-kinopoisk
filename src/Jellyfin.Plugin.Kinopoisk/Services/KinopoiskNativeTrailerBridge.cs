@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
         private const string AndroidTvExternalIdPrefix = "kinopoisk-native-trailer:androidtv-v2:";
 
         private readonly ILibraryManager _libraryManager;
-        private readonly IItemRepository _itemRepository;
+        private readonly IItemPersistenceService _persistenceService;
         private readonly IKinopoiskTrailerPlaybackService _playbackService;
         private readonly IKinopoiskNativeTrailerCache _cache;
         private readonly ILogger<KinopoiskNativeTrailerBridge> _logger;
@@ -37,15 +37,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
         public KinopoiskNativeTrailerBridge(
             ILibraryManager libraryManager,
-            IItemRepository itemRepository,
+            IItemPersistenceService persistenceService,
             IKinopoiskTrailerPlaybackService playbackService,
             IKinopoiskNativeTrailerCache cache,
             ILogger<KinopoiskNativeTrailerBridge> logger)
         {
             _libraryManager = libraryManager
                 ?? throw new ArgumentNullException(nameof(libraryManager));
-            _itemRepository = itemRepository
-                ?? throw new ArgumentNullException(nameof(itemRepository));
+            _persistenceService = persistenceService
+                ?? throw new ArgumentNullException(nameof(persistenceService));
             _playbackService = playbackService
                 ?? throw new ArgumentNullException(nameof(playbackService));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
@@ -216,19 +216,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 if (trailer is null)
                     return CreateResult(kinopoiskId, "not-registered", movie);
 
-                var previousExtraIds = movie.ExtraIds;
-                try
-                {
-                    movie.ExtraIds = previousExtraIds
-                        .Where(id => id != trailer.Id)
-                        .ToArray();
-                    SaveMovie(movie, cancellationToken);
-                }
-                catch
-                {
-                    movie.ExtraIds = previousExtraIds;
-                    throw;
-                }
+                cancellationToken.ThrowIfCancellationRequested();
                 _libraryManager.DeleteItem(
                     trailer,
                     new DeleteOptions
@@ -382,10 +370,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 return deterministicTrailer;
             }
 
-            return movie.ExtraIds
-                .Select(_libraryManager.GetItemById)
+            return _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    OwnerIds = new[] { movie.Id },
+                    ExtraTypes = new[] { ExtraType.Trailer },
+                    EnableTotalRecordCount = false
+                })
                 .OfType<Trailer>()
-                .FirstOrDefault(item => TryGetKinopoiskId(item, out var value)
+                .FirstOrDefault(item => item.OwnerId == movie.Id
+                    && TryGetKinopoiskId(item, out var value)
                     && value == kinopoiskId);
         }
 
@@ -438,42 +431,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
 
                 if (ApplyCachedPath(existing, cached))
                     SaveTrailer(existing, cancellationToken);
-                AttachTrailer(movie, existing, cancellationToken);
                 return existing;
             }
 
             var trailer = CreateTrailer(movie, kinopoiskId, sourceName);
             ApplyCachedPath(trailer, cached);
-            var created = false;
-            var previousExtraIds = movie.ExtraIds;
-            try
-            {
-                _libraryManager.CreateItem(trailer, movie);
-                created = true;
-                movie.ExtraIds = previousExtraIds
-                    .Append(trailer.Id)
-                    .Distinct()
-                    .ToArray();
-                SaveMovie(movie, cancellationToken);
-            }
-            catch
-            {
-                movie.ExtraIds = previousExtraIds;
-                if (created)
-                {
-                    _libraryManager.DeleteItem(
-                        trailer,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false,
-                            DeleteFromExternalProvider = false
-                        },
-                        movie,
-                        false);
-                }
-
-                throw;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_libraryManager.GetItemById(trailer.Id) is not null)
+                throw new InvalidOperationException("Идентификатор трейлера занят другим элементом медиатеки.");
+            _libraryManager.CreateItem(trailer, movie);
 
             _logger.LogInformation(
                 "NativeTrailerBridge зарегистрировал LocalTrailer {TrailerId} для фильма {MovieId} и Kinopoisk ID {KinopoiskId}",
@@ -481,30 +447,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 movie.Id,
                 kinopoiskId);
             return trailer;
-        }
-
-        private void AttachTrailer(
-            Movie movie,
-            Trailer trailer,
-            CancellationToken cancellationToken)
-        {
-            if (movie.ExtraIds.Contains(trailer.Id))
-                return;
-
-            var originalExtraIds = movie.ExtraIds;
-            try
-            {
-                movie.ExtraIds = originalExtraIds
-                    .Append(trailer.Id)
-                    .Distinct()
-                    .ToArray();
-                SaveMovie(movie, cancellationToken);
-            }
-            catch
-            {
-                movie.ExtraIds = originalExtraIds;
-                throw;
-            }
         }
 
         private Trailer ReplaceBlockedTrailer(
@@ -520,37 +462,18 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 kinopoiskId,
                 sourceName);
             ApplyCachedPath(replacement, cached);
-            var previousExtraIds = movie.ExtraIds;
-            var created = false;
-            try
+            cancellationToken.ThrowIfCancellationRequested();
+            if (replacement.Id != blockedTrailer.Id
+                && _libraryManager.GetItemById(replacement.Id) is not null)
             {
-                _libraryManager.CreateItem(replacement, movie);
-                created = true;
-                movie.ExtraIds = previousExtraIds
-                    .Where(id => id != blockedTrailer.Id)
-                    .Append(replacement.Id)
-                    .Distinct()
-                    .ToArray();
-                SaveMovie(movie, cancellationToken);
+                throw new InvalidOperationException("Идентификатор замены трейлера занят другим элементом медиатеки.");
             }
-            catch
-            {
-                movie.ExtraIds = previousExtraIds;
-                if (created)
-                {
-                    _libraryManager.DeleteItem(
-                        replacement,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false,
-                            DeleteFromExternalProvider = false
-                        },
-                        movie,
-                        false);
-                }
+            _libraryManager.CreateItem(replacement, movie);
 
-                throw;
-            }
+            // При сохранённом Android TV ID заменён тип объекта; удаление
+            // прежнего объекта с тем же ID удалило бы зарегистрированную замену.
+            if (replacement.Id == blockedTrailer.Id)
+                return replacement;
 
             try
             {
@@ -568,7 +491,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             {
                 _logger.LogWarning(
                     exception,
-                    "NativeTrailerBridge заменил заблокированный Android TV трейлер {OldTrailerId}, но не смог удалить его отвязанный элемент",
+                    "NativeTrailerBridge заменил заблокированный Android TV трейлер {OldTrailerId}, но прежний элемент остался в базе",
                     blockedTrailer.Id);
             }
 
@@ -585,6 +508,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
             var legacy = _libraryManager.GetItemById(
                 CreateTrailerId(movie.Id, kinopoiskId)) as Trailer;
             if (legacy is null
+                || legacy.OwnerId != movie.Id
                 || !TryGetKinopoiskId(legacy, out var legacyKinopoiskId)
                 || legacyKinopoiskId != kinopoiskId)
             {
@@ -602,19 +526,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 false);
         }
 
-        private void SaveMovie(Movie movie, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            movie.DateLastSaved = DateTime.UtcNow;
-            _itemRepository.SaveItems(new[] { movie }, cancellationToken);
-        }
-
         private void SaveTrailer(Trailer trailer, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             trailer.DateModified = DateTime.UtcNow;
             trailer.DateLastSaved = DateTime.UtcNow;
-            _itemRepository.SaveItems(new BaseItem[] { trailer }, cancellationToken);
+            _persistenceService.SaveItems(new BaseItem[] { trailer }, cancellationToken);
         }
 
         private static bool ApplyCachedPath(

@@ -61,7 +61,7 @@ jobs:
       - name: Установлен .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Собран плагин
         shell: bash
@@ -74,16 +74,16 @@ jobs:
             --no-restore \
             --warnaserror
 
-      - name: Получен и подготовлен официальный portable Jellyfin 10.11.11
+      - name: Получен и подготовлен официальный portable Jellyfin 12.1
         shell: bash
         env:
           PACKAGE_ARCH: ${{ matrix.package_arch }}
         run: |
           set -Eeuo pipefail
 
-          archive="$RUNNER_TEMP/jellyfin-10.11.11-${PACKAGE_ARCH}.tar.xz"
+          archive="$RUNNER_TEMP/jellyfin-12.1-${PACKAGE_ARCH}.tar.xz"
           root="$RUNNER_TEMP/jellyfin-macos-runtime"
-          url="https://repo.jellyfin.org/files/server/macos/latest/${PACKAGE_ARCH}/jellyfin_10.11.11-${PACKAGE_ARCH}.tar.xz"
+          url="https://repo.jellyfin.org/files/server/macos/stable/v12.1/${PACKAGE_ARCH}/jellyfin_12.1-${PACKAGE_ARCH}.tar.xz"
           mkdir -p "$root"
           curl --fail --location --retry 3 --retry-delay 2 --output "$archive" "$url"
           tar -xJf "$archive" -C "$root"
@@ -150,7 +150,7 @@ jobs:
           plugin_config="$data/plugins/configurations"
           mkdir -p "$config" "$cache" "$log" "$plugin" "$plugin_config"
 
-          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0'
           cp "$output/Jellyfin.Plugin.Kinopoisk.dll" "$plugin/"
           cp "$output/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin/"
 
@@ -160,7 +160,7 @@ jobs:
             "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
             "name": "КиноПоиск",
             "owner": "Clyde89; LinFor; skrashevich",
-            "targetAbi": "10.11.0.0",
+            "targetAbi": "12.1.0.0",
             "timestamp": "2026-08-08T00:00:00Z",
             "version": "${plugin_version}",
             "status": "Active",

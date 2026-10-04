@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <DebugType>portable</DebugType>
-    <Version>10.11.0.11</Version>
+    <Version>12.1.0.1</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
@@ -96,11 +96,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Data" Version="10.11.11" />
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
-    <PackageReference Include="Jellyfin.Common" Version="10.11.11" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.18" />
+    <PackageReference Include="Jellyfin.Data" Version="12.1.0" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.1.0" />
+    <PackageReference Include="Jellyfin.Common" Version="12.1.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>
 
