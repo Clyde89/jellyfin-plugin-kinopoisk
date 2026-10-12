@@ -27,9 +27,10 @@
     "installer_tests_passed": 29,
     "inventory_tests_passed": 10,
     "offline_native_helper_tests_passed": 17,
-    "offline_native_server": "PENDING",
+    "offline_native_server": "PASS",
     "functional_acceptance": "PENDING",
-    "installer_discovery_regression": "PASS"
+    "installer_discovery_regression": "PASS",
+    "client_playback": "PENDING"
   },
   "installer_revision": "r3"
 }
