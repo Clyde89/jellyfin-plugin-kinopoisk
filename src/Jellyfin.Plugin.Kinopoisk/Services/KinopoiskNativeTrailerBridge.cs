@@ -177,14 +177,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Services
                 }
 
                 var existing = FindBridgeTrailer(movie, kinopoiskId);
-                if (!TrySelectKinopoiskWidget(movie.RemoteTrailers, out var source))
+                var cached = _cache.TryGet(kinopoiskId, false);
+                if (!TrySelectKinopoiskWidget(movie.RemoteTrailers, out var source)
+                    && cached is null)
                     return existing is null ? null : kinopoiskId;
 
                 EnsureRegistered(
                     movie,
                     kinopoiskId,
-                    source!.Name,
-                    _cache.TryGet(kinopoiskId, false),
+                    source?.Name ?? "Трейлер КиноПоиска",
+                    cached,
                     cancellationToken);
                 return kinopoiskId;
             }

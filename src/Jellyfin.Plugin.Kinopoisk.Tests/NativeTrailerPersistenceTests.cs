@@ -60,6 +60,59 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         }
 
         [Fact]
+        public async Task ShouldRestoreCachedTrailerWhenWidgetMetadataIsMissing()
+        {
+            _movie.RemoteTrailers = Array.Empty<MediaUrl>();
+            _cache.Setup(service => service.TryGet(KinopoiskId, false))
+                .Returns(new KinopoiskNativeTrailerCacheEntry { Path = "cached-trailer.mp4", RunTimeTicks = 123 });
+
+            Assert.Equal(KinopoiskId, await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None));
+            Assert.Equal(KinopoiskId, await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None));
+
+            var trailer = Assert.Single(_items.Values.OfType<Trailer>());
+            Assert.Equal(KinopoiskNativeTrailerBridge.CreateAndroidTvTrailerId(_movie.Id, KinopoiskId), trailer.Id);
+            Assert.Equal(_movie.Id, trailer.OwnerId);
+            Assert.Equal("cached-trailer.mp4", trailer.Path);
+            Assert.Equal(123, trailer.RunTimeTicks);
+            _library.Verify(service => service.CreateItem(trailer, _movie), Times.Once);
+            _persistence.VerifyNoOtherCalls();
+            _playback.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task ShouldNotCreateTrailerWithoutWidgetOrReadyCache()
+        {
+            _movie.RemoteTrailers = Array.Empty<MediaUrl>();
+
+            Assert.Null(await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None));
+
+            Assert.Empty(_items.Values.OfType<Trailer>());
+            _library.Verify(service => service.CreateItem(It.IsAny<BaseItem>(), It.IsAny<BaseItem>()), Times.Never);
+            _persistence.VerifyNoOtherCalls();
+            _playback.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task ShouldRecreateCachedTrailerWithStableIdAfterWidgetAndExtraAreLost()
+        {
+            await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+            var previous = Assert.Single(_items.Values.OfType<Trailer>());
+            _items.Remove(previous.Id);
+            _movie.RemoteTrailers = Array.Empty<MediaUrl>();
+            _cache.Setup(service => service.TryGet(KinopoiskId, false))
+                .Returns(new KinopoiskNativeTrailerCacheEntry { Path = "cached-trailer.mp4" });
+
+            await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+
+            var recreated = Assert.Single(_items.Values.OfType<Trailer>());
+            Assert.Equal(previous.Id, recreated.Id);
+            Assert.Equal("cached-trailer.mp4", recreated.Path);
+            Assert.Same(_movie, _items[_movie.Id]);
+            _persistence.VerifyNoOtherCalls();
+            _playback.VerifyNoOtherCalls();
+        }
+
+        [Fact]
         public async Task ShouldRecreateTrailerWithStableIdAfterLibraryDropsExtra()
         {
             await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
