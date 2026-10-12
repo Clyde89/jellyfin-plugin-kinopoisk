@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KinopoiskUnofficialInfo.ApiClient\KinopoiskUnofficialInfo.ApiClient.csproj" />
+    <None Update="cassettes\*.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

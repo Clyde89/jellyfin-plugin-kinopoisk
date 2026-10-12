@@ -29,6 +29,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         private readonly Mock<ILibraryManager> _library = new();
         private readonly Mock<IItemPersistenceService> _persistence = new(MockBehavior.Strict);
         private readonly Mock<IKinopoiskNativeTrailerCache> _cache = new();
+        private readonly Mock<IKinopoiskTrailerPlaybackService> _playback = new(MockBehavior.Strict);
         private readonly Movie _movie = CreateMovie(Guid.NewGuid());
         private readonly KinopoiskNativeTrailerBridge _bridge;
 
@@ -53,9 +54,49 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             _bridge = new KinopoiskNativeTrailerBridge(
                 _library.Object,
                 _persistence.Object,
-                Mock.Of<IKinopoiskTrailerPlaybackService>(),
+                _playback.Object,
                 _cache.Object,
                 NullLogger<KinopoiskNativeTrailerBridge>.Instance);
+        }
+
+        [Fact]
+        public async Task ShouldRecreateTrailerWithStableIdAfterLibraryDropsExtra()
+        {
+            await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+            var previous = Assert.Single(_items.Values.OfType<Trailer>());
+            _items.Remove(previous.Id);
+
+            await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+
+            var recreated = Assert.Single(_items.Values.OfType<Trailer>());
+            Assert.Equal(previous.Id, recreated.Id);
+            Assert.Equal(_movie.Id, recreated.OwnerId);
+            Assert.Same(_movie, _items[_movie.Id]);
+            _library.Verify(service => service.CreateItem(It.IsAny<BaseItem>(), _movie), Times.Exactly(2));
+            _persistence.VerifyNoOtherCalls();
+            _playback.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task ShouldReuseRegisteredCachedTrailerAfterBridgeRecreationWithoutApi()
+        {
+            _cache.Setup(service => service.TryGet(KinopoiskId, false))
+                .Returns(new KinopoiskNativeTrailerCacheEntry { Path = "cached-trailer.mp4", RunTimeTicks = 123 });
+            await _bridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+            var previous = Assert.Single(_items.Values.OfType<Trailer>());
+            var recreatedBridge = new KinopoiskNativeTrailerBridge(
+                _library.Object, _persistence.Object, _playback.Object, _cache.Object,
+                NullLogger<KinopoiskNativeTrailerBridge>.Instance);
+
+            await recreatedBridge.EnsureLazyRegistered(_movie.Id, CancellationToken.None);
+
+            var reused = Assert.Single(_items.Values.OfType<Trailer>());
+            Assert.Same(previous, reused);
+            Assert.Equal("cached-trailer.mp4", reused.Path);
+            Assert.Equal(123, reused.RunTimeTicks);
+            _library.Verify(service => service.CreateItem(It.IsAny<BaseItem>(), _movie), Times.Once);
+            _persistence.VerifyNoOtherCalls();
+            _playback.VerifyNoOtherCalls();
         }
 
         [Fact]

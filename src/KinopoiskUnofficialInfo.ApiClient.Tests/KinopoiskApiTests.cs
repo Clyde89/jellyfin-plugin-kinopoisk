@@ -1,6 +1,9 @@
+using System;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,7 +21,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         private readonly Mock<IHttpClientFactory> _clientFactoryMock;
         public KinopoiskApiClientTests()
         {
-            var dirInfo = new System.IO.DirectoryInfo("../../../cassettes"); //3 levels up to get to the root of the test project
+            var dirInfo = new DirectoryInfo(Path.Combine(AppContext.BaseDirectory, "cassettes"));
             _vcr = new VCR(new FileSystemCassetteStorage(dirInfo));
 
             _clientFactoryMock = new Mock<IHttpClientFactory>();
@@ -27,7 +30,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
                 .Returns(() =>
                 {
                     var httpHandler = _vcr.GetVcrHandler();
-                    httpHandler.InnerHandler = new HttpClientHandler();
+                    httpHandler.InnerHandler = new OfflineOnlyHandler();
                     return new HttpClient(httpHandler);
                 });
         }
@@ -41,7 +44,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(251733, "Аватар", "Avatar")]
         public async Task GetSingleFilm_ShouldParseFilm(int filmId, string nameRu, string nameOriginal)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -59,7 +62,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(77298, "Вавилон 5", "Babylon 5", FilmType.TV_SERIES)]
         public async Task GetSingleFilm_ShouldParseTvShow(int filmId, string nameRu, string nameOriginal, FilmType type)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -76,7 +79,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(89540, 81, StaffResponseProfessionKey.PRODUCER_USSR)]
         public async Task GetSingleFilm_ShouldParseProducerUssr(int filmId, int index, StaffResponseProfessionKey profession)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -91,7 +94,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(3873197, "Ирина Старшенбаум", "")]
         public async Task GetPerson_ShouldParseName(int personId, string nameRu, string nameEn)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{personId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{personId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -107,7 +110,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(1395460, "Интернет-трейлер (сезон 1)")]
         public async Task GetTrailers_ShouldParseName(int filmId, string name)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -122,7 +125,7 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
         [InlineData(948870)]
         public async Task GetTrailers_ShouldReturnEmptyResponse(int filmId)
         {
-            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.NewEpisodes))
+            using (_vcr.UseCassette($"{GetMethodName()}_{filmId}", RecordMode.None))
             {
                 var apiClient = new KinopoiskApiClient(ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
 
@@ -131,6 +134,30 @@ namespace KinopoiskUnofficialInfo.ApiClient.Tests
                 Assert.NotNull(res);
                 Assert.Empty(res.Items);
             }
+        }
+
+        [Fact]
+        public async Task ShouldRejectMissingRecordingWithoutChangingCassette()
+        {
+            const string cassette = "GetSingleFilm_ShouldParseFilm_1142206";
+            var path = Path.Combine(AppContext.BaseDirectory, "cassettes", cassette + ".yaml");
+            var before = await File.ReadAllBytesAsync(path);
+            using (_vcr.UseCassette(cassette, RecordMode.None))
+            {
+                var apiClient = new KinopoiskApiClient(
+                    ApiToken, _loggerFactory.CreateLogger<KinopoiskApiClient>(), _clientFactoryMock.Object);
+                await Assert.ThrowsAnyAsync<Exception>(() => apiClient.GetSingleFilm(1));
+            }
+
+            Assert.Equal(before, await File.ReadAllBytesAsync(path));
+        }
+
+        private sealed class OfflineOnlyHandler : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request, CancellationToken cancellationToken)
+                => throw new InvalidOperationException(
+                    "Ответ отсутствует в записи. Сетевые запросы из автономного теста запрещены.");
         }
     }
 }

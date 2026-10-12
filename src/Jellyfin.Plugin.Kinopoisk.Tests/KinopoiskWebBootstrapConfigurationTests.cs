@@ -6,6 +6,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.Kinopoisk.Tests
 {
+    [CollectionDefinition("Runtime Web Bootstrap", DisableParallelization = true)]
+    public class KinopoiskWebBootstrapCollection
+    {
+    }
+
+    [Collection("Runtime Web Bootstrap")]
     public class KinopoiskWebBootstrapConfigurationTests
     {
         [Fact]
