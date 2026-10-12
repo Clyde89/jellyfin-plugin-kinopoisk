@@ -116,6 +116,9 @@ jobs:
       - name: Выполнены DOM-тесты клиентской карточки
         run: npm run test:web
 
+      - name: Проверены установка systemd и автоматический откат
+        run: python3 -m unittest discover -s tools/systemd -p 'test_*.py' -v
+
       - name: Рассчитаны контрольные суммы
         shell: bash
         run: |

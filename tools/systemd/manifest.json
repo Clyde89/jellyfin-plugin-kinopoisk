@@ -1,0 +1,35 @@
+{
+  "version": "12.1.0.3",
+  "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
+  "target_abi": "12.1.0.0",
+  "commit": "1398da5fa4abd15351649162c48271c56140e577",
+  "archive_sha256": "e0104015473da8723171aad6bf635c4909e5a2708ec05999bf7b0937d7435a39",
+  "dll_sha256": {
+    "Jellyfin.Plugin.Kinopoisk.dll": "d8e52ca171479974078a5414aab0c4f345707b11202a667a1d3d3bf470ae5d06",
+    "KinopoiskUnofficialInfo.ApiClient.dll": "230bfe99963a874ec1bfefce0631ddb97a118a3a729505ea3163e52808769974"
+  },
+  "webclient_sha256": "5ae4f2d5962c513b0df72f9ac1e9cee11439ceb67ac34a5a162a362bd6ed6069",
+  "ci": {
+    "workflow_run_id": 38238404813,
+    "artifact_id": 11741269382,
+    "artifact_sha256": "fa45a41dccc12fda9418510a00832d78daa4d11418654cae1e27e0a51d7a2480",
+    "checkout_sha": "d43901d850189a167b3b8ae2bc0cfafc3cb42f7d"
+  },
+  "verification": {
+    "source_documents_matched": 117,
+    "embedded_javascript_modules_matched": 12,
+    "plugin_tests_passed": 338,
+    "api_tests_passed": 69,
+    "dom_tests_passed": 7,
+    "ci_workflows_passed": 8,
+    "ci_jobs_passed": 17,
+    "missing_api_token_runtime": "PASS",
+    "installer_tests_passed": 29,
+    "inventory_tests_passed": 10,
+    "offline_native_helper_tests_passed": 9,
+    "offline_native_server": "PENDING",
+    "functional_acceptance": "PENDING",
+    "installer_discovery_regression": "PASS"
+  },
+  "installer_revision": "r2"
+}
