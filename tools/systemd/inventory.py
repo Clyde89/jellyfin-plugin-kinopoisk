@@ -13,7 +13,7 @@ import uuid
 
 PLUGIN_GUID = "33e6d249648f44cda9ce497be06c08df"
 PLUGIN_VERSION = "12.1.0.3"
-FIELDS = "ProviderIds,RemoteTrailers,Overview,Genres,LocalTrailerCount,MediaSourceCount,DateLastRefreshed"
+FIELDS = "ProviderIds,RemoteTrailers,Overview,Genres,LocalTrailerCount,MediaSourceCount"
 
 
 def field(value, name, default=None):

@@ -34,6 +34,9 @@ class FakeApi:
         self.calls = []
         self.range_count = 0
         self.damage_range = False
+        self.ignore_movie_refresh = False
+        self.pending_overview = None
+        self.refresh_delay = 0
 
     def request(self, route, method="GET", payload=None):
         self.calls.append((method, route))
@@ -64,12 +67,23 @@ class FakeApi:
                 xml = ET.parse(nfo).getroot()
                 self.movie = {"Id": MOVIE, "Name": xml.findtext("title"), "Type": "Movie",
                               "ProviderIds": {"kinopoisk": xml.findtext("uniqueid")},
-                              "DateLastRefreshed": "2026-01-01T00:00:00Z"}
+                              "Overview": xml.findtext("plot")}
             else:
                 assert MOVIE in path
-                self.movie["DateLastRefreshed"] = "2026-01-01T00:00:01Z"
+                assert params["metadataRefreshMode"] == ["FullRefresh"]
+                assert params["replaceAllMetadata"] == ["true"]
+                assert params["imageRefreshMode"] == ["None"]
+                if not self.ignore_movie_refresh:
+                    nfo = native.state_root(self.context) / "media/fixture/offline-kinopoisk.nfo"
+                    self.pending_overview = ET.parse(nfo).getroot().findtext("plot")
             return None
         if path == "/Items":
+            if "ParentId" in params and self.pending_overview:
+                if self.refresh_delay:
+                    self.refresh_delay -= 1
+                else:
+                    self.movie["Overview"] = self.pending_overview
+                    self.pending_overview = None
             items = [] if self.movie is None else [self.movie]
             if "ParentId" not in params:
                 items = [self.existing] + items
@@ -103,6 +117,104 @@ class NativeFixtureTests(unittest.TestCase):
         self.cache = Path(self.temporary.name) / "plugins/Jellyfin.Plugin.Kinopoisk/cache/trailers"
         self.cache.mkdir(parents=True)
         self.api = FakeApi(self.context)
+
+    def saved_fixture(self):
+        root = native.state_root(self.context)
+        media = root / "media"
+        folder = media / "fixture"
+        folder.mkdir(parents=True)
+        nfo = folder / "offline-kinopoisk.nfo"
+        nfo.write_text(f'<movie><title>{native.TITLE}</title><uniqueid type="kinopoisk">'
+                       f'{native.KP_ID}</uniqueid><plot>Исходный тест</plot></movie>')
+        movie_file = self.cache / f"kinopoisk-{native.KP_ID}.mp4"
+        movie_file.write_bytes(b"fixture" * 10000)
+        self.api.movie = {"Id": MOVIE, "Name": native.TITLE, "Type": "Movie",
+                          "ProviderIds": {"kinopoisk": str(native.KP_ID)}, "Overview": "Исходный тест"}
+        self.api.folders = [{"Name": native.LIBRARY, "Locations": [str(media)], "ItemId": LIBRARY_ID}]
+        state = {"schema": 1, "library": native.LIBRARY, "kp_id": native.KP_ID,
+                 "movie_id": MOVIE, "trailer_id": TRAILER, "library_id": LIBRARY_ID,
+                 "media_dir": str(media), "cache_dir": str(self.cache),
+                 "cache_sha256": native.deploy.digest(movie_file),
+                 "baseline": native.digest_items([EXISTING]), "phase": "verified"}
+        native.write_state(root, state)
+        return state, nfo
+
+    def test_refresh_without_private_timestamp_waited_for_nfo_marker(self):
+        state, nfo = self.saved_fixture()
+        self.api.refresh_delay = 2
+        with patch.object(native.time, "sleep") as sleep:
+            self.assertEqual(native.refresh_fixture(self.api, self.context, state, USER), "PASS")
+        self.assertGreaterEqual(sleep.call_count, 2)
+        marker = ET.parse(nfo).getroot().findtext("plot")
+        self.assertEqual(self.api.movie["Overview"], marker)
+        self.assertNotEqual(marker, "Исходный тест")
+        self.assertEqual(state["movie_id"], MOVIE)
+        self.assertEqual(state["trailer_id"], TRAILER)
+        self.assertEqual(native.read_state(self.context)["phase"], "refresh_verified")
+        self.assertNotIn("DateLastRefreshed", self.api.movie)
+
+    def test_queued_refresh_without_updated_metadata_did_not_pass(self):
+        state, _ = self.saved_fixture()
+        self.api.ignore_movie_refresh = True
+        with patch.object(native.time, "monotonic", side_effect=[0, 0, 0, 0, 121]), \
+                patch.object(native.time, "sleep"), patch.object(native, "verify") as verify:
+            with self.assertRaisesRegex(RuntimeError, "не завершилось"):
+                native.refresh_fixture(self.api, self.context, state, USER)
+            verify.assert_not_called()
+        self.assertEqual(native.read_state(self.context)["phase"], "refresh_queued")
+
+    def test_saved_run_resumed_without_recreating_library_or_cache(self):
+        state, _ = self.saved_fixture()
+        body = (self.cache / f"kinopoisk-{native.KP_ID}.mp4").read_bytes()
+        with patch.object(native, "create_media", side_effect=AssertionError("must reuse cache")):
+            resumed = native.prepare(self.api, self.context, USER)
+            self.assertEqual(native.refresh_fixture(self.api, self.context, resumed, USER), "PASS")
+        self.assertEqual(resumed["movie_id"], state["movie_id"])
+        self.assertEqual((self.cache / f"kinopoisk-{native.KP_ID}.mp4").read_bytes(), body)
+        self.assertFalse(any(method == "POST" and urlsplit(route).path == "/Library/VirtualFolders"
+                             for method, route in self.api.calls))
+        self.assertEqual(self.api.existing, EXISTING)
+
+    def test_foreign_nfo_rejected_before_refresh(self):
+        state, nfo = self.saved_fixture()
+        nfo.write_text('<movie><uniqueid type="kinopoisk">123</uniqueid><plot>Чужой фильм</plot></movie>')
+        with self.assertRaisesRegex(RuntimeError, "служебный ID"):
+            native.refresh_fixture(self.api, self.context, state, USER)
+        self.assertFalse(any(method == "POST" for method, _ in self.api.calls))
+        self.assertEqual(ET.parse(nfo).getroot().findtext("plot"), "Чужой фильм")
+
+    def test_foreign_media_directory_rejected_before_refresh(self):
+        state, _ = self.saved_fixture()
+        state["media_dir"] = "/foreign"
+        with self.assertRaisesRegex(RuntimeError, "NFO не совпал"):
+            native.refresh_fixture(self.api, self.context, state, USER)
+        self.assertFalse(any(method == "POST" for method, _ in self.api.calls))
+
+    def test_foreign_movie_did_not_authorize_refresh(self):
+        state, _ = self.saved_fixture()
+        self.api.movie["Id"] = EXISTING["Id"]
+        with self.assertRaisesRegex(RuntimeError, "ID тестового фильма изменился"):
+            native.refresh_fixture(self.api, self.context, state, USER)
+        self.assertFalse(any(method == "POST" for method, _ in self.api.calls))
+
+    def test_updated_metadata_loss_after_restart_did_not_pass(self):
+        state, _ = self.saved_fixture()
+        self.assertEqual(native.refresh_fixture(self.api, self.context, state, USER), "PASS")
+        saved = native.read_state(self.context)
+        self.api.movie["Overview"] = "Исходный тест"
+        with self.assertRaisesRegex(RuntimeError, "описание тестового фильма не сохранилось"):
+            native.verify(self.api, self.context, saved, USER)
+
+    def test_nfo_symlink_rejected_without_changing_target(self):
+        state, nfo = self.saved_fixture()
+        external = Path(self.temporary.name) / "external.nfo"
+        nfo.rename(external)
+        original = external.read_bytes()
+        nfo.symlink_to(external)
+        with self.assertRaisesRegex(RuntimeError, "NFO не совпал"):
+            native.refresh_fixture(self.api, self.context, state, USER)
+        self.assertEqual(external.read_bytes(), original)
+        self.assertFalse(any(method == "POST" for method, _ in self.api.calls))
 
     def test_generated_mp4_registration_refresh_ranges_and_cleanup(self):
         state = native.prepare(self.api, self.context, USER)

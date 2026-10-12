@@ -26,10 +26,10 @@
     "missing_api_token_runtime": "PASS",
     "installer_tests_passed": 29,
     "inventory_tests_passed": 10,
-    "offline_native_helper_tests_passed": 9,
+    "offline_native_helper_tests_passed": 17,
     "offline_native_server": "PENDING",
     "functional_acceptance": "PENDING",
     "installer_discovery_regression": "PASS"
   },
-  "installer_revision": "r2"
+  "installer_revision": "r3"
 }

@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+import xml.etree.ElementTree as ET
 
 import deploy
 import inventory
@@ -177,7 +179,7 @@ def movie_list(api, state, user_id):
     return inventory.field(reply, "Items", [])
 
 
-def wait_movie(api, state, user_id, previous_stamp=None):
+def wait_movie(api, state, user_id, expected_overview=None):
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         movies = movie_list(api, state, user_id)
@@ -189,8 +191,7 @@ def wait_movie(api, state, user_id, previous_stamp=None):
             movie_id = inventory.identifier(inventory.field(movie, "Id"))
             if state.get("movie_id") and state["movie_id"] != movie_id:
                 raise RuntimeError("ID тестового фильма изменился")
-            stamp = inventory.field(movie, "DateLastRefreshed")
-            if previous_stamp is None or stamp and stamp != previous_stamp:
+            if expected_overview is None or inventory.field(movie, "Overview") == expected_overview:
                 api.owned_ids.add(movie_id)
                 return movie
         elif len(movies) > 1:
@@ -268,7 +269,9 @@ def prepare(api, context, user_id):
 
 def verify(api, context, state, user_id):
     api.owned_ids.update(state.get(key) for key in ("library_id", "movie_id", "trailer_id") if state.get(key))
-    api.request(query(f"/Items/{state['movie_id']}", UserId=user_id))
+    movie = api.request(query(f"/Items/{state['movie_id']}", UserId=user_id))
+    if state.get("refresh_verified") and inventory.field(movie, "Overview") != state.get("refresh_marker"):
+        raise RuntimeError("Обновлённое описание тестового фильма не сохранилось")
     status = api.request(query(f"/KinopoiskPlayback/native-bridge/{KP_ID}", movieId=state["movie_id"]))
     if (inventory.field(status, "State") != "ready-local-cache" or inventory.field(status, "CacheReady") is not True
             or inventory.identifier(inventory.field(status, "MovieId")) != state["movie_id"]):
@@ -320,14 +323,45 @@ def verify(api, context, state, user_id):
 
 
 def refresh_fixture(api, context, state, user_id):
-    before = wait_movie(api, state, user_id)
-    stamp = inventory.field(before, "DateLastRefreshed")
+    movie = wait_movie(api, state, user_id)
+    if inventory.identifier(inventory.field(movie, "Id")) != state["movie_id"]:
+        raise RuntimeError("Обновление было ограничено сохранённым ID тестового фильма")
+    root = state_root(context)
+    media = root / "media"
+    folder = media / "fixture"
+    nfo = folder / "offline-kinopoisk.nfo"
+    if (state.get("media_dir") != str(media) or any(p.is_symlink() for p in (root, media, folder, nfo))
+            or not nfo.is_file()):
+        raise RuntimeError("NFO не совпал с созданным тестовым фильмом")
+    document = ET.parse(nfo)
+    xml = document.getroot()
+    ids = xml.findall("uniqueid")
+    plot = xml.find("plot")
+    if (xml.tag != "movie" or len(ids) != 1 or ids[0].get("type") != "kinopoisk"
+            or ids[0].text != str(KP_ID) or plot is None):
+        raise RuntimeError("NFO не подтвердил служебный ID и описание тестового фильма")
+    # Публичный DTO Jellyfin не содержал DateLastRefreshed; подтверждён новый результат чтения NFO.
+    marker = "Локальная автономная проверка обновления: " + uuid.uuid4().hex
+    plot.text = marker
+    temporary = nfo.with_suffix(".nfo.tmp")
+    with temporary.open("x", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o644)
+        os.fchown(stream.fileno(), context["uid"], context["gid"])
+        document.write(stream, encoding="unicode", xml_declaration=True)
+    temporary.replace(nfo)
+    state["refresh_marker"] = marker
+    state["refresh_verified"] = False
+    state["phase"] = "refresh_prepared"
+    write_state(root, state)
     api.request(query(f"/Items/{state['movie_id']}/Refresh", metadataRefreshMode="FullRefresh",
-                      imageRefreshMode="None", replaceAllMetadata="false"), "POST")
-    if not stamp:
-        raise RuntimeError("Дата обновления тестового фильма отсутствует")
-    wait_movie(api, state, user_id, previous_stamp=stamp)
+                      imageRefreshMode="None", replaceAllMetadata="true"), "POST")
+    state["phase"] = "refresh_queued"
+    write_state(root, state)
+    wait_movie(api, state, user_id, expected_overview=marker)
+    state["refresh_verified"] = True
     verify(api, context, state, user_id)
+    state["phase"] = "refresh_verified"
+    write_state(root, state)
     return "PASS"
 
 
