@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Playback
     /// Android TV 0.19.9 останавливает воспроизведение любого элемента с
     /// <see cref="LocationType.Virtual"/> до запроса PlaybackInfo. При этом
     /// служебный статический источник <see cref="MediaSourceType.Placeholder"/>
-    /// нужен внутреннему DTO Jellyfin 10.11.11. Перед выбором воспроизводимого
+    /// был сохранён для внутреннего DTO Jellyfin 12.1. Перед выбором воспроизводимого
     /// источника Jellyfin отфильтровывает Placeholder, поэтому актуальный HLS и
     /// обязательные HTTP-заголовки по-прежнему выдаёт IMediaSourceProvider
     /// плагина.

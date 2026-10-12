@@ -29,15 +29,13 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         public KinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> logger, IHttpClientFactory httpClientFactory)
         {
-            if (string.IsNullOrWhiteSpace(apiToken))
-                throw new ArgumentException("API-токен не должен быть пустым.", nameof(apiToken));
-
-            _apiToken = apiToken.Trim();
+            _apiToken = apiToken?.Trim() ?? string.Empty;
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 
             _httpClient = _httpClientFactory.CreateClient();
-            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", _apiToken);
+            if (_apiToken.Length > 0)
+                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", _apiToken);
             _apiClient = new Client(_httpClient);
         }
 
@@ -47,6 +45,9 @@ namespace KinopoiskUnofficialInfo.ApiClient
             [CallerMemberName] string memberName = "")
         {
             var cancellationToken = ct ?? CancellationToken.None;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_apiToken.Length == 0)
+                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
 
             for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
             {

@@ -28,7 +28,7 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
       NUGET_XMLDOC_MODE: skip
-      JELLYFIN_IMAGE: jellyfin/jellyfin:10.11.11
+      JELLYFIN_IMAGE: jellyfin/jellyfin:12.1
 
     steps:
       - name: Получен исходный код
@@ -39,7 +39,7 @@ jobs:
       - name: Установлен .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Собран плагин
         shell: bash
@@ -70,7 +70,7 @@ jobs:
           plugin_config="$config/plugins/configurations"
           mkdir -p "$plugin" "$plugin_config" "$cache"
 
-          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0'
+          output='src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0'
           cp "$output/Jellyfin.Plugin.Kinopoisk.dll" "$plugin/"
           cp "$output/KinopoiskUnofficialInfo.ApiClient.dll" "$plugin/"
 
@@ -80,7 +80,7 @@ jobs:
             "guid": "33e6d249-648f-44cd-a9ce-497be06c08df",
             "name": "КиноПоиск",
             "owner": "Clyde89; LinFor; skrashevich",
-            "targetAbi": "10.11.0.0",
+            "targetAbi": "12.1.0.0",
             "timestamp": "2026-08-07T00:00:00Z",
             "version": "${version}",
             "status": "Active",

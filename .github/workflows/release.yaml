@@ -1,6 +1,11 @@
 name: Публикация релиза
 
 on:
+  push:
+    branches:
+      - develop
+    paths:
+      - release/version.json
   workflow_dispatch:
     inputs:
       version:
@@ -10,7 +15,7 @@ on:
       target_abi:
         description: Целевая ABI Jellyfin
         required: true
-        default: 10.11.0.0
+        default: 12.1.0.0
         type: string
 
 permissions:
@@ -44,7 +49,7 @@ jobs:
       - name: Установлен .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Проверены параметры релиза
         shell: bash
@@ -53,6 +58,11 @@ jobs:
           TARGET_ABI: ${{ inputs.target_abi }}
         run: |
           set -Eeuo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            VERSION="$(jq -er '.version' release/version.json)"
+            TARGET_ABI="$(jq -er '.targetAbi' release/version.json)"
+          fi
 
           version_pattern='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 
@@ -63,6 +73,17 @@ jobs:
 
           if [[ ! "$TARGET_ABI" =~ $version_pattern ]]; then
             echo "ABI должна соответствовать формату X.Y.Z.W: ${TARGET_ABI}" >&2
+            exit 1
+          fi
+
+          if [[ "$TARGET_ABI" != '12.1.0.0' ]]; then
+            echo "Для сборки Jellyfin 12.1 требуется ABI 12.1.0.0: ${TARGET_ABI}" >&2
+            exit 1
+          fi
+
+          project_version="$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj)"
+          if [[ "$VERSION" != "$project_version" ]]; then
+            echo "Версия релиза не совпала с версией проекта." >&2
             exit 1
           fi
 
@@ -148,7 +169,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          output_dir="src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0"
+          output_dir="src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0"
           release_filename="jellyfin-plugin-kinopoisk_${VERSION}.zip"
           release_file="${DIST_ARCHIVES_PATH}/${release_filename}"
 
@@ -166,13 +187,7 @@ jobs:
           md5="$(md5sum "${release_file}" | cut -d' ' -f1)"
           sha256="$(sha256sum "${release_file}" | cut -d' ' -f1)"
 
-          {
-            echo
-            echo "## Контрольные суммы"
-            echo
-            echo "- MD5: \`${md5}\`"
-            echo "- SHA256: \`${sha256}\`"
-          } >> release-notes.md
+          printf '%s  %s\n' "$sha256" "$release_filename" > "${release_file}.sha256"
 
           echo "RELEASE_FILENAME=${release_filename}" >> "$GITHUB_ENV"
           echo "RELEASE_FILE=${release_file}" >> "$GITHUB_ENV"
@@ -186,7 +201,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: КиноПоиск ${{ env.VERSION }}
           body_path: release-notes.md
-          files: ${{ env.RELEASE_FILE }}
+          files: |
+            ${{ env.RELEASE_FILE }}
+            ${{ env.RELEASE_FILE }}.sha256
           fail_on_unmatched_files: true
           generate_release_notes: false
           make_latest: true
@@ -252,6 +269,7 @@ jobs:
           name: kinopoisk-release-${{ env.VERSION }}
           path: |
             ${{ env.RELEASE_FILE }}
+            ${{ env.RELEASE_FILE }}.sha256
             release-notes.md
           if-no-files-found: error
           retention-days: 30

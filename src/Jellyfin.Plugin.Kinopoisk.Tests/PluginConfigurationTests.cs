@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Xml.Serialization;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Xunit;
@@ -7,6 +9,62 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
 {
     public class PluginConfigurationTests
     {
+        [Fact]
+        public void ShouldPreserveLegacyXmlSettingsAfterRuntimeMigration()
+        {
+            const string legacyXml = @"<PluginConfiguration>
+                <ApiToken>test-token-for-configuration</ApiToken>
+                <EnableWebBootstrap>false</EnableWebBootstrap>
+                <EnableMovieMetadata>false</EnableMovieMetadata>
+                <EnableSeriesMetadata>true</EnableSeriesMetadata>
+                <EnableSeasonEpisodeMetadata>false</EnableSeasonEpisodeMetadata>
+                <EnablePeopleMetadata>false</EnablePeopleMetadata>
+                <EnableYoutubeTrailerFallback>false</EnableYoutubeTrailerFallback>
+                <NativeTrailerCacheClientScope>AndroidTvOnly</NativeTrailerCacheClientScope>
+                <NativeTrailerCachePopulationMode>DuringMetadataScan</NativeTrailerCachePopulationMode>
+                <NativeTrailerCachePlaybackWaitSeconds>15</NativeTrailerCachePlaybackWaitSeconds>
+                <NativeTrailerCacheMaximumMegabytes>1024</NativeTrailerCacheMaximumMegabytes>
+                <ImageBinaryCacheMaximumMegabytes>512</ImageBinaryCacheMaximumMegabytes>
+                <PersistentCacheMaximumMegabytes>256</PersistentCacheMaximumMegabytes>
+                <MetadataCacheHours>72</MetadataCacheHours>
+                <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
+                <EnableFranchiseCollections>true</EnableFranchiseCollections>
+                <FranchisePreviewOnly>true</FranchisePreviewOnly>
+            </PluginConfiguration>";
+            var serializer = new XmlSerializer(typeof(PluginConfiguration));
+            using var source = new StringReader(legacyXml);
+            var restored = Assert.IsType<PluginConfiguration>(serializer.Deserialize(source));
+            restored.Normalize();
+
+            Assert.Equal("test-token-for-configuration", restored.ApiToken);
+            Assert.False(restored.EnableWebBootstrap);
+            Assert.False(restored.EnableMovieMetadata);
+            Assert.True(restored.EnableSeriesMetadata);
+            Assert.False(restored.EnableSeasonEpisodeMetadata);
+            Assert.False(restored.EnablePeopleMetadata);
+            Assert.False(restored.EnableYoutubeTrailerFallback);
+            Assert.Equal(KinopoiskTrailerCacheClientScope.AndroidTvOnly, restored.NativeTrailerCacheClientScope);
+            Assert.Equal(KinopoiskTrailerCachePopulationMode.DuringMetadataScan, restored.NativeTrailerCachePopulationMode);
+            Assert.Equal(15, restored.NativeTrailerCachePlaybackWaitSeconds);
+            Assert.Equal(1024, restored.NativeTrailerCacheMaximumMegabytes);
+            Assert.Equal(512, restored.ImageBinaryCacheMaximumMegabytes);
+            Assert.Equal(256, restored.PersistentCacheMaximumMegabytes);
+            Assert.Equal(72, restored.MetadataCacheHours);
+            Assert.False(restored.EnableQuotaMonitoring);
+            Assert.True(restored.EnableFranchiseCollections);
+            Assert.True(restored.FranchisePreviewOnly);
+
+            using var saved = new StringWriter();
+            serializer.Serialize(saved, restored);
+            using var reload = new StringReader(saved.ToString());
+            var roundTrip = Assert.IsType<PluginConfiguration>(serializer.Deserialize(reload));
+            foreach (var property in typeof(PluginConfiguration).GetProperties())
+            {
+                if (property.CanRead && property.CanWrite)
+                    Assert.Equal(property.GetValue(restored), property.GetValue(roundTrip));
+            }
+        }
+
         [Fact]
         public void ShouldNotContainDefaultApiToken()
         {

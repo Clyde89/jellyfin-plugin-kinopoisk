@@ -38,7 +38,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("strict-origin-when-cross-origin", script);
             Assert.Contains("supportedHosts.has(host)", script);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Authorization", script, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("'Authorization': 'MediaBrowser Token=", script);
+            Assert.DoesNotContain("X-Emby-Token", script, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("frame.src = trailer.playerUrl", script);
         }
 
         [Fact]
