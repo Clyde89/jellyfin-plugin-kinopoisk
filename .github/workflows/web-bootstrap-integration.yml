@@ -26,6 +26,7 @@ jobs:
       matrix:
         scenario:
           - clean
+          - no-api-token
           - readonly
           - baseurl
           - legacy-external
@@ -108,6 +109,7 @@ jobs:
           }
           JSON
 
+          if [[ "$SCENARIO" != 'no-api-token' ]]; then
           cat > "$configuration_dir/Jellyfin.Plugin.Kinopoisk.xml" <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
@@ -115,6 +117,8 @@ jobs:
             <EnableQuotaMonitoring>false</EnableQuotaMonitoring>
           </PluginConfiguration>
           XML
+
+          fi
 
           if [[ "$SCENARIO" == 'baseurl' ]]; then
             cat > "$server_config_dir/network.xml" <<'XML'

@@ -37,6 +37,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             StringComparer.Ordinal);
 
         private readonly HttpClient _httpClient;
+        private readonly bool _hasApiToken;
         private readonly IMemoryCache _cache;
         private readonly KinopoiskDiagnostics _diagnostics;
         private readonly ILogger<KinopoiskSupplementalApiClient> _logger;
@@ -50,16 +51,15 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             KinopoiskDiagnostics diagnostics,
             ILogger<KinopoiskSupplementalApiClient> logger)
         {
-            if (string.IsNullOrWhiteSpace(apiToken))
-                throw new ArgumentException("API-токен не должен быть пустым.", nameof(apiToken));
-
+            _hasApiToken = !string.IsNullOrWhiteSpace(apiToken);
             ArgumentNullException.ThrowIfNull(httpClientFactory);
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _httpClient = httpClientFactory.CreateClient();
-            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
+            if (_hasApiToken)
+                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
         }
 
         public Task<KinopoiskFactsResponse> GetFacts(
@@ -139,6 +139,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             var cacheKey = $"kinopoisk-presentation:{section}:{kinopoiskId}";
             if (_cache.TryGetValue(cacheKey, out T? cached) && cached is not null)
                 return cached;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_hasApiToken)
+                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
 
             await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
