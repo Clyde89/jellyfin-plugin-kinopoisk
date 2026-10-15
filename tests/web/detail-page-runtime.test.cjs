@@ -100,6 +100,139 @@ function presentation(kinopoiskId) {
     };
 }
 
+async function createRecommendationRuntime(itemOverrides = {}) {
+    const runtime = createRuntime(
+        '<div id="active" class="itemDetailPage"><div class="detailPagePrimaryContent"></div>'
+            + '<div id="similarCollapsible"><div id="native-card" class="card"></div></div></div>',
+        itemId => movie(itemId, 100),
+        url => url.startsWith('/KinopoiskPresentation/image?')
+            ? imageResponse()
+            : jsonResponse({ items: [{
+                kinopoiskId: 101,
+                name: 'Похожий фильм',
+                mediaType: 'movie',
+                year: 2025,
+                ratingKinopoisk: 7.3,
+                overview: 'Описание похожего фильма.',
+                posterUrl: 'https://kinopoiskapiunofficial.tech/images/posters/kp/101.jpg',
+                ...itemOverrides
+            }] })
+    );
+    runtime.window.document.querySelector('#native-card').getBoundingClientRect = () => ({ width: 200 });
+    runtime.window.eval(readScript('kinopoiskDetailPageLifecycle.js'));
+    runtime.window.eval(readScript('kinopoiskRecommendations.js'));
+    await waitFor(() => runtime.window.document.querySelector('.kp-similar-card'),
+        'Резервная карточка рекомендации не появилась.');
+    return runtime;
+}
+
+test('постер рекомендации открывал тот же фильм, что и название, без Seerr', async () => {
+    const runtime = await createRecommendationRuntime();
+    const { window } = runtime;
+    try {
+        const card = window.document.querySelector('.kp-similar-card');
+        const poster = card.querySelector('.cardImageContainer');
+        const title = card.querySelector('.cardText-first a');
+        assert.equal(poster.tagName, 'A', 'Постер не был доступен для перехода.');
+        assert.equal(poster.href, title.href);
+        assert.equal(poster.href, 'https://www.kinopoisk.ru/film/101/');
+        assert.equal(poster.target, '_blank');
+        assert.match(poster.rel, /noopener/);
+        assert.match(poster.getAttribute('aria-label'), /Похожий фильм/);
+        poster.focus();
+        assert.equal(window.document.activeElement, poster);
+
+        let destination = null;
+        poster.addEventListener('click', event => {
+            destination = event.currentTarget.href;
+            event.preventDefault();
+        });
+        card.querySelector('.cardScalable').dispatchEvent(new window.MouseEvent('mouseenter'));
+        const description = poster.querySelector('.kp-similar-card__overview');
+        assert.ok(description, 'Описание не было частью ссылки постера.');
+        description.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+        assert.equal(destination, title.href, 'Описание перекрыло переход по постеру.');
+        assert.equal(card.querySelector('button:disabled'), null);
+    } finally {
+        runtime.dom.window.close();
+    }
+});
+
+test('карточка рекомендации сохранила оформление без стилей Jellyfin Enhanced', async () => {
+    const runtime = await createRecommendationRuntime();
+    const { window } = runtime;
+    try {
+        const card = window.document.querySelector('.kp-similar-card');
+        const meta = card.querySelector('.jellyseerr-meta');
+        const poster = card.querySelector('.cardImageContainer');
+        assert.equal(window.getComputedStyle(meta).display, 'flex');
+        assert.notEqual(window.getComputedStyle(meta).gap, '0px');
+        assert.equal(window.getComputedStyle(poster).position, 'absolute');
+        assert.equal(window.getComputedStyle(card.querySelector('.kp-similar-card__badge')).position, 'absolute');
+        const overviewStyle = window.getComputedStyle(card.querySelector('.kp-similar-card__overview'));
+        assert.equal(overviewStyle.position, 'absolute');
+        assert.equal(overviewStyle.pointerEvents, 'none');
+        assert.equal(window.getComputedStyle(card.querySelector('.cardText-first a')).textDecorationLine, 'none');
+    } finally {
+        runtime.dom.window.close();
+    }
+});
+
+test('переход по рекомендации сохранился при отсутствии постера и описания', async () => {
+    const runtime = await createRecommendationRuntime({ posterUrl: null, overview: null, mediaType: 'tv' });
+    try {
+        const poster = runtime.window.document.querySelector('.kp-similar-card .cardImageContainer');
+        assert.equal(poster.tagName, 'A');
+        assert.equal(poster.href, 'https://www.kinopoisk.ru/film/101/');
+        assert.match(poster.textContent, /Краткое описание отсутствует/);
+        assert.match(poster.textContent, /СЕРИАЛ/);
+    } finally {
+        runtime.dom.window.close();
+    }
+});
+
+test('резервная карточка заменена карточкой Seerr после поздней готовности интеграции', async () => {
+    const runtime = await createRecommendationRuntime({ imdbId: 'tt1234567' });
+    const { window } = runtime;
+    try {
+        let clicks = 0;
+        let cardOptions = null;
+        window.KinopoiskTmdbResolver = { resolve: () => Promise.resolve('501') };
+        window.JellyfinEnhanced = {
+            jellyseerrAPI: {
+                checkUserStatus: () => Promise.resolve({ active: true, userFound: true }),
+                fetchMovieDetails: () => Promise.resolve({ id: 501 })
+            },
+            jellyseerrUI: {
+                createJellyseerrCard(item, active, userFound) {
+                    cardOptions = { item, active, userFound };
+                    const card = window.document.createElement('div');
+                    card.className = 'card jellyseerr-card enhanced-test-card';
+                    card.innerHTML = '<a class="cardImageContainer" href="#/seerr/501"></a>'
+                        + '<div class="jellyseerr-meta"></div>';
+                    card.querySelector('a').addEventListener('click', event => {
+                        event.preventDefault();
+                        clicks += 1;
+                    });
+                    return card;
+                }
+            }
+        };
+        window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
+        await waitFor(() => window.document.querySelector('.enhanced-test-card'),
+            'Карточка Seerr не заменила резервную карточку.');
+        const card = window.document.querySelector('.enhanced-test-card');
+        assert.equal(window.document.querySelector('.kp-similar-card--fallback'), null);
+        assert.equal(cardOptions.item.id, 501);
+        assert.equal(cardOptions.active, true);
+        assert.equal(cardOptions.userFound, true);
+        card.querySelector('a').click();
+        assert.equal(clicks, 1, 'Обработчик карточки Seerr был утрачен при замене.');
+    } finally {
+        runtime.dom.window.close();
+    }
+});
+
 test('активная SPA-карточка, даты и владение верхней строкой обработаны согласованно', async () => {
     const body = `
         <div id="stale" class="itemDetailPage hide">

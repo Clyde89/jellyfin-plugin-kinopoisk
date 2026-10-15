@@ -186,7 +186,17 @@
             '.kp-similar-card__source{font-size:.86em;opacity:.86;white-space:nowrap}',
             '.kp-similar-card__rating{display:flex;align-items:center;gap:.25em;color:#bdbdbd;white-space:nowrap}',
             '.kp-similar-card__star{color:#ffd700;font-size:1.15em;line-height:1}',
-            '.kp-similar-card__fallback-button{opacity:.65;cursor:not-allowed}',
+            '.kp-similar-card--fallback .cardScalable{position:relative;overflow:hidden;border-radius:.3em}',
+            '.kp-similar-card--fallback .kp-similar-card__poster{display:block;position:absolute;inset:0;color:inherit;text-decoration:none;cursor:pointer}',
+            '.kp-similar-card--fallback .kp-similar-card__badge{position:absolute;top:.6em;left:.6em;right:auto;bottom:auto;display:inline-block;padding:.22em .45em;border-radius:.25em;background:rgba(0,0,0,.7);color:#fff;font-size:.7em;font-weight:600;line-height:1.3;pointer-events:none}',
+            '.kp-similar-card--fallback .kp-similar-card__overview{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;gap:.8em;padding:.9em;background:linear-gradient(transparent,rgba(0,0,0,.9) 45%);color:#fff;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .15s ease}',
+            '.kp-similar-card--fallback .kp-similar-card__description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:7;overflow:hidden;font-size:.85em;line-height:1.4}',
+            '.kp-similar-card--fallback .kp-similar-card__open{display:block;font-size:.8em;font-weight:600}',
+            '.kp-similar-card--fallback .kp-similar-card__poster:hover .kp-similar-card__overview,.kp-similar-card--fallback .kp-similar-card__poster:focus .kp-similar-card__overview{opacity:1;visibility:visible}',
+            '.kp-similar-card--fallback .kp-similar-card__title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration-line:none}',
+            '.kp-similar-card--fallback .jellyseerr-meta{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.45em;line-height:1.5}',
+            '.kp-similar-card--fallback .kp-similar-card__poster:focus-visible{outline:2px solid currentColor;outline-offset:-2px}',
+            '@media(prefers-reduced-motion:reduce){.kp-similar-card--fallback .kp-similar-card__overview{transition:none}}',
             '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}}'
         ].join('');
         document.head.appendChild(style);
@@ -501,47 +511,20 @@
         }
     }
 
-    function addFallbackOverview(cardScalable, item) {
-        var overview = null;
-        function removeOverview() {
-            if (overview && overview.parentNode) {
-                overview.remove();
-            }
-            overview = null;
-        }
-        function createOverview() {
-            if (overview) {
-                return;
-            }
-            overview = createElement('div', 'jellyseerr-overview');
-            var description = String(
-                pick(item, 'overview', 'Overview')
-                || 'Краткое описание отсутствует.'
-            );
-            overview.appendChild(createElement('div', 'content', description.slice(0, 500)));
-            var button = createElement(
-                'button',
-                'jellyseerr-request-button jellyseerr-button-offline kp-similar-card__fallback-button',
-                'Недоступно в Seerr'
-            );
-            button.type = 'button';
-            button.disabled = true;
-            overview.appendChild(button);
-            cardScalable.appendChild(overview);
-        }
-        cardScalable.addEventListener('mouseenter', createOverview);
-        cardScalable.addEventListener('mouseleave', removeOverview);
-        cardScalable.setAttribute('tabindex', '0');
-        cardScalable.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                if (overview) {
-                    removeOverview();
-                } else {
-                    createOverview();
-                }
-            }
-        });
+    function addFallbackOverview(poster, item) {
+        var overview = createElement('span', 'kp-similar-card__overview');
+        overview.setAttribute('aria-hidden', 'true');
+        var description = String(
+            pick(item, 'overview', 'Overview')
+            || 'Краткое описание отсутствует.'
+        );
+        overview.appendChild(createElement('span', 'kp-similar-card__description', description.slice(0, 500)));
+        overview.appendChild(createElement(
+            'span',
+            'kp-similar-card__open kp-similar-card__fallback-button',
+            'Открыть на КиноПоиске'
+        ));
+        poster.appendChild(overview);
     }
 
     function createKinopoiskFallbackCard(item) {
@@ -564,13 +547,19 @@
         );
         var card = createElement(
             'div',
-            'card overflowPortraitCard card-hoverable card-withuserdata jellyseerr-card kp-similar-card'
+            'card overflowPortraitCard card-hoverable card-withuserdata kp-similar-card kp-similar-card--fallback'
         );
         card.dataset.kinopoiskId = kinopoiskId;
         var box = createElement('div', 'cardBox cardBox-bottompadded');
         var scalable = createElement('div', 'cardScalable');
         scalable.appendChild(createElement('div', 'cardPadder cardPadder-overflowPortrait'));
-        var image = createElement('div', 'cardImageContainer coveredImage cardContent');
+        var kinopoiskUrl = 'https://www.kinopoisk.ru/film/' + kinopoiskId + '/';
+        var image = createElement('a', 'cardImageContainer coveredImage cardContent kp-similar-card__poster');
+        image.href = kinopoiskUrl;
+        image.target = '_blank';
+        image.rel = 'noopener noreferrer';
+        image.referrerPolicy = 'strict-origin-when-cross-origin';
+        image.setAttribute('aria-label', name + ' — открыть на КиноПоиске');
         if (imageUrl) {
             var lifecycle = window.KinopoiskDetailPageLifecycle;
             if (lifecycle) {
@@ -579,20 +568,20 @@
         }
         var badge = createElement(
             'span',
-            'jellyseerr-media-badge '
+            'kp-similar-card__badge '
                 + (mediaType === 'tv'
                     ? 'jellyseerr-media-badge-series'
                     : 'jellyseerr-media-badge-movie'),
             mediaType === 'tv' ? 'СЕРИАЛ' : 'ФИЛЬМ'
         );
         image.appendChild(badge);
+        addFallbackOverview(image, item);
         scalable.appendChild(image);
-        addFallbackOverview(scalable, item);
         box.appendChild(scalable);
 
         var title = createElement('div', 'cardText cardTextCentered cardText-first');
-        var link = createElement('a', 'jellyseerr-more-info-link', name);
-        link.href = 'https://www.kinopoisk.ru/film/' + kinopoiskId + '/';
+        var link = createElement('a', 'kp-similar-card__title', name);
+        link.href = kinopoiskUrl;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         link.referrerPolicy = 'strict-origin-when-cross-origin';
