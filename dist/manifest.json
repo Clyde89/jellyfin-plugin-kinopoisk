@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Clyde89/jellyfin-plugin-kinopoisk/develop/assets/kinopoisk-plugin.svg",
     "versions": [
       {
+        "version": "12.1.0.4",
+        "checksum": "8e9556de9f90f62ffeb8341aaa6e37f0",
+        "changelog": "- Добавлено применение API-ключа сразу после сохранения настроек без перезапуска Jellyfin.\n- Добавлено автоматическое обновление квоты при смене API-ключа.\n- Восстановлено оформление карточек в блоке «Похожие и рекомендации».\n- Добавлено открытие страницы фильма на КиноПоиске по постеру.\n- Исправлены положение описания и отображение года и рейтинга в рекомендациях.\n",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/Clyde89/jellyfin-plugin-kinopoisk/releases/download/v12.1.0.4/jellyfin-plugin-kinopoisk_12.1.0.4.zip",
+        "timestamp": "2026-10-15T18:00:51Z"
+      },
+      {
         "version": "12.1.0.3",
         "checksum": "81ddad5555bcd1be204d4bd857adb2b0",
         "changelog": "Добавлена поддержка Jellyfin 12.1 и .NET 10.\n\n- Сохранение трейлеров переведено с `IItemRepository.SaveItems` на `IItemPersistenceService.SaveItems`.\n- Поиск дополнительных материалов переведён с `Movie.ExtraIds` на запросы по `OwnerIds` и `ExtraTypes`.\n- Исправлено восстановление нативных трейлеров из готового MP4-кэша после обновления метаданных.\n- Исправлена замена старых трейлеров с сохранением идентификаторов и привязки к фильму.\n- Исключены удаление зарегистрированной замены и перезапись посторонних элементов медиатеки.\n- Запросы состояния подготовки трейлера в Jellyfin Web переведены на стандартную авторизацию `Authorization`.\n",
