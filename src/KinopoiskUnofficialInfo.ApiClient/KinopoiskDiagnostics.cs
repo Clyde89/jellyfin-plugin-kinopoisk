@@ -234,6 +234,16 @@ namespace KinopoiskUnofficialInfo.ApiClient
                 _lastQuotaFailureUtc = null;
         }
 
+        public void ResetQuota()
+        {
+            lock (_quotaSync)
+            {
+                _accountType = string.Empty;
+                _dailyQuotaValue = _dailyQuotaUsed = _totalQuotaValue = _totalQuotaUsed = 0;
+                _lastQuotaCheckUtc = _lastQuotaFailureUtc = null;
+            }
+        }
+
         public void UpdateQuota(KinopoiskApiQuota quota)
         {
             ArgumentNullException.ThrowIfNull(quota);

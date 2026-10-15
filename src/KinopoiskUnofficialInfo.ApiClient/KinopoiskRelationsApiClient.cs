@@ -27,7 +27,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private static DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
         private readonly HttpClient _httpClient;
-        private readonly bool _hasApiToken;
+        private readonly KinopoiskApiAuthentication _authentication;
         private readonly ILogger<KinopoiskRelationsApiClient> _logger;
 
         /// <summary>
@@ -36,15 +36,14 @@ namespace KinopoiskUnofficialInfo.ApiClient
         public KinopoiskRelationsApiClient(
             string apiToken,
             IHttpClientFactory httpClientFactory,
-            ILogger<KinopoiskRelationsApiClient> logger)
+            ILogger<KinopoiskRelationsApiClient> logger,
+            Func<string> tokenProvider = null)
         {
-            _hasApiToken = !string.IsNullOrWhiteSpace(apiToken);
+            _authentication = new KinopoiskApiAuthentication(apiToken, tokenProvider);
             ArgumentNullException.ThrowIfNull(httpClientFactory);
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _httpClient = httpClientFactory.CreateClient();
-            if (_hasApiToken)
-                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
         }
 
         /// <inheritdoc />
@@ -62,8 +61,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
             var token = cancellationToken ?? CancellationToken.None;
             token.ThrowIfCancellationRequested();
-            if (!_hasApiToken)
-                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
+            _authentication.GetRequiredToken();
             for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
             {
                 token.ThrowIfCancellationRequested();
@@ -113,6 +111,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         {
             var requestUri = $"{ApiBaseUrl}/api/v2.2/films/{filmId}/relations";
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            _authentication.Apply(request);
             request.Headers.Accept.ParseAdd("application/json");
 
             using var response = await _httpClient.SendAsync(

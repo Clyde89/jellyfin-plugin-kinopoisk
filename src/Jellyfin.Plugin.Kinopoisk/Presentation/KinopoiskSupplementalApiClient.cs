@@ -37,7 +37,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             StringComparer.Ordinal);
 
         private readonly HttpClient _httpClient;
-        private readonly bool _hasApiToken;
+        private readonly KinopoiskApiAuthentication _authentication;
         private readonly IMemoryCache _cache;
         private readonly KinopoiskDiagnostics _diagnostics;
         private readonly ILogger<KinopoiskSupplementalApiClient> _logger;
@@ -49,17 +49,16 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             IHttpClientFactory httpClientFactory,
             IMemoryCache cache,
             KinopoiskDiagnostics diagnostics,
-            ILogger<KinopoiskSupplementalApiClient> logger)
+            ILogger<KinopoiskSupplementalApiClient> logger,
+            Func<string>? tokenProvider = null)
         {
-            _hasApiToken = !string.IsNullOrWhiteSpace(apiToken);
+            _authentication = new KinopoiskApiAuthentication(apiToken, tokenProvider);
             ArgumentNullException.ThrowIfNull(httpClientFactory);
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _httpClient = httpClientFactory.CreateClient();
-            if (_hasApiToken)
-                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
         }
 
         public Task<KinopoiskFactsResponse> GetFacts(
@@ -141,8 +140,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 return cached;
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_hasApiToken)
-                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
+            _authentication.GetRequiredToken();
 
             await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -157,6 +155,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
 
                 _diagnostics.RecordApiRequest();
                 using var request = new HttpRequestMessage(HttpMethod.Get, ApiBaseUrl + path);
+                _authentication.Apply(request);
                 request.Headers.Accept.ParseAdd("application/json");
 
                 try
