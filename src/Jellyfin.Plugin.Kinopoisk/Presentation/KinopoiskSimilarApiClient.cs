@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(250);
 
         private readonly HttpClient _httpClient;
-        private readonly bool _hasApiToken;
+        private readonly KinopoiskApiAuthentication _authentication;
         private readonly IKinopoiskApiClient _apiClient;
         private readonly IMemoryCache _cache;
         private readonly KinopoiskDiagnostics _diagnostics;
@@ -40,9 +40,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             IKinopoiskApiClient apiClient,
             IMemoryCache cache,
             KinopoiskDiagnostics diagnostics,
-            ILogger<KinopoiskSimilarApiClient> logger)
+            ILogger<KinopoiskSimilarApiClient> logger,
+            Func<string>? tokenProvider = null)
         {
-            _hasApiToken = !string.IsNullOrWhiteSpace(apiToken);
+            _authentication = new KinopoiskApiAuthentication(apiToken, tokenProvider);
             ArgumentNullException.ThrowIfNull(httpClientFactory);
             _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
@@ -50,8 +51,6 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _httpClient = httpClientFactory.CreateClient();
-            if (_hasApiToken)
-                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiToken.Trim());
         }
 
         public async Task<KinopoiskSimilarResponse> GetSimilar(
@@ -69,8 +68,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_hasApiToken)
-                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
+            _authentication.GetRequiredToken();
 
             await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -87,6 +85,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Presentation
                 using var request = new HttpRequestMessage(
                     HttpMethod.Get,
                     $"{ApiBaseUrl}/api/v2.2/films/{kinopoiskId}/similars");
+                _authentication.Apply(request);
                 request.Headers.Accept.ParseAdd("application/json");
 
                 try

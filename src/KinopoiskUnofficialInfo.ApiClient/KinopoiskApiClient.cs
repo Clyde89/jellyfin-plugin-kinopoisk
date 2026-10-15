@@ -19,7 +19,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(200);
 
-        private readonly string _apiToken;
+        private readonly KinopoiskApiAuthentication _authentication;
         private readonly ILogger<KinopoiskApiClient> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly HttpClient _httpClient;
@@ -27,16 +27,15 @@ namespace KinopoiskUnofficialInfo.ApiClient
         private readonly SemaphoreSlim _requestGate = new(1, 1);
         private DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
-        public KinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> logger, IHttpClientFactory httpClientFactory)
+        public KinopoiskApiClient(string apiToken, ILogger<KinopoiskApiClient> logger,
+            IHttpClientFactory httpClientFactory, Func<string> tokenProvider = null)
         {
-            _apiToken = apiToken?.Trim() ?? string.Empty;
+            _authentication = new KinopoiskApiAuthentication(apiToken, tokenProvider);
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 
             _httpClient = _httpClientFactory.CreateClient();
-            if (_apiToken.Length > 0)
-                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", _apiToken);
-            _apiClient = new Client(_httpClient);
+            _apiClient = new Client(_httpClient) { Authentication = _authentication };
         }
 
         private async Task<T> Invoke<T>(
@@ -46,8 +45,7 @@ namespace KinopoiskUnofficialInfo.ApiClient
         {
             var cancellationToken = ct ?? CancellationToken.None;
             cancellationToken.ThrowIfCancellationRequested();
-            if (_apiToken.Length == 0)
-                throw new InvalidOperationException("API-токен КиноПоиска не настроен.");
+            _authentication.GetRequiredToken();
 
             for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
             {
@@ -295,21 +293,24 @@ namespace KinopoiskUnofficialInfo.ApiClient
 
         private Task<KinopoiskApiQuota> GetApiQuotaCore(CancellationToken cancellationToken)
         {
+            var apiToken = _authentication.GetRequiredToken();
             var requestUri = string.Format(
                 CultureInfo.InvariantCulture,
                 "{0}/api/v1/api_keys/{1}",
                 ApiBaseUrl,
-                Uri.EscapeDataString(_apiToken));
+                Uri.EscapeDataString(apiToken));
 
-            return SendJsonRequest<KinopoiskApiQuota>(requestUri, cancellationToken);
+            return SendJsonRequest<KinopoiskApiQuota>(requestUri, cancellationToken, apiToken);
         }
 
         private async Task<T> SendJsonRequest<T>(
             string requestUri,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string apiToken = null)
             where T : new()
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            _authentication.Apply(request, apiToken);
             request.Headers.Accept.ParseAdd("application/json");
 
             using var response = await _httpClient.SendAsync(

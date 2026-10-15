@@ -26,7 +26,8 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton((sp) => new KinopoiskApiClient(
                 Plugin.Instance.Configuration.ApiToken,
                 sp.GetRequiredService<ILogger<KinopoiskApiClient>>(),
-                sp.GetRequiredService<IHttpClientFactory>()
+                sp.GetRequiredService<IHttpClientFactory>(),
+                () => Plugin.Instance.Configuration.ApiToken
             ));
             serviceCollection.AddSingleton<IKinopoiskQuotaApiClient>((sp) =>
                 sp.GetRequiredService<KinopoiskApiClient>());
@@ -51,7 +52,8 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddSingleton((sp) => new KinopoiskRelationsApiClient(
                 Plugin.Instance.Configuration.ApiToken,
                 sp.GetRequiredService<IHttpClientFactory>(),
-                sp.GetRequiredService<ILogger<KinopoiskRelationsApiClient>>()
+                sp.GetRequiredService<ILogger<KinopoiskRelationsApiClient>>(),
+                () => Plugin.Instance.Configuration.ApiToken
             ));
             serviceCollection.AddSingleton((sp) => new CachedKinopoiskRelationsApiClient(
                 sp.GetRequiredService<KinopoiskRelationsApiClient>(),
@@ -69,7 +71,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<IHttpClientFactory>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
-                sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>()
+                sp.GetRequiredService<ILogger<KinopoiskSupplementalApiClient>>(),
+                () => Plugin.Instance.Configuration.ApiToken
             ));
             serviceCollection.AddSingleton((sp) => new PersistentJsonCache(
                 Path.Combine(
@@ -87,7 +90,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<IKinopoiskApiClient>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<KinopoiskDiagnostics>(),
-                sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>()
+                sp.GetRequiredService<ILogger<KinopoiskSimilarApiClient>>(),
+                () => Plugin.Instance.Configuration.ApiToken
             ));
 
             serviceCollection
