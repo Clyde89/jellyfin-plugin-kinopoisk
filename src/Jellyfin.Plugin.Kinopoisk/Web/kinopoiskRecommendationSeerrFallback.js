@@ -9,6 +9,15 @@
 
     var cache = new Map();
     var renderTimer = null;
+    var retryTimer = null;
+    var retryAttempt = 0;
+    var retryDelays = [250, 750, 1500, 3000, 6000, 12000, 30000, 60000];
+    var activeItemId = null;
+    var activeApi = null;
+    var activeUserId = null;
+    var bindingGeneration = 0;
+    var pendingCards = [];
+    var activeRequests = 0;
 
     function pick(object) {
         if (!object) {
@@ -188,15 +197,22 @@
         }
 
         var results = [];
+        var failed = false;
         return queries.reduce(function (promise, query) {
             return promise.then(function () {
-                return api.search(query, 1, { skipCache: false })
+                return Promise.resolve().then(function () {
+                    return api.search(query, 1, { skipCache: false, throwOnError: true });
+                })
                     .then(function (response) {
                         results = results.concat(asArray(response && response.results));
-                    });
+                    }).catch(function () { failed = true; });
             });
         }, Promise.resolve()).then(function () {
-            return selectUniqueMatch(results, item);
+            var match = selectUniqueMatch(results, item);
+            if (!match && failed) {
+                throw new Error('Поиск Seerr временно недоступен.');
+            }
+            return match;
         });
     }
 
@@ -228,9 +244,15 @@
                 && typeof enhanced.jellyseerrAPI.checkUserStatus === 'function'
                 ? enhanced.jellyseerrAPI.checkUserStatus()
                 : Promise.resolve({ active: false, userFound: false });
-            cache.set(key, Promise.resolve(request).catch(function () {
+            var pending = Promise.resolve(request).catch(function () {
                 return { active: false, userFound: false };
-            }));
+            }).then(function (status) {
+                if ((!status || !status.active || !status.userFound) && cache.get(key) === pending) {
+                    cache.delete(key);
+                }
+                return status;
+            });
+            cache.set(key, pending);
         }
         return cache.get(key);
     }
@@ -294,19 +316,29 @@
                     pick(item, 'mediaType', 'MediaType') || 'movie'
                 ) === 'tv' ? 'tv' : 'movie';
                 return Promise.resolve(fetchDetails(enhanced, tmdbId, mediaType))
-                    .catch(function () { return null; })
                     .then(function (details) {
+                        if (!details) {
+                            throw new Error('Состояние фильма в Seerr не получено.');
+                        }
                         return {
                             item: buildCardData(item, details, tmdbId),
                             active: status.active === true,
                             userFound: status.userFound === true
                         };
                     });
-            }).catch(function (error) {
-                console.debug('[КиноПоиск] Резервное сопоставление Seerr не выполнено.', error);
-                return null;
             });
-            cache.set(key, request);
+            var pending = request.then(function (result) {
+                if ((!result || !result.active || !result.userFound) && cache.get(key) === pending) {
+                    cache.delete(key);
+                }
+                return result;
+            }, function (error) {
+                if (cache.get(key) === pending) {
+                    cache.delete(key);
+                }
+                throw error;
+            });
+            cache.set(key, pending);
         }
         return cache.get(key);
     }
@@ -396,13 +428,18 @@
     function fetchRecommendationItems() {
         var itemId = getCurrentItemId();
         var apiClient = window.ApiClient;
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var container = page && page.querySelector('#kinopoiskRecommendationsSection .kp-recommendations-items');
+        if (container && Array.isArray(container.__kinopoiskRecommendationItems)) {
+            return Promise.resolve(container.__kinopoiskRecommendationItems);
+        }
         if (!itemId || !apiClient || typeof apiClient.getItem !== 'function') {
             return Promise.resolve([]);
         }
 
         var key = 'items:' + itemId;
         if (!cache.has(key)) {
-            var lifecycle = window.KinopoiskDetailPageLifecycle;
             var itemRequest = lifecycle
                 ? lifecycle.fetchItem(itemId)
                 : apiClient.getItem(apiClient.getCurrentUserId(), itemId);
@@ -422,6 +459,7 @@
                         return asArray(pick(response, 'items', 'Items'));
                     });
                 }).catch(function () {
+                    cache.delete(key);
                     return [];
                 });
             cache.set(key, request);
@@ -429,67 +467,164 @@
         return cache.get(key);
     }
 
-    function processFallbackCards() {
-        var enhanced = window.JellyfinEnhanced;
-        if (!enhanced
-            || !enhanced.jellyseerrAPI
-            || !enhanced.jellyseerrUI
-            || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function') {
+    function getUserId() {
+        var apiClient = window.ApiClient;
+        return apiClient && typeof apiClient.getCurrentUserId === 'function'
+            ? String(apiClient.getCurrentUserId() || '')
+            : '';
+    }
+
+    function scheduleRetry() {
+        if (retryTimer || retryAttempt >= retryDelays.length) {
             return;
         }
+        retryTimer = setTimeout(function () {
+            retryTimer = null;
+            processFallbackCards();
+        }, retryDelays[retryAttempt++]);
+    }
 
+    function drainCards() {
+        while (activeRequests < 3 && pendingCards.length) {
+            activeRequests += 1;
+            Promise.resolve().then(pendingCards.shift()).catch(function (error) {
+                console.debug('[КиноПоиск] Карточка Seerr пока не готова.', error);
+            }).then(function () {
+                activeRequests -= 1;
+                drainCards();
+            });
+        }
+    }
+
+    function setCardStatus(card, status) {
+        var label = card.querySelector('.kp-similar-card__fallback-button');
+        if (label && label.textContent !== status) {
+            label.textContent = status;
+        }
+    }
+
+    function processFallbackCards() {
+        var itemId = getCurrentItemId();
+        if (itemId !== activeItemId) {
+            activeItemId = itemId;
+            retryAttempt = 0;
+            clearTimeout(retryTimer);
+            retryTimer = null;
+        }
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var cards = page && page.querySelectorAll('.kp-similar-card--fallback[data-kinopoisk-id]');
+        if (!itemId || !cards || !cards.length) {
+            return;
+        }
+        var enhanced = window.JellyfinEnhanced;
+        var api = enhanced && enhanced.jellyseerrAPI;
+        var userId = getUserId();
+        if (api !== activeApi || userId !== activeUserId) {
+            activeApi = api;
+            activeUserId = userId;
+            bindingGeneration += 1;
+            cache.clear();
+            Array.prototype.forEach.call(cards, function (card) {
+                delete card.dataset.kpSeerrFallbackState;
+                delete card.dataset.kpSeerrRetryAfter;
+            });
+        }
+        if (!api || !enhanced.jellyseerrUI
+            || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function') {
+            scheduleRetry();
+            return;
+        }
+        var expectedGeneration = bindingGeneration;
+        function isCurrent(card) {
+            return bindingGeneration === expectedGeneration
+                && getCurrentItemId() === itemId
+                && getUserId() === userId
+                && (!lifecycle || lifecycle.getActivePage() === page)
+                && card.isConnected && page.contains(card);
+        }
         fetchRecommendationItems().then(function (items) {
             var byId = Object.create(null);
             items.forEach(function (item) {
                 byId[String(pick(item, 'kinopoiskId', 'KinopoiskId') || '')] = item;
             });
-
-            var lifecycle = window.KinopoiskDetailPageLifecycle;
-            var page = lifecycle ? lifecycle.getActivePage() : document;
-            if (!page) {
-                return;
-            }
-            Array.prototype.forEach.call(
-                page.querySelectorAll('.kp-similar-card[data-kinopoisk-id]'),
-                function (fallback) {
-                    if (!fallback.querySelector('.kp-similar-card__fallback-button')
-                        || fallback.dataset.kpSeerrFallbackState) {
+            Array.prototype.forEach.call(cards, function (fallback) {
+                if (!isCurrent(fallback) || fallback.dataset.kpSeerrFallbackState === 'pending') {
+                    return;
+                }
+                if (Number(fallback.dataset.kpSeerrRetryAfter || 0) > Date.now()) {
+                    scheduleRetry();
+                    return;
+                }
+                var item = byId[String(fallback.dataset.kinopoiskId || '')];
+                if (!item) {
+                    scheduleRetry();
+                    return;
+                }
+                fallback.dataset.kpSeerrFallbackState = 'pending';
+                setCardStatus(fallback, 'Подключение к Seerr…');
+                pendingCards.push(function () {
+                    if (!isCurrent(fallback)) {
                         return;
                     }
-                    var item = byId[String(fallback.dataset.kinopoiskId || '')];
-                    if (!item) {
-                        return;
-                    }
-
-                    fallback.dataset.kpSeerrFallbackState = 'pending';
-                    resolveCardData(enhanced, item).then(function (resolved) {
-                        if (!fallback.isConnected) {
+                    return Promise.resolve().then(function () {
+                        return resolveCardData(enhanced, item);
+                    }).then(function (resolved) {
+                        if (!isCurrent(fallback)) {
                             return;
                         }
                         if (!resolved) {
                             fallback.dataset.kpSeerrFallbackState = 'unmatched';
+                            fallback.dataset.kpSeerrRetryAfter = String(Date.now() + 30000);
+                            setCardStatus(fallback, 'Не найдено в Seerr · КиноПоиск');
+                            scheduleRetry();
                             return;
                         }
+                        if (!resolved.active || !resolved.userFound) {
+                            throw new Error('Seerr или учётная запись пока недоступны.');
+                        }
                         var card = enhanced.jellyseerrUI.createJellyseerrCard(
-                            resolved.item,
-                            resolved.active,
-                            resolved.userFound
+                            resolved.item, resolved.active, resolved.userFound
                         );
                         card = customizeCard(card, item);
-                        if (card && fallback.isConnected) {
+                        if (!card) {
+                            throw new Error('Интерфейс Seerr пока не готов.');
+                        }
+                        if (isCurrent(fallback)) {
                             fallback.replaceWith(card);
                         }
+                    }).catch(function (error) {
+                        if (isCurrent(fallback)) {
+                            fallback.dataset.kpSeerrFallbackState = 'retry';
+                            fallback.dataset.kpSeerrRetryAfter = String(Date.now() + 1500);
+                            setCardStatus(fallback, 'Seerr временно недоступен · КиноПоиск');
+                            scheduleRetry();
+                            console.debug('[КиноПоиск] Карточка Seerr будет обработана повторно.', error);
+                        }
                     });
-                }
-            );
-        });
+                });
+            });
+            drainCards();
+        }).catch(function () { scheduleRetry(); });
     }
 
     function scheduleProcessing() {
-        clearTimeout(renderTimer);
-        renderTimer = setTimeout(processFallbackCards, 500);
+        if (!renderTimer) {
+            renderTimer = setTimeout(function () {
+                renderTimer = null;
+                processFallbackCards();
+            }, 100);
+        }
     }
 
+    document.addEventListener('kinopoisk:recommendations-rendered', scheduleProcessing);
+    document.addEventListener('jellyseerr-media-requested', function () { cache.clear(); });
+    document.addEventListener('focusin', function (event) {
+        if (event.target.closest && event.target.closest('.kp-similar-card--fallback')) {
+            retryAttempt = 0;
+            scheduleProcessing();
+        }
+    });
     var lifecycle = window.KinopoiskDetailPageLifecycle;
     if (lifecycle) {
         lifecycle.subscribe(scheduleProcessing);
