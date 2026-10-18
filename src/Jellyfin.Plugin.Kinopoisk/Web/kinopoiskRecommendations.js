@@ -312,22 +312,6 @@
         return resolver.resolve(imdbId, itemType);
     }
 
-    function getSeerrStatus() {
-        var key = 'seerr:user-status';
-        if (!dataCache.has(key)) {
-            var enhanced = window.JellyfinEnhanced;
-            var request = enhanced
-                && enhanced.jellyseerrAPI
-                && typeof enhanced.jellyseerrAPI.checkUserStatus === 'function'
-                ? enhanced.jellyseerrAPI.checkUserStatus()
-                : Promise.resolve({ active: false, userFound: false });
-            dataCache.set(key, Promise.resolve(request).catch(function () {
-                return { active: false, userFound: false };
-            }));
-        }
-        return dataCache.get(key);
-    }
-
     function fetchExtendedItems(item) {
         var enhanced = window.JellyfinEnhanced;
         if (!enhanced
@@ -404,92 +388,6 @@
             }));
         }
         return dataCache.get(key);
-    }
-
-    function getKinopoiskCardData(item) {
-        var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
-        var imdbId = String(pick(item, 'imdbId', 'ImdbId') || '').trim();
-        var mediaType = String(pick(item, 'mediaType', 'MediaType') || 'movie') === 'tv'
-            ? 'tv'
-            : 'movie';
-        var key = 'kp-card-data:' + kinopoiskId;
-        if (!/^\d+$/.test(kinopoiskId)
-            || !/^tt\d+$/.test(imdbId)
-            || dataCache.has(key)) {
-            return dataCache.get(key) || Promise.resolve(null);
-        }
-
-        var enhanced = window.JellyfinEnhanced;
-        var resolver = window.KinopoiskTmdbResolver;
-        if (!enhanced
-            || !enhanced.jellyseerrAPI
-            || !enhanced.jellyseerrUI
-            || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function'
-            || !resolver
-            || typeof resolver.resolve !== 'function') {
-            return Promise.resolve(null);
-        }
-
-        var itemType = mediaType === 'tv' ? 'Series' : 'Movie';
-        var request = Promise.all([
-            getSeerrStatus(),
-            resolver.resolve(imdbId, itemType)
-        ]).then(function (values) {
-            var status = values[0] || { active: false, userFound: false };
-            var tmdbId = String(values[1] || '');
-            if (!/^\d+$/.test(tmdbId)) {
-                return null;
-            }
-
-            var detailsRequest = Promise.resolve(null);
-            if (mediaType === 'movie'
-                && typeof enhanced.jellyseerrAPI.fetchMovieDetails === 'function') {
-                detailsRequest = enhanced.jellyseerrAPI.fetchMovieDetails(Number(tmdbId));
-            } else if (mediaType === 'tv'
-                && typeof enhanced.jellyseerrAPI.fetchTvShowDetails === 'function') {
-                detailsRequest = enhanced.jellyseerrAPI.fetchTvShowDetails(Number(tmdbId));
-            }
-
-            return Promise.resolve(detailsRequest).catch(function () {
-                return null;
-            }).then(function (details) {
-                var name = String(
-                    pick(item, 'name', 'Name')
-                    || pick(item, 'originalName', 'OriginalName')
-                    || 'Похожий фильм'
-                );
-                var year = Number(pick(item, 'year', 'Year') || 0);
-                var rating = Number(pick(item, 'ratingKinopoisk', 'RatingKinopoisk') || 0);
-                var overview = String(pick(item, 'overview', 'Overview') || '');
-                var result = Object.assign({}, details || {});
-                result.id = Number(tmdbId);
-                result.mediaType = mediaType;
-                result.title = name;
-                result.name = name;
-                result.overview = overview || result.overview || '';
-                result.voteAverage = rating > 0 ? rating : (result.voteAverage || 0);
-                if (mediaType === 'tv') {
-                    result.firstAirDate = year > 0
-                        ? String(year) + '-01-01'
-                        : (result.firstAirDate || '');
-                } else {
-                    result.releaseDate = year > 0
-                        ? String(year) + '-01-01'
-                        : (result.releaseDate || '');
-                }
-                return {
-                    item: result,
-                    active: status.active === true,
-                    userFound: status.userFound === true
-                };
-            });
-        }).catch(function (error) {
-            console.debug('[КиноПоиск] Карточка не сопоставлена с Seerr.', error);
-            return null;
-        });
-
-        dataCache.set(key, request);
-        return request;
     }
 
     function appendKinopoiskMeta(container, item) {
@@ -597,32 +495,6 @@
         return card;
     }
 
-    function customizeKinopoiskCard(card, item) {
-        if (!card) {
-            return null;
-        }
-        var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
-        card.classList.add('kp-similar-card');
-        card.dataset.kinopoiskId = kinopoiskId;
-
-        var imageUrl = normalizeImageUrl(
-            pick(item, 'posterUrl', 'PosterUrl')
-            || pick(item, 'posterUrlPreview', 'PosterUrlPreview')
-        );
-        var image = card.querySelector('.cardImageContainer');
-        if (image && imageUrl) {
-            var lifecycle = window.KinopoiskDetailPageLifecycle;
-            if (lifecycle) {
-                lifecycle.applyProtectedImage(image, imageUrl, 'background');
-            }
-        }
-        var meta = card.querySelector('.jellyseerr-meta');
-        if (meta) {
-            appendKinopoiskMeta(meta, item);
-        }
-        return card;
-    }
-
     function renderKinopoisk(container, items) {
         if (!items.length) {
             container.appendChild(createElement(
@@ -632,32 +504,16 @@
             ));
             return;
         }
-        var enhanced = window.JellyfinEnhanced;
+        container.__kinopoiskRecommendationItems = items;
         items.forEach(function (item) {
-            var fallback = createKinopoiskFallbackCard(item);
-            if (!fallback) {
-                return;
+            var card = createKinopoiskFallbackCard(item);
+            if (card) {
+                container.appendChild(card);
             }
-            container.appendChild(fallback);
-            getKinopoiskCardData(item).then(function (resolved) {
-                if (!resolved
-                    || !fallback.isConnected
-                    || !enhanced
-                    || !enhanced.jellyseerrUI
-                    || typeof enhanced.jellyseerrUI.createJellyseerrCard !== 'function') {
-                    return;
-                }
-                var card = enhanced.jellyseerrUI.createJellyseerrCard(
-                    resolved.item,
-                    resolved.active,
-                    resolved.userFound
-                );
-                card = customizeKinopoiskCard(card, item);
-                if (card && fallback.isConnected) {
-                    fallback.replaceWith(card);
-                }
-            });
         });
+        document.dispatchEvent(new CustomEvent('kinopoisk:recommendations-rendered', {
+            detail: { container: container, itemId: getCurrentItemId() }
+        }));
     }
 
     function renderExtended(container, result) {

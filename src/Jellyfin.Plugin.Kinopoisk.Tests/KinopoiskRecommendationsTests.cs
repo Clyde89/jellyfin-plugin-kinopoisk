@@ -28,11 +28,7 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("fetchRecommendedMovies", script);
             Assert.Contains("fetchSimilarTvShows", script);
             Assert.Contains("fetchRecommendedTvShows", script);
-            Assert.Contains("fetchMovieDetails", script);
-            Assert.Contains("fetchTvShowDetails", script);
-            Assert.Contains("getKinopoiskCardData", script);
             Assert.Contains("createKinopoiskFallbackCard", script);
-            Assert.Contains("customizeKinopoiskCard", script);
             Assert.Contains("createJellyseerrCard", script);
             Assert.Contains("ratingKinopoisk", script);
             Assert.Contains("overview", script);

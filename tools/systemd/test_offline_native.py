@@ -2,6 +2,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
 import unittest
@@ -217,7 +218,13 @@ class NativeFixtureTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" for method, _ in self.api.calls))
 
     def test_generated_mp4_registration_refresh_ranges_and_cleanup(self):
-        state = native.prepare(self.api, self.context, USER)
+        try:
+            encoders = native.encoder_pair()
+        except RuntimeError:
+            encoders = tuple(shutil.which(name) for name in ("ffmpeg", "ffprobe"))
+        self.assertTrue(all(encoders), "FFmpeg и FFprobe недоступны тестовому процессу")
+        with patch.object(native, "encoder_pair", return_value=encoders):
+            state = native.prepare(self.api, self.context, USER)
         result = native.verify(self.api, self.context, state, USER)
         self.assertEqual(result["http_range"], "PASS")
         self.assertEqual(state["movie_id"], MOVIE)

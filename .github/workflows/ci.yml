@@ -21,13 +21,15 @@ concurrency:
 jobs:
   build-and-test:
     name: Сборка и тесты
-    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, kinopoisk-ci]
     timeout-minutes: 20
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
       NUGET_XMLDOC_MODE: skip
+      TZ: UTC
 
     steps:
       - name: Получен исходный код
@@ -37,8 +39,35 @@ jobs:
 
       - name: Установлен .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           dotnet-version: 10.0.x
+
+      - name: Подключён установленный Node.js
+        id: node-runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          runner_node_bin="$(dirname "$RUNNER_TEMP")/../externals/node24/bin"
+          if command -v npm >/dev/null && [[ -x "${runner_node_bin}/node" ]]; then
+            export PATH="${runner_node_bin}:${PATH}"
+            echo "$runner_node_bin" >> "$GITHUB_PATH"
+          fi
+          if command -v node >/dev/null && command -v npm >/dev/null \
+              && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)'; then
+            node --version
+            npm --version
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Установлен резервный Node.js
+        if: steps.node-runtime.outputs.ready != 'true'
+        timeout-minutes: 3
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          mirror: https://nodejs.org/dist
 
       - name: Проверена версия .NET SDK
         shell: bash
@@ -116,12 +145,36 @@ jobs:
       - name: Выполнены DOM-тесты клиентской карточки
         run: npm run test:web
 
+      - name: Подготовлен FFmpeg для автономных проверок
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then
+            exit 0
+          fi
+          package_dir="${RUNNER_TEMP}/ffmpeg-packages"
+          runtime_dir="${RUNNER_TEMP}/ffmpeg-runtime"
+          mkdir -p "${package_dir}/archives/partial" "$runtime_dir"
+          apt-get -o Debug::NoLocking=true \
+            -o "Dir::Cache=${package_dir}" \
+            -o "Dir::Cache::archives=${package_dir}/archives" \
+            -o "Dir::State::extended_states=${package_dir}/extended_states" \
+            --yes --download-only --no-install-recommends install ffmpeg
+          for package in "${package_dir}/archives/"*.deb; do
+            dpkg-deb --extract "$package" "$runtime_dir"
+          done
+          library_dirs="$(find "${runtime_dir}/usr/lib" -type d -print | sort | paste -sd: -)"
+          export LD_LIBRARY_PATH="${library_dirs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          "${runtime_dir}/usr/bin/ffmpeg" -version
+          "${runtime_dir}/usr/bin/ffprobe" -version
+          echo "${runtime_dir}/usr/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
       - name: Проверены установка systemd и автоматический откат
         shell: bash
         run: |
           set -Eeuo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install --no-install-recommends -y ffmpeg
           python3 -m unittest discover -s tools/systemd -p 'test_*.py' -v
 
       - name: Рассчитаны контрольные суммы
