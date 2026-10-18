@@ -44,10 +44,30 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Установлен Node.js
+      - name: Подключён установленный Node.js
+        id: node-runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          runner_node_bin="$(dirname "$RUNNER_TEMP")/../externals/node24/bin"
+          if command -v npm >/dev/null && [[ -x "${runner_node_bin}/node" ]]; then
+            export PATH="${runner_node_bin}:${PATH}"
+            echo "$runner_node_bin" >> "$GITHUB_PATH"
+          fi
+          if command -v node >/dev/null && command -v npm >/dev/null \
+              && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)'; then
+            node --version
+            npm --version
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Установлен резервный Node.js
+        if: steps.node-runtime.outputs.ready != 'true'
+        timeout-minutes: 3
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
+          mirror: https://nodejs.org/dist
 
       - name: Проверена версия .NET SDK
         shell: bash
