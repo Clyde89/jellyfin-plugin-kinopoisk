@@ -145,6 +145,32 @@ jobs:
       - name: Выполнены DOM-тесты клиентской карточки
         run: npm run test:web
 
+      - name: Подготовлен FFmpeg для автономных проверок
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then
+            exit 0
+          fi
+          package_dir="${RUNNER_TEMP}/ffmpeg-packages"
+          runtime_dir="${RUNNER_TEMP}/ffmpeg-runtime"
+          mkdir -p "${package_dir}/archives/partial" "$runtime_dir"
+          apt-get -o Debug::NoLocking=true \
+            -o "Dir::Cache=${package_dir}" \
+            -o "Dir::Cache::archives=${package_dir}/archives" \
+            -o "Dir::State::extended_states=${package_dir}/extended_states" \
+            --yes --download-only --no-install-recommends install ffmpeg
+          for package in "${package_dir}/archives/"*.deb; do
+            dpkg-deb --extract "$package" "$runtime_dir"
+          done
+          library_dir="${runtime_dir}/usr/lib/x86_64-linux-gnu"
+          export LD_LIBRARY_PATH="${library_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          "${runtime_dir}/usr/bin/ffmpeg" -version
+          "${runtime_dir}/usr/bin/ffprobe" -version
+          echo "${runtime_dir}/usr/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
       - name: Проверены установка systemd и автоматический откат
         shell: bash
         run: |
