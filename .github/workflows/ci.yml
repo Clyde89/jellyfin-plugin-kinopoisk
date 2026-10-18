@@ -164,8 +164,8 @@ jobs:
           for package in "${package_dir}/archives/"*.deb; do
             dpkg-deb --extract "$package" "$runtime_dir"
           done
-          library_dir="${runtime_dir}/usr/lib/x86_64-linux-gnu"
-          export LD_LIBRARY_PATH="${library_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          library_dirs="$(find "${runtime_dir}/usr/lib" -type d -print | sort | paste -sd: -)"
+          export LD_LIBRARY_PATH="${library_dirs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
           "${runtime_dir}/usr/bin/ffmpeg" -version
           "${runtime_dir}/usr/bin/ffprobe" -version
           echo "${runtime_dir}/usr/bin" >> "$GITHUB_PATH"
