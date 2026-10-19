@@ -560,7 +560,7 @@
         var year = Number(pick(source, 'year', 'Year') || 0);
         if (year > 0) { dialog.appendChild(element('div', 'secondaryText', String(year))); }
         dialog.appendChild(element('p', '', String(pick(source, 'overview', 'Overview') || 'Краткое описание отсутствует.')));
-        var status = element('div', 'kp-recommendation-dialog__status', '');
+        var status = element('div', 'kp-recommendation-dialog__status', 'Загрузка действий…');
         status.setAttribute('role', 'status');
         dialog.appendChild(status);
         var seasons = element('div', 'kp-recommendation-dialog__seasons');

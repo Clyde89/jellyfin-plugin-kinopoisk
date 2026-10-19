@@ -650,6 +650,8 @@ test('автоматическое подключение без Enhanced ост
         await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__status').textContent === '', 'Ложная ошибка подключения.');
         assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').hidden, true);
         assert.equal(requestPosts(runtime).length, 0);
+        dialog.querySelector('.kp-recommendation-dialog__actions button:not(.kp-recommendation-dialog__submit)').click();
+        assert.equal(dialog.isConnected, false);
     } finally { runtime.dom.window.close(); }
 });
 
