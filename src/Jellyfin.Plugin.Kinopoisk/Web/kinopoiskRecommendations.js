@@ -395,9 +395,9 @@
         }
     }
 
-    function openRecommendation(card) {
+    function openRecommendation(card, event) {
         document.dispatchEvent(new CustomEvent('kinopoisk:recommendation-open', {
-            detail: { card: card }
+            detail: { card: card, keyboard: !!event && event.detail === 0 }
         }));
     }
 
@@ -433,7 +433,7 @@
         image.setAttribute('aria-label', name + ' — сведения и запрос');
         image.addEventListener('click', function (event) {
             event.stopPropagation();
-            openRecommendation(card);
+            openRecommendation(card, event);
         });
         if (imageUrl) {
             var lifecycle = window.KinopoiskDetailPageLifecycle;
@@ -460,14 +460,14 @@
         info.appendChild(createElement('span', 'material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover', 'info'));
         info.addEventListener('click', function (event) {
             event.stopPropagation();
-            openRecommendation(card);
+            openRecommendation(card, event);
         });
         var actions = createElement('div', 'kp-similar-card__actions');
         var request = createElement('button', 'emby-button raised button-submit kp-similar-card__request kp-similar-card__fallback-button', 'Подробнее');
         request.type = 'button';
         request.addEventListener('click', function (event) {
             event.stopPropagation();
-            openRecommendation(card);
+            openRecommendation(card, event);
         });
         actions.appendChild(request);
         overlay.append(info, actions);
@@ -479,7 +479,7 @@
         link.type = 'button';
         link.addEventListener('click', function (event) {
             event.stopPropagation();
-            openRecommendation(card);
+            openRecommendation(card, event);
         });
         title.appendChild(link);
         box.appendChild(title);

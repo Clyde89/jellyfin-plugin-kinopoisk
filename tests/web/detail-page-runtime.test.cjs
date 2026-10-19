@@ -419,7 +419,7 @@ for (const mediaType of ['movie', 'tv']) {
             assert.equal(window.JellyfinEnhanced, undefined);
             const card = window.document.querySelector('.kp-similar-card');
             assert.equal(card.dataset.tmdbId, '501');
-            assert.equal(card.querySelector('.kp-similar-card__request').textContent, 'Запрос');
+            assert.equal(card.querySelector('.kp-similar-card__request').textContent, 'Запросить');
             assert.equal(requestPosts(runtime).length, 0);
             const dialog = await openRecommendation(runtime, '.kp-similar-card__request');
             await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение запроса не подготовилось.');
@@ -647,13 +647,70 @@ test('автоматическое подключение без Enhanced ост
     try {
         await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="standalone"]'), 'Отсутствующий Enhanced заблокировал карточку.');
         const dialog = await openRecommendation(runtime);
-        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__status').textContent === '', 'Ложная ошибка подключения.');
+        await waitFor(() => dialog.textContent.includes('Для запросов подключите Seerr'), 'Не объяснено отсутствие сервиса запросов.');
         assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').hidden, true);
         assert.equal(requestPosts(runtime).length, 0);
         dialog.querySelector('.kp-recommendation-dialog__actions button:not(.kp-recommendation-dialog__submit)').click();
         assert.equal(dialog.isConnected, false);
     } finally { runtime.dom.window.close(); }
 });
+
+test('автоматически обнаруженный Enhanced обслуживает запрос без клиентских модулей', async () => {
+    const runtime = await createProxyRecommendation({}, {
+        status: url => jsonResponse(url.startsWith('/KinopoiskRequests/')
+            ? { provider: 'enhanced', active: false, userFound: false }
+            : { active: true, userFound: true, jellyseerrUserId: '17' })
+    });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Enhanced не обнаружен.');
+        assert.equal(runtime.window.JellyfinEnhanced, undefined);
+        const dialog = await openRecommendation(runtime);
+        const submit = dialog.querySelector('.kp-recommendation-dialog__submit');
+        await waitFor(() => !submit.disabled, 'Запрос через Enhanced не подготовлен.');
+        assert.equal(submit.textContent, 'Запросить');
+        submit.click();
+        await waitFor(() => dialog.textContent.includes('Запрос отправлен'), 'Заявка не отправлена через Enhanced.');
+        assert.equal(requestPosts(runtime)[0].url, '/JellyfinEnhanced/jellyseerr/request');
+        for (const request of runtime.requests.filter(r => r.url.startsWith('/JellyfinEnhanced/jellyseerr'))) {
+            assert.equal(request.options.headers['X-Jellyfin-User-Id'], 'user-1');
+            assert.equal(request.options.headers.Authorization, 'MediaBrowser Token="test-token"');
+        }
+    } finally { runtime.dom.window.close(); }
+});
+
+test('подключение Seerr после автономного режима применяется при повторном открытии', async () => {
+    let connected = false;
+    const runtime = await createProxyRecommendation({}, {
+        status: () => jsonResponse(connected
+            ? { provider: 'seerr', active: true, userFound: true }
+            : { provider: 'disabled', active: false, userFound: false, reason: 'disabled' })
+    });
+    try {
+        const first = await openRecommendation(runtime);
+        await waitFor(() => first.querySelector('.kp-recommendation-dialog__status').textContent === '', 'Автономный режим не готов.');
+        first.querySelector('.kp-recommendation-dialog__actions button').click();
+        connected = true;
+        const second = await openRecommendation(runtime);
+        await waitFor(() => !second.querySelector('.kp-recommendation-dialog__submit').disabled, 'Сохранённое подключение не применено.');
+        assert.equal(second.querySelector('.kp-recommendation-dialog__submit').textContent, 'Запросить');
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+for (const keyboard of [false, true]) {
+    test('закрытие подробностей восстанавливает фокус только для клавиатуры: ' + keyboard, async () => {
+        const runtime = await createProxyRecommendation();
+        try {
+            const opener = runtime.window.document.querySelector('.kp-similar-card__request');
+            opener.focus();
+            opener.dispatchEvent(new runtime.window.MouseEvent('click', { bubbles: true, detail: keyboard ? 0 : 1 }));
+            const dialog = runtime.window.document.querySelector('.kp-recommendation-dialog');
+            await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Окно не готово.');
+            dialog.querySelector('.kp-recommendation-dialog__actions button').click();
+            assert.equal(runtime.window.document.activeElement === opener, keyboard);
+        } finally { runtime.dom.window.close(); }
+    });
+}
 
 test('Seerr без права запроса сохраняет описание и блокирует отправку', async () => {
     const runtime = await createProxyRecommendation({}, { status: () => jsonResponse({ provider: 'seerr', active: true, userFound: true, canRequestMovie: false }) });

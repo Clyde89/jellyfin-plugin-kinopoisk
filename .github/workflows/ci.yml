@@ -313,7 +313,7 @@ jobs:
         if: contains(github.ref_name, 'runtime-review')
         uses: ./kinopoisk-upload-action
         with:
-          name: kinopoisk-12.1.0.6-review.1-systemd
+          name: kinopoisk-12.1.0.6-review.2-systemd
           path: ${{ runner.temp }}/kinopoisk-source/artifacts/kinopoisk-*-systemd.zip
           if-no-files-found: error
           retention-days: 7

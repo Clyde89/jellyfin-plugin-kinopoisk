@@ -20,6 +20,7 @@
     var activeRequests = 0;
     var openDialog = null;
     var requestProvider = 'seerr';
+    var statusExpiresAt = 0;
 
     // Core cards do not require an external plugin. Both optional connectors
     // use authenticated server endpoints; service credentials stay on the server.
@@ -31,6 +32,11 @@
         var controller = new AbortController();
         var timer = body === undefined ? setTimeout(function () { controller.abort(); }, 20000) : null;
         var headers = getAuthHeaders(client);
+        if (base === '/JellyfinEnhanced/jellyseerr') {
+            // Compatibility with older Enhanced versions; current versions use
+            // the authenticated principal. Never accept an arbitrary user id.
+            headers['X-Jellyfin-User-Id'] = getUserId();
+        }
         if (body !== undefined) {
             headers['Content-Type'] = 'application/json';
         }
@@ -64,10 +70,11 @@
             requestProvider = status.provider === 'enhanced' ? 'enhanced' : 'seerr';
             if (requestProvider !== 'enhanced') { return status; }
             return proxyFetch('/JellyfinEnhanced/jellyseerr', path).then(function (legacyStatus) {
-                return Object.assign({}, legacyStatus, { provider: 'enhanced' });
+                return Object.assign({}, legacyStatus, { provider: 'enhanced', enhancedDetected: true,
+                    reason: legacyStatus.reason || (!legacyStatus.active ? 'disabled' : !legacyStatus.userFound ? 'unlinked' : 'linked') });
             }).catch(function (error) {
                 if (error.status !== 404) { throw error; }
-                return { active: false, userFound: false, reason: 'disabled' };
+                return { provider: 'enhanced', enhancedDetected: false, active: false, userFound: false, reason: 'enhanced_missing' };
             });
         });
     }
@@ -319,13 +326,15 @@
 
     function getSeerrStatus(enhanced) {
         var key = 'seerr-status';
+        if (Date.now() >= statusExpiresAt) { cache.delete(key); }
         if (!cache.has(key)) {
             var request = enhanced.jellyseerrAPI
                 && typeof enhanced.jellyseerrAPI.checkUserStatus === 'function'
                 ? enhanced.jellyseerrAPI.checkUserStatus()
                 : Promise.resolve({ active: false, userFound: false });
             var pending = Promise.resolve(request).then(function (status) {
-                if ((!status || ((!status.active || !status.userFound) && status.reason !== 'disabled')) && cache.get(key) === pending) {
+                statusExpiresAt = Date.now() + 30000;
+                if ((!status || ((!status.active || !status.userFound) && !isStandalone(status))) && cache.get(key) === pending) {
                     cache.delete(key);
                 }
                 return status;
@@ -333,9 +342,14 @@
                 if (cache.get(key) === pending) { cache.delete(key); }
                 throw error;
             });
+            statusExpiresAt = Date.now() + 30000;
             cache.set(key, pending);
         }
         return cache.get(key);
+    }
+
+    function isStandalone(status) {
+        return status && !status.active && (status.reason === 'disabled' || status.reason === 'enhanced_missing');
     }
 
     function fetchDetails(enhanced, tmdbId, mediaType) {
@@ -387,7 +401,7 @@
             var status;
             var request = getSeerrStatus(enhanced).then(function (value) {
                 status = value || {};
-                if (!status.active && status.reason === 'disabled') {
+                if (isStandalone(status)) {
                     return null;
                 }
                 if (!status.active || !status.userFound) {
@@ -405,8 +419,8 @@
                 return resolveTmdbId(enhanced, item);
             }).then(function (resolvedId) {
                 var tmdbId = String(resolvedId || '');
-                if (!status.active && status.reason === 'disabled') {
-                    return { standalone: true, active: false, userFound: false };
+                if (isStandalone(status)) {
+                    return { standalone: true, active: false, userFound: false, connection: status };
                 }
                 if (!/^\d+$/.test(tmdbId)) {
                     return null;
@@ -428,7 +442,7 @@
                     });
             });
             var pending = request.then(function (result) {
-                if ((!result || (!result.standalone && (!result.active || !result.userFound))) && cache.get(key) === pending) {
+                if ((!result || result.standalone || !result.active || !result.userFound) && cache.get(key) === pending) {
                     cache.delete(key);
                 }
                 return result;
@@ -456,7 +470,7 @@
         var libraryId = String(info.jellyfinMediaId || (item.mediaType === 'tv' && info.jellyfinSeriesId) || '');
         return {
             label: status === 5 ? 'Доступно' : status === 2 ? 'Запрошено'
-                : status === 3 ? 'Загружается' : status === 4 ? 'Частично доступно' : 'Запрос',
+                : status === 3 ? 'Загружается' : status === 4 ? 'Частично доступно' : 'Запросить',
             canRequest: status !== 2 && status !== 3 && status !== 5,
             libraryId: /^[a-z0-9-]+$/i.test(libraryId) ? libraryId : ''
         };
@@ -543,7 +557,7 @@
         document.head.appendChild(style);
     }
 
-    function showDetails(card) {
+    function showDetails(card, keyboard) {
         if (!card || !card.isConnected) { return; }
         if (openDialog) { openDialog.close(); }
         var source = card.__kinopoiskRecommendationItem;
@@ -575,7 +589,7 @@
         kpLink.rel = 'noopener noreferrer';
         var cancel = element('button', 'emby-button button-flat', 'Закрыть');
         cancel.type = 'button';
-        var submit = element('button', 'emby-button raised button-submit kp-recommendation-dialog__submit', 'Запрос');
+        var submit = element('button', 'emby-button raised button-submit kp-recommendation-dialog__submit', 'Запросить');
         submit.type = 'button';
         submit.disabled = true;
         submit.hidden = true;
@@ -588,11 +602,18 @@
                 && card.isConnected && dialog.isConnected;
         }
         function close() {
+            if (closed) { return; }
             closed = true;
             if (typeof dialog.close === 'function' && dialog.open) { dialog.close(); }
             dialog.remove();
             if (openDialog && openDialog.element === dialog) { openDialog = null; }
-            if (returnFocus && returnFocus.isConnected) { returnFocus.focus(); }
+            if (keyboard && returnFocus && returnFocus.isConnected) {
+                returnFocus.focus({ preventScroll: true });
+            } else if (card.contains(document.activeElement)) {
+                // Native dialog.close() restores focus too. Pointer activation
+                // must not leave Jellyfin's :focus-within hover on the card.
+                document.activeElement.blur();
+            }
         }
         openDialog = { element: dialog, close: close, ownerId: ownerId, userId: userId, card: card };
         findLibraryItem(card, source).then(function (libraryId) {
@@ -640,7 +661,7 @@
                 }).catch(function () {
                     card.__kpAdvancedUnavailable = true;
                     if (card.isConnected && getCurrentItemId() === ownerId && getUserId() === userId) {
-                        showDetails(card);
+                        showDetails(card, keyboard);
                     }
                 });
                 return;
@@ -686,7 +707,10 @@
             if (!isCurrent()) { return; }
             if (result && result.standalone) {
                 bindStandaloneCard(card);
-                status.textContent = '';
+                status.textContent = result.connection.reason === 'enhanced_missing'
+                    ? 'Для запросов подключите Seerr в настройках КиноПоиска. Jellyfin Enhanced не установлен.'
+                    : result.connection.enhancedDetected
+                        ? 'Jellyfin Enhanced обнаружен, но Seerr в нём выключен или не настроен. Можно подключить Seerr напрямую в настройках КиноПоиска.' : '';
                 return;
             }
             if (!result) { throw new Error('Однозначное совпадение в Seerr не найдено. Запрос недоступен.'); }
@@ -698,7 +722,7 @@
             if (permitted === false) { available.canRequest = false; available.label = 'Нет права запроса в Seerr'; }
             submit.hidden = false;
             status.textContent = available.canRequest ? 'Подтвердите запрос в Seerr.' : available.label;
-            submit.textContent = available.canRequest ? 'Запрос' : available.libraryId ? 'Открыть в Jellyfin' : available.label;
+            submit.textContent = available.canRequest ? 'Запросить' : available.libraryId ? 'Открыть в Jellyfin' : available.label;
             submit.disabled = !available.libraryId && !available.canRequest;
             if (available.libraryId && available.canRequest && !actions.querySelector('.kp-recommendation-library')) {
                 var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
@@ -823,6 +847,8 @@
         card.dataset.kpSeerrFallbackState = 'standalone';
         delete card.dataset.kpSeerrReason;
         setCardStatus(card, 'Подробнее');
+        card.dataset.kpSeerrRetryAfter = String(Date.now() + 30000);
+        scheduleRetry();
     }
 
     function processFallbackCards() {
@@ -871,8 +897,7 @@
             });
             Array.prototype.forEach.call(cards, function (fallback) {
                 if (!isCurrent(fallback) || fallback.dataset.kpSeerrFallbackState === 'pending'
-                    || fallback.dataset.kpSeerrFallbackState === 'ready'
-                    || fallback.dataset.kpSeerrFallbackState === 'standalone') {
+                    || fallback.dataset.kpSeerrFallbackState === 'ready') {
                     return;
                 }
                 if (Number(fallback.dataset.kpSeerrRetryAfter || 0) > Date.now()) {
@@ -937,7 +962,7 @@
 
     document.addEventListener('kinopoisk:recommendations-rendered', scheduleProcessing);
     document.addEventListener('kinopoisk:recommendation-open', function (event) {
-        showDetails(event.detail && event.detail.card);
+        showDetails(event.detail && event.detail.card, event.detail && event.detail.keyboard);
     });
     document.addEventListener('jellyseerr-media-requested', function () { cache.clear(); });
     document.addEventListener('focusin', function (event) {

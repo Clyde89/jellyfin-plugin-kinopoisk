@@ -106,11 +106,11 @@
         <div><strong>Последний ETag:</strong> <code id="WebBootstrapLastEtag">—</code></div>
     </div>
 
-                    <h2>Запросы из рекомендаций</h2>
+                    <h2>Интеграция с Seerr</h2>
                     <div class="selectContainer">
                         <label class="selectLabel" for="RecommendationRequestProvider">Подключение сервиса запросов</label>
                         <select id="RecommendationRequestProvider" is="emby-select">
-                            <option value="auto">Автоматически: Seerr плагина или прежнее подключение Enhanced</option>
+                            <option value="auto">Автоматически: прямое подключение Seerr или обнаружение Enhanced</option>
                             <option value="seerr">Seerr напрямую</option>
                             <option value="enhanced">Прежнее подключение через Jellyfin Enhanced</option>
                             <option value="disabled">Без сервиса запросов</option>
@@ -126,6 +126,14 @@
                         <input id="SeerrApiKey" type="password" autocomplete="new-password" is="emby-input" />
                         <div class="fieldDescription">Для прямого подключения. Пользователь должен войти в Seerr через Jellyfin. Запросы используют его права и квоту. Изменения применяются после сохранения.</div>
                     </div>
+                    <div class="kinopoiskStatusCard">
+                        <div><strong>Jellyfin Enhanced:</strong> <span id="EnhancedDetectionStatus">ещё не проверялся</span></div>
+                        <div id="SeerrConnectionStatus" role="status" aria-live="polite">Подключение ещё не проверялось.</div>
+                    </div>
+                    <div class="kinopoiskActions">
+                        <button id="CheckSeerrConnection" is="emby-button" type="button" class="raised emby-button"><span>Проверить подключение</span></button>
+                    </div>
+                    <div class="fieldDescription">Проверяются сохранённые настройки. При прямом подключении Seerr установка Jellyfin Enhanced не требуется. Поиском и загрузкой управляют настройки Seerr, Radarr и Sonarr.</div>
 
                     <h2>Стандартные функции Jellyfin</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -430,6 +438,84 @@
             try { sessionStorage.setItem('kinopoisk.activeTab', panelId); } catch (_) { }
         }
 
+        var connectionSequence = 0;
+
+        function connectionFetch(path, textResponse) {
+            var controller = new AbortController();
+            var timer = setTimeout(function () { controller.abort(); }, 20000);
+            return fetch(ApiClient.getUrl(path), {
+                credentials: 'same-origin',
+                headers: {
+                    'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"',
+                    'X-Emby-Token': ApiClient.accessToken(),
+                    'X-Jellyfin-User-Id': ApiClient.getCurrentUserId(),
+                    'Accept': textResponse ? 'text/plain' : 'application/json'
+                },
+                signal: controller.signal
+            }).then(function (response) {
+                if (!response.ok) {
+                    var error = new Error(response.status === 409
+                        ? 'Укажите адрес и API-ключ Seerr, затем сохраните настройки.'
+                        : response.status === 401 || response.status === 403
+                            ? 'Недостаточно прав или требуется повторный вход в Jellyfin.'
+                            : 'Подключение недоступно: HTTP ' + response.status + '.');
+                    error.status = response.status;
+                    throw error;
+                }
+                return textResponse ? response.text() : response.json();
+            }).finally(function () { clearTimeout(timer); });
+        }
+
+        function loadRequestConnection() {
+            var sequence = ++connectionSequence;
+            $('#CheckSeerrConnection').prop('disabled', true);
+            $('#SeerrConnectionStatus').text('Проверка подключения…');
+            $('#EnhancedDetectionStatus').text('проверка…');
+            var detection = connectionFetch('/JellyfinEnhanced/version', true).then(function (version) {
+                return /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?$/.test(version.trim()) ? true : null;
+            }).catch(function (error) { return error.status === 404 ? false : null; });
+            var connection = connectionFetch('/KinopoiskRequests/user-status').then(function (status) {
+                if (status.provider !== 'enhanced') { return status; }
+                return connectionFetch('/JellyfinEnhanced/jellyseerr/user-status').then(function (legacy) {
+                    return Object.assign({}, legacy, { provider: 'enhanced', enhancedDetected: true,
+                        reason: legacy.reason || (!legacy.active ? 'disabled' : !legacy.userFound ? 'unlinked' : 'linked') });
+                }).catch(function (error) {
+                    if (error.status !== 404) { throw error; }
+                    return { provider: 'enhanced', active: false, userFound: false, reason: 'enhanced_missing' };
+                });
+            }).then(function (status) { return { status: status }; }, function (error) {
+                return { error: error.name === 'AbortError' ? 'Seerr не ответил вовремя.' : error.message };
+            });
+            return Promise.all([detection, connection]).then(function (results) {
+                if (sequence !== connectionSequence) { return; }
+                var result = results[1];
+                var status = result.status || {};
+                var detected = status.enhancedDetected === true ? true : results[0];
+                $('#EnhancedDetectionStatus').text(detected === true ? 'обнаружен' : detected === false ? 'не установлен' : 'не удалось определить');
+                var messages = {
+                    disabled: status.provider === 'enhanced'
+                        ? 'Seerr в Enhanced выключен или не настроен. Доступно прямое подключение Seerr.'
+                        : 'Запросы отключены. Рекомендации и подробности доступны.',
+                    enhanced_missing: detected === true
+                        ? 'Enhanced обнаружен, но его сервис запросов недоступен. Проверьте версию Enhanced или подключите Seerr напрямую.'
+                        : 'Подключите Seerr напрямую: укажите адрес и API-ключ, затем сохраните настройки.',
+                    unlinked: 'Seerr доступен, но эта учётная запись не связана с Jellyfin. Войдите в Seerr через Jellyfin.',
+                    no_user: 'Требуется повторный вход в Jellyfin.',
+                    blocked: 'Для этой учётной записи запросы запрещены в Enhanced.',
+                    unreachable: 'Seerr недоступен. Проверьте адрес и доступность сервиса.'
+                };
+                var message = result.error || messages[status.reason] || 'Подключение Seerr не готово.';
+                if (status.active && status.userFound) {
+                    message = (status.provider === 'enhanced' ? 'Seerr подключён через Enhanced.' : 'Seerr подключён напрямую.')
+                        + (status.canRequestMovie === false && status.canRequestTv === false
+                            ? ' Учётная запись связана, но право запроса отсутствует.' : ' Учётная запись связана.');
+                }
+                $('#SeerrConnectionStatus').text(message);
+            }).finally(function () {
+                if (sequence === connectionSequence) { $('#CheckSeerrConnection').prop('disabled', false); }
+            });
+        }
+
         function applyConfiguration(config) {
             setValue('#ApiToken', config.ApiToken, '');
             setCheckbox('#EnableWebBootstrap', config.EnableWebBootstrap, true);
@@ -597,6 +683,7 @@
             return ApiClient.getPluginConfiguration(KinopoiskConfig.pluginUniqueId).then(function (config) {
                 applyConfiguration(config);
                 Dashboard.hideLoadingMsg();
+                loadRequestConnection();
                 return config;
             });
         }
@@ -620,6 +707,7 @@
         $('#KinopoiskDiagnosticsTab').on('click', function () { showTab('KinopoiskDiagnosticsPanel'); });
         $('#RefreshDiagnosticStatus').on('click', loadConfiguration);
         $('#RefreshTrailerCacheStatistics').on('click', loadTrailerCacheStatistics);
+        $('#CheckSeerrConnection').on('click', loadRequestConnection);
 
         $('#StartDiagnosticSession').on('click', function () {
             Dashboard.showLoadingMsg();

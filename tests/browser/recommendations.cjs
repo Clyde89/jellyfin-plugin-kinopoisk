@@ -20,7 +20,9 @@ const items = [{ kinopoiskId: 8169, name: 'Водный мир', originalName: '
     ratingKinopoisk: 7.6, posterUrl: 'https://kinopoiskapiunofficial.tech/images/posters/kp/8169.jpg' }];
 let posts = [];
 let serviceConnected = true;
+let enhancedConnected = false;
 let serviceReads = 0;
+const enhancedCalls = [];
 let browser;
 let origin;
 const errors = [];
@@ -46,8 +48,15 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/KinopoiskPresentation/100/similars') { json(response, { items }); return; }
     if (url.pathname.startsWith('/KinopoiskRecommendations/library/')) { json(response, { itemId: serviceConnected ? null : 'library-8169' }); return; }
     if (url.pathname.startsWith('/KinopoiskPresentation/')) { json(response, { ratings: {}, releaseDates: [], relations: [], professions: [], items: [] }); return; }
-    if (url.pathname.startsWith('/KinopoiskRequests/')) {
+    if (url.pathname.startsWith('/KinopoiskRequests/') || url.pathname.startsWith('/JellyfinEnhanced/jellyseerr/')) {
         if (request.headers['x-emby-token'] !== 'fixture-token') { json(response, {}, 401); return; }
+        if (url.pathname.startsWith('/JellyfinEnhanced/')) {
+            enhancedCalls.push({ path: url.pathname, user: request.headers['x-jellyfin-user-id'] });
+            if (!enhancedConnected) { json(response, {}, 404); return; }
+        }
+        if (url.pathname === '/KinopoiskRequests/user-status' && enhancedConnected) {
+            json(response, { provider: 'enhanced', active: false, userFound: false }); return;
+        }
         if (url.pathname.endsWith('/user-status')) { json(response, serviceConnected
             ? { provider: 'seerr', active: true, userFound: true, jellyseerrUserId: '17' }
             : { provider: 'disabled', active: false, userFound: false, reason: 'disabled' }); return; }
@@ -77,7 +86,7 @@ const server = http.createServer(async (request, response) => {
     });
     await page.goto(origin + '/web/#/details?id=item-1');
     const card = page.locator('.kp-similar-card');
-    await card.locator('.kp-similar-card__request').filter({ hasText: /^Запрос$/ }).waitFor();
+    await card.locator('.kp-similar-card__request').filter({ hasText: /^Запросить$/ }).waitFor();
     assert.equal(await page.evaluate(() => typeof window.JellyfinEnhanced), 'undefined');
     assert.equal(await card.locator('a[href*="kinopoisk.ru"]').count(), 0);
     const style = async selector => page.locator(selector).evaluate(node => {
@@ -98,24 +107,54 @@ const server = http.createServer(async (request, response) => {
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-hover.png'), fullPage: true });
     await card.locator('.kp-similar-card__request').click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Запрос', exact: true }).waitFor({ state: 'visible' });
+    await dialog.getByRole('button', { name: 'Запросить', exact: true }).waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('.kp-recommendation-dialog__submit').disabled);
     assert.equal(posts.length, 0);
     const dialogBox = await dialog.boundingBox();
     assert.ok(Math.abs(dialogBox.x + dialogBox.width / 2 - 640) < 2, 'Native dialog styles displaced the recommendation dialog');
     assert.equal(await dialog.getByRole('button', { name: 'Закрыть', exact: true }).evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-confirm.png'), fullPage: true });
-    await dialog.getByRole('button', { name: 'Запрос', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Запросить', exact: true }).click();
     await dialog.getByRole('status').filter({ hasText: 'Запрос отправлен' }).waitFor();
     assert.deepEqual(posts, [{ mediaType: 'movie', mediaId: 9804 }]);
     await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.mouse.move(1100, 200);
+    await page.waitForTimeout(250);
+    assert.equal(await card.evaluate(node => node.contains(document.activeElement)), false, 'Pointer close retained focus on the card');
+    assert.equal(await card.locator('.cardOverlayContainer').evaluate(node => getComputedStyle(node).opacity), '0', 'Hover remained after pointer close');
+    await page.screenshot({ path: path.join(root, 'artifacts/recommendations-after-close.png'), fullPage: true });
     await card.locator('.cardText-first button').click();
     await dialog.getByRole('status').filter({ hasText: /^Запрошено$/ }).waitFor();
     assert.equal(await dialog.locator('.kp-recommendation-dialog__submit').isDisabled(), true);
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
     assert.equal(posts.length, 1);
+    // Keyboard users retain their position and can reopen the dialog.
+    const keyboardOpener = card.locator('.cardText-first button');
+    await keyboardOpener.focus();
+    await keyboardOpener.press('Enter');
+    await dialog.waitFor({ state: 'visible' });
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(await keyboardOpener.evaluate(node => document.activeElement === node), true, 'Keyboard close lost the opener');
     assert.deepEqual(errors, [], 'The complete embedded bundle raised an error');
+
+    // Auto mode discovers the server integration without any Enhanced JS global.
+    enhancedConnected = true;
+    posts = [];
+    const enhancedPage = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    enhancedPage.on('pageerror', error => errors.push(error.message));
+    await enhancedPage.goto(origin + '/web/#/details?id=item-1');
+    await enhancedPage.getByRole('button', { name: 'Запросить', exact: true }).click();
+    const enhancedDialog = enhancedPage.getByRole('dialog');
+    await enhancedDialog.getByRole('button', { name: 'Запросить', exact: true }).waitFor({ state: 'visible' });
+    assert.equal(await enhancedPage.evaluate(() => typeof window.JellyfinEnhanced), 'undefined');
+    assert.ok(enhancedCalls.some(call => call.path.endsWith('/user-status')));
+    assert.ok(enhancedCalls.every(call => call.user === 'fixture-user'));
+    assert.equal(posts.length, 0);
+    await enhancedPage.screenshot({ path: path.join(root, 'artifacts/recommendations-enhanced.png'), fullPage: true });
+    await enhancedPage.close();
+    enhancedConnected = false;
 
     // Touch needs one tap, and the dialog must fit a narrow viewport.
     posts = [];
