@@ -23,7 +23,7 @@ jobs:
     name: Сборка и тесты
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, kinopoisk-ci]
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -37,12 +37,22 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Установлен .NET SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
-        env:
-          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
-        with:
-          dotnet-version: 10.0.x
+      - name: Подключён .NET SDK
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sdk_dir="${RUNNER_WORKSPACE}/../kinopoisk-tools/dotnet"
+          mkdir -p "$sdk_dir"
+          if [[ ! -x "${sdk_dir}/dotnet" ]] || ! "${sdk_dir}/dotnet" --list-sdks | grep -q '^10\.0\.402 '; then
+            curl --fail --show-error --silent --location --max-time 60 \
+              https://dot.net/v1/dotnet-install.sh --output "${RUNNER_TEMP}/install-dotnet.sh"
+            bash "${RUNNER_TEMP}/install-dotnet.sh" --version 10.0.402 \
+              --install-dir "$sdk_dir" --no-path \
+              --azure-feed https://dotnetcli.blob.core.windows.net/dotnet
+          fi
+          echo "$sdk_dir" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$sdk_dir" >> "$GITHUB_ENV"
 
       - name: Подключён установленный Node.js
         id: node-runtime
@@ -162,6 +172,30 @@ jobs:
           curl --fail --show-error --silent --location "$upstream/src/components/cardbuilder/card.scss" --output "$style_dir/card.scss"
           curl --fail --show-error --silent --location "$upstream/src/elements/emby-button/emby-button.scss" --output "$style_dir/emby-button.scss"
           echo "JELLYFIN_STYLE_DIR=${style_dir}" >> "$GITHUB_ENV"
+
+      - name: Подготовлены библиотеки браузера без изменения системы
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          package_dir="${RUNNER_TEMP}/browser-packages"
+          runtime_dir="${RUNNER_TEMP}/browser-runtime"
+          mkdir -p "${package_dir}/archives/partial" "${runtime_dir}/usr/lib"
+          # Playwright 1.56.1 nativeDeps.ts, ubuntu24.04-x64/chromium.
+          apt-get -o Debug::NoLocking=true -o "Dir::Cache=${package_dir}" \
+            -o "Dir::Cache::archives=${package_dir}/archives" \
+            -o "Dir::State::extended_states=${package_dir}/extended_states" \
+            --yes --download-only --no-install-recommends install \
+            libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 \
+            libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 \
+            libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+            libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation
+          shopt -s nullglob
+          for package in "${package_dir}/archives/"*.deb; do
+            dpkg-deb --extract "$package" "$runtime_dir"
+          done
+          library_dirs="$(find "${runtime_dir}/usr/lib" -type d -print | sort | paste -sd: -)"
+          echo "LD_LIBRARY_PATH=${library_dirs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "$GITHUB_ENV"
 
       - name: Проверены полный клиентский bundle и штатное оформление Jellyfin
         timeout-minutes: 3
