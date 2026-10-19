@@ -36,7 +36,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Api
         }
 
         private static bool IsAllowedHost(string host)
-            => host.Equals("kinopoiskapiunofficial.tech", StringComparison.Ordinal)
+            => host.Equals("image.tmdb.org", StringComparison.Ordinal)
+                || host.Equals("kinopoiskapiunofficial.tech", StringComparison.Ordinal)
                 || IsSameOrSubdomain(host, "yandex.net")
                 || IsSameOrSubdomain(host, "kinopoisk.ru")
                 || IsSameOrSubdomain(host, "kp.yandex.net");

@@ -66,6 +66,17 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
 
             serviceCollection.AddSingleton<KinopoiskPresentationService>();
+            serviceCollection.AddHttpClient(KinopoiskSeerrClient.HttpClientName,
+                client => client.Timeout = TimeSpan.FromSeconds(15))
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    AllowAutoRedirect = false,
+                    UseCookies = false,
+                    ConnectTimeout = TimeSpan.FromSeconds(5)
+                });
+            serviceCollection.AddSingleton(sp => new KinopoiskSeerrClient(
+                sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IMemoryCache>(),
+                () => Plugin.Instance.Configuration));
             serviceCollection.AddSingleton((sp) => new KinopoiskSupplementalApiClient(
                 Plugin.Instance.Configuration.ApiToken,
                 sp.GetRequiredService<IHttpClientFactory>(),

@@ -105,7 +105,7 @@ async function createRecommendationRuntime(itemOverrides = {}, proxyResponse) {
         '<div id="active" class="itemDetailPage"><div class="detailPagePrimaryContent"></div>'
             + '<div id="similarCollapsible"><div id="native-card" class="card"></div></div></div>',
         itemId => movie(itemId, 100),
-        url => proxyResponse && url.startsWith('/JellyfinEnhanced/') ? proxyResponse(url)
+        url => proxyResponse && (url.startsWith('/KinopoiskRequests/') || url.startsWith('/JellyfinEnhanced/')) ? proxyResponse(url)
             : url.startsWith('/KinopoiskPresentation/image?')
             ? imageResponse()
             : jsonResponse({ items: [{
@@ -377,7 +377,7 @@ async function createProxyRecommendation(itemOverrides = {}, options = {}) {
     let searches = 0;
     const runtime = await createRecommendationRuntime(itemOverrides, async url => {
         if (url.endsWith('/user-status')) {
-            return options.status ? options.status() : jsonResponse({ active: true, userFound: true, jellyseerrUserId: '17' });
+            return options.status ? options.status(url) : jsonResponse({ active: true, userFound: true, jellyseerrUserId: '17' });
         }
         if (url.includes('/search?')) {
             searches += 1;
@@ -434,7 +434,7 @@ for (const mediaType of ['movie', 'tv']) {
             assert.deepEqual(JSON.parse(posts[0].options.body), {
                 mediaType, mediaId: 501, ...(mediaType === 'tv' ? { seasons: [1] } : {})
             });
-            for (const request of runtime.requests.filter(r => r.url.startsWith('/JellyfinEnhanced/'))) {
+            for (const request of runtime.requests.filter(r => r.url.startsWith('/KinopoiskRequests/') || url.startsWith('/JellyfinEnhanced/'))) {
                 assert.equal(request.options.headers['X-Emby-Token'], 'test-token');
                 assert.equal(request.options.credentials, 'same-origin');
                 assert.equal(request.options.headers['X-API-KEY'], undefined);
@@ -461,7 +461,8 @@ test('сломанные клиентские модули Enhanced не бло�
 });
 
 test('ошибка расширенного окна Enhanced возвращает подтверждение без потери обычного запроса', async () => {
-    const runtime = await createProxyRecommendation();
+    const runtime = await createProxyRecommendation({}, { status: url => jsonResponse(url.startsWith('/KinopoiskRequests/')
+        ? { provider: 'enhanced' } : { active: true, userFound: true, jellyseerrUserId: '17' }) });
     try {
         let advancedCalls = 0;
         runtime.window.JellyfinEnhanced = {
@@ -585,7 +586,7 @@ for (const status of [403, 409, 429, 503]) {
 }
 
 test('правило Seerr применено только к подходящему фильму и пользователю', async () => {
-    const runtime = await createProxyRecommendation({}, { rules: [
+    const runtime = await createProxyRecommendation({}, { status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' } : { active: true, userFound: true, jellyseerrUserId: '17' }), rules: [
         { id: 1, radarrServiceId: 9, users: '99', profileId: 1 },
         { id: 2, radarrServiceId: 2, users: '17', profileId: 3, rootFolder: '/movies', tags: '4|5' }
     ] });
@@ -610,5 +611,54 @@ test('смена пользователя закрывает подтвержд�
         assert.equal(requestPosts(runtime).length, 0);
         runtime.window.document.dispatchEvent(new runtime.window.Event('kinopoisk:recommendations-rendered'));
         await waitFor(() => !runtime.window.document.querySelector('.kp-recommendation-dialog'), 'Окно прежнего пользователя не закрыто.');
+    } finally { runtime.dom.window.close(); }
+});
+
+
+test('без сервиса запросов рекомендации, описание и библиотека работают автономно', async () => {
+    const runtime = await createRecommendationRuntime({}, url => {
+        assert.equal(url, '/KinopoiskRequests/user-status');
+        return jsonResponse({ provider: 'disabled', active: false, userFound: false, reason: 'disabled' });
+    });
+    const originalFetch = runtime.window.fetch;
+    runtime.window.fetch = (url, options) => String(url).startsWith('/KinopoiskRecommendations/library/')
+        ? Promise.resolve(jsonResponse({ itemId: 'abcdef123456' })) : originalFetch(url, options);
+    runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="standalone"]'), 'Автономный режим не выбран.');
+        assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, 'Подробнее');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-library'), 'Фильм из библиотеки не найден.');
+        assert.match(dialog.textContent, /Описание похожего фильма/);
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').hidden, true);
+        assert.equal(dialog.querySelector('.kp-recommendation-library').getAttribute('href'), '#/details?id=abcdef123456');
+        assert.equal(runtime.requests.some(r => r.url.includes('/JellyfinEnhanced/')), false);
+        assert.equal(runtime.requests.some(r => r.url.includes('/search?')), false);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('автоматическое подключение без Enhanced оставляет самостоятельную карточку', async () => {
+    const runtime = await createRecommendationRuntime({}, url => url.startsWith('/KinopoiskRequests/')
+        ? jsonResponse({ provider: 'enhanced', active: false, userFound: false })
+        : jsonResponse({}, 404));
+    runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="standalone"]'), 'Отсутствующий Enhanced заблокировал карточку.');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__status').textContent === '', 'Ложная ошибка подключения.');
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').hidden, true);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('Seerr без права запроса сохраняет описание и блокирует отправку', async () => {
+    const runtime = await createProxyRecommendation({}, { status: () => jsonResponse({ provider: 'seerr', active: true, userFound: true, canRequestMovie: false }) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.textContent.includes('Нет права запроса'), 'Права Seerr не учтены.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        assert.equal(requestPosts(runtime).length, 0);
+        assert.equal(runtime.requests.some(r => r.url.includes('/JellyfinEnhanced/')), false);
     } finally { runtime.dom.window.close(); }
 });

@@ -106,6 +106,27 @@
         <div><strong>Последний ETag:</strong> <code id="WebBootstrapLastEtag">—</code></div>
     </div>
 
+                    <h2>Запросы из рекомендаций</h2>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="RecommendationRequestProvider">Подключение сервиса запросов</label>
+                        <select id="RecommendationRequestProvider" is="emby-select">
+                            <option value="auto">Автоматически: Seerr плагина или прежнее подключение Enhanced</option>
+                            <option value="seerr">Seerr напрямую</option>
+                            <option value="enhanced">Прежнее подключение через Jellyfin Enhanced</option>
+                            <option value="disabled">Без сервиса запросов</option>
+                        </select>
+                        <div class="fieldDescription">Рекомендации КиноПоиска и просмотр карточек работают без сервиса запросов. Для запроса используйте Seerr или сохранённое подключение Enhanced.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="SeerrUrl">Адрес Seerr</label>
+                        <input id="SeerrUrl" type="url" is="emby-input" placeholder="http://seerr:5055" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="SeerrApiKey">API-ключ Seerr</label>
+                        <input id="SeerrApiKey" type="password" autocomplete="new-password" is="emby-input" />
+                        <div class="fieldDescription">Для прямого подключения. Пользователь должен войти в Seerr через Jellyfin. Запросы используют его права и квоту. Изменения применяются после сохранения.</div>
+                    </div>
+
                     <h2>Стандартные функции Jellyfin</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label><input id="EnableMovieMetadata" type="checkbox" is="emby-checkbox" /><span>Метаданные фильмов</span></label>
@@ -412,6 +433,9 @@
         function applyConfiguration(config) {
             setValue('#ApiToken', config.ApiToken, '');
             setCheckbox('#EnableWebBootstrap', config.EnableWebBootstrap, true);
+            setValue('#RecommendationRequestProvider', config.RecommendationRequestProvider, 'auto');
+            setValue('#SeerrUrl', config.SeerrUrl, '');
+            setValue('#SeerrApiKey', config.SeerrApiKey, '');
             setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
             setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
             setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
@@ -509,6 +533,9 @@
         function copyFormToConfiguration(config) {
             config.ApiToken = $('#ApiToken').val();
             config.EnableWebBootstrap = $('#EnableWebBootstrap').prop('checked');
+            config.RecommendationRequestProvider = $('#RecommendationRequestProvider').val();
+            config.SeerrUrl = $('#SeerrUrl').val();
+            config.SeerrApiKey = $('#SeerrApiKey').val();
             config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
             config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
             config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');

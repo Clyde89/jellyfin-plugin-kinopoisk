@@ -12,6 +12,12 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
 
         public bool EnableWebBootstrap { get; set; } = true;
 
+        public string RecommendationRequestProvider { get; set; } = "auto";
+
+        public string SeerrUrl { get; set; } = string.Empty;
+
+        public string SeerrApiKey { get; set; } = string.Empty;
+
         public bool EnableMovieMetadata { get; set; } = true;
 
         public bool EnableSeriesMetadata { get; set; } = true;
@@ -146,6 +152,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
         public void Normalize()
         {
             ApiToken = ApiToken?.Trim() ?? string.Empty;
+            SeerrUrl = SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
+            SeerrApiKey = SeerrApiKey?.Trim() ?? string.Empty;
+            if (RecommendationRequestProvider is not ("auto" or "disabled" or "seerr" or "enhanced"))
+                RecommendationRequestProvider = "auto";
             FranchiseCollectionNameSuffix = string.IsNullOrWhiteSpace(FranchiseCollectionNameSuffix)
                 ? " — коллекция"
                 : FranchiseCollectionNameSuffix.TrimEnd();

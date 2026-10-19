@@ -19,10 +19,11 @@
     var pendingCards = [];
     var activeRequests = 0;
     var openDialog = null;
+    var requestProvider = 'seerr';
 
-    // Use the authenticated server proxy even when Enhanced's UI modules are
-    // absent or failed to initialize. No Seerr API key is exposed to the browser.
-    function proxy(path, body) {
+    // Core cards do not require an external plugin. Both optional connectors
+    // use authenticated server endpoints; service credentials stay on the server.
+    function proxyFetch(base, path, body) {
         var client = window.ApiClient;
         if (!client || typeof client.getUrl !== 'function') {
             return Promise.reject(new Error('Сеанс Jellyfin ещё не готов.'));
@@ -33,7 +34,7 @@
         if (body !== undefined) {
             headers['Content-Type'] = 'application/json';
         }
-        return fetch(client.getUrl('/JellyfinEnhanced/jellyseerr' + path), {
+        return fetch(client.getUrl(base + path), {
             method: body === undefined ? 'GET' : 'POST',
             credentials: 'same-origin',
             headers: headers,
@@ -53,6 +54,22 @@
         }).finally(function () { clearTimeout(timer); });
     }
 
+    function proxy(path, body) {
+        if (path !== '/user-status') {
+            return proxyFetch(requestProvider === 'enhanced' ? '/JellyfinEnhanced/jellyseerr' : '/KinopoiskRequests', path, body);
+        }
+        var userId = getUserId();
+        return proxyFetch('/KinopoiskRequests', path).then(function (status) {
+            if (getUserId() !== userId) { throw new Error('Учётная запись изменилась.'); }
+            requestProvider = status.provider === 'enhanced' ? 'enhanced' : 'seerr';
+            if (requestProvider !== 'enhanced') { return status; }
+            return proxyFetch('/JellyfinEnhanced/jellyseerr', path).catch(function (error) {
+                if (error.status !== 404) { throw error; }
+                return { active: false, userFound: false, reason: 'disabled' };
+            });
+        });
+    }
+
     var proxyApi = {
         checkUserStatus: function () {
             return proxy('/user-status');
@@ -65,8 +82,14 @@
         },
         fetchTvShowDetails: function (id) {
             return proxy('/tv/' + id);
-        }
+        },
+        fetchSimilarMovies: function (id) { return proxy('/movie/' + id + '/similar'); },
+        fetchRecommendedMovies: function (id) { return proxy('/movie/' + id + '/recommendations'); },
+        fetchSimilarTvShows: function (id) { return proxy('/tv/' + id + '/similar'); },
+        fetchRecommendedTvShows: function (id) { return proxy('/tv/' + id + '/recommendations'); }
     };
+
+    window.KinopoiskRecommendationRequests = proxyApi;
 
     function getIntegration() {
         return { jellyseerrAPI: proxyApi };
@@ -270,6 +293,8 @@
     }
 
     function resolveTmdbId(enhanced, item) {
+        var saved = String(item.tmdbId || '');
+        if (/^\d+$/.test(saved)) { return Promise.resolve(saved); }
         var imdbId = String(pick(item, 'imdbId', 'ImdbId') || '').trim();
         var mediaType = String(pick(item, 'mediaType', 'MediaType') || 'movie') === 'tv'
             ? 'tv'
@@ -298,7 +323,7 @@
                 ? enhanced.jellyseerrAPI.checkUserStatus()
                 : Promise.resolve({ active: false, userFound: false });
             var pending = Promise.resolve(request).then(function (status) {
-                if ((!status || !status.active || !status.userFound) && cache.get(key) === pending) {
+                if ((!status || ((!status.active || !status.userFound) && status.reason !== 'disabled')) && cache.get(key) === pending) {
                     cache.delete(key);
                 }
                 return status;
@@ -355,24 +380,32 @@
 
     function resolveCardData(enhanced, item) {
         var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
-        var key = 'match:' + kinopoiskId;
+        var key = 'match:' + (kinopoiskId || item.mediaType + ':' + item.tmdbId);
         if (!cache.has(key)) {
             var status;
             var request = getSeerrStatus(enhanced).then(function (value) {
                 status = value || {};
+                if (!status.active && status.reason === 'disabled') {
+                    return null;
+                }
                 if (!status.active || !status.userFound) {
                     var reasons = {
-                        disabled: 'Интеграция Seerr отключена в Jellyfin Enhanced.',
+                        disabled: 'Сервис запросов не подключён.',
                         unlinked: 'Учётная запись Jellyfin не связана с Seerr.',
                         blocked: 'Для этой учётной записи доступ к Seerr запрещён.',
                         no_user: 'Войдите в Jellyfin для запроса.',
                         unreachable: 'Seerr сейчас недоступен.'
                     };
-                    throw new Error(reasons[status.reason] || 'Seerr или учётная запись сейчас недоступны.');
+                    var error = new Error(reasons[status.reason] || 'Seerr или учётная запись сейчас недоступны.');
+                    error.reason = status.reason;
+                    throw error;
                 }
                 return resolveTmdbId(enhanced, item);
             }).then(function (resolvedId) {
                 var tmdbId = String(resolvedId || '');
+                if (!status.active && status.reason === 'disabled') {
+                    return { standalone: true, active: false, userFound: false };
+                }
                 if (!/^\d+$/.test(tmdbId)) {
                     return null;
                 }
@@ -393,7 +426,7 @@
                     });
             });
             var pending = request.then(function (result) {
-                if ((!result || !result.active || !result.userFound) && cache.get(key) === pending) {
+                if ((!result || (!result.standalone && (!result.active || !result.userFound))) && cache.get(key) === pending) {
                     cache.delete(key);
                 }
                 return result;
@@ -482,6 +515,16 @@
         });
     }
 
+    function findLibraryItem(card, source) {
+        if (!/^\d+$/.test(String(card.dataset.kinopoiskId || ''))) { return Promise.resolve(null); }
+        var type = String(pick(source, 'mediaType', 'MediaType') || 'movie') === 'tv' ? 'tv' : 'movie';
+        return fetchJson(window.ApiClient, '/KinopoiskRecommendations/library/' + card.dataset.kinopoiskId
+            + '?mediaType=' + type).then(function (data) {
+            var id = String(data.itemId || '');
+            return /^[a-z0-9-]+$/i.test(id) ? id : null;
+        });
+    }
+
     function ensureDialogStyles() {
         if (document.getElementById('kinopoiskRecommendationDialogStyles')) { return; }
         var style = element('style');
@@ -513,14 +556,16 @@
         var year = Number(pick(source, 'year', 'Year') || 0);
         if (year > 0) { dialog.appendChild(element('div', 'secondaryText', String(year))); }
         dialog.appendChild(element('p', '', String(pick(source, 'overview', 'Overview') || 'Краткое описание отсутствует.')));
-        var status = element('div', 'kp-recommendation-dialog__status', 'Проверка Seerr…');
+        var status = element('div', 'kp-recommendation-dialog__status', '');
         status.setAttribute('role', 'status');
         dialog.appendChild(status);
         var seasons = element('div', 'kp-recommendation-dialog__seasons');
         dialog.appendChild(seasons);
         var actions = element('div', 'kp-recommendation-dialog__actions');
         var kpLink = element('a', 'emby-button', 'КиноПоиск');
-        kpLink.href = 'https://www.kinopoisk.ru/film/' + encodeURIComponent(card.dataset.kinopoiskId) + '/';
+        kpLink.href = source.tmdbId ? 'https://www.themoviedb.org/' + (source.mediaType === 'tv' ? 'tv/' : 'movie/') + encodeURIComponent(source.tmdbId)
+            : 'https://www.kinopoisk.ru/film/' + encodeURIComponent(card.dataset.kinopoiskId) + '/';
+        if (source.tmdbId) { kpLink.textContent = 'TMDB'; }
         kpLink.target = '_blank';
         kpLink.rel = 'noopener noreferrer';
         var cancel = element('button', 'emby-button', 'Закрыть');
@@ -528,6 +573,7 @@
         var submit = element('button', 'emby-button raised button-submit kp-recommendation-dialog__submit', 'Запрос');
         submit.type = 'button';
         submit.disabled = true;
+        submit.hidden = true;
         actions.append(kpLink, cancel, submit);
         dialog.appendChild(actions);
         document.body.appendChild(dialog);
@@ -544,6 +590,13 @@
             if (returnFocus && returnFocus.isConnected) { returnFocus.focus(); }
         }
         openDialog = { element: dialog, close: close, ownerId: ownerId, userId: userId, card: card };
+        findLibraryItem(card, source).then(function (libraryId) {
+            if (!isCurrent() || !libraryId || actions.querySelector('.kp-recommendation-library')) { return; }
+            var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
+            library.href = '#/details?id=' + encodeURIComponent(libraryId);
+            actions.insertBefore(library, cancel);
+            library.addEventListener('click', close);
+        }).catch(function () { /* The synopsis and optional request remain available. */ });
         cancel.addEventListener('click', close);
         dialog.addEventListener('cancel', function (event) { event.preventDefault(); close(); });
         if (typeof dialog.showModal === 'function') { dialog.showModal(); }
@@ -567,7 +620,7 @@
             var nativeApi = enhanced && enhanced.jellyseerrAPI;
             var useAdvanced = false;
             try {
-                useAdvanced = !card.__kpAdvancedUnavailable && nativeApi
+                useAdvanced = requestProvider === 'enhanced' && !card.__kpAdvancedUnavailable && nativeApi
                     && typeof nativeApi.shouldShowAdvanced === 'function' && nativeApi.shouldShowAdvanced()
                     && nativeUi && (item.mediaType === 'tv' ? typeof nativeUi.showSeasonSelectionModal === 'function'
                         : typeof nativeUi.showMovieRequestModal === 'function');
@@ -621,20 +674,28 @@
             });
         });
         // Recheck on opening: a request could have been made in another tab.
-        cache.delete('match:' + card.dataset.kinopoiskId);
+        cache.delete('match:' + (card.dataset.kinopoiskId || source.mediaType + ':' + source.tmdbId));
         cache.delete('seerr-status');
         resolveCardData(getIntegration(), source).then(function (result) {
             if (!isCurrent()) { return; }
+            if (result && result.standalone) {
+                bindStandaloneCard(card);
+                status.textContent = '';
+                return;
+            }
             if (!result) { throw new Error('Однозначное совпадение в Seerr не найдено. Запрос недоступен.'); }
             resolved = result;
             bindCard(card, result);
             var item = result.item;
             var available = availability(item);
+            var permitted = item.mediaType === 'tv' ? result.status.canRequestTv : result.status.canRequestMovie;
+            if (permitted === false) { available.canRequest = false; available.label = 'Нет права запроса в Seerr'; }
+            submit.hidden = false;
             status.textContent = available.canRequest ? 'Подтвердите запрос в Seerr.' : available.label;
             submit.textContent = available.canRequest ? 'Запрос' : available.libraryId ? 'Открыть в Jellyfin' : available.label;
             submit.disabled = !available.libraryId && !available.canRequest;
-            if (available.libraryId && available.canRequest) {
-                var library = element('a', 'emby-button', 'Открыть в Jellyfin');
+            if (available.libraryId && available.canRequest && !actions.querySelector('.kp-recommendation-library')) {
+                var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
                 library.href = '#/details?id=' + encodeURIComponent(available.libraryId);
                 actions.insertBefore(library, cancel);
                 library.addEventListener('click', close);
@@ -668,6 +729,7 @@
             if (isCurrent()) {
                 status.textContent = String(error.message || 'Seerr сейчас недоступен.');
                 submit.textContent = 'Запрос недоступен';
+                submit.hidden = false;
                 submit.disabled = true;
             }
         });
@@ -751,6 +813,12 @@
         }
     }
 
+    function bindStandaloneCard(card) {
+        card.dataset.kpSeerrFallbackState = 'standalone';
+        delete card.dataset.kpSeerrReason;
+        setCardStatus(card, 'Подробнее');
+    }
+
     function processFallbackCards() {
         var itemId = getCurrentItemId();
         if (openDialog && (openDialog.ownerId !== itemId || openDialog.userId !== getUserId()
@@ -797,20 +865,21 @@
             });
             Array.prototype.forEach.call(cards, function (fallback) {
                 if (!isCurrent(fallback) || fallback.dataset.kpSeerrFallbackState === 'pending'
-                    || fallback.dataset.kpSeerrFallbackState === 'ready') {
+                    || fallback.dataset.kpSeerrFallbackState === 'ready'
+                    || fallback.dataset.kpSeerrFallbackState === 'standalone') {
                     return;
                 }
                 if (Number(fallback.dataset.kpSeerrRetryAfter || 0) > Date.now()) {
                     scheduleRetry();
                     return;
                 }
-                var item = byId[String(fallback.dataset.kinopoiskId || '')];
+                var item = fallback.__kinopoiskRecommendationItem || byId[String(fallback.dataset.kinopoiskId || '')];
                 if (!item) {
                     scheduleRetry();
                     return;
                 }
                 fallback.dataset.kpSeerrFallbackState = 'pending';
-                setCardStatus(fallback, 'Подключение к Seerr…');
+                setCardStatus(fallback, 'Подробнее');
                 pendingCards.push(function () {
                     if (!isCurrent(fallback)) {
                         return;
@@ -828,6 +897,7 @@
                             scheduleRetry();
                             return;
                         }
+                        if (resolved.standalone) { bindStandaloneCard(fallback); return; }
                         if (!resolved.active || !resolved.userFound) {
                             throw new Error('Seerr или учётная запись пока недоступны.');
                         }

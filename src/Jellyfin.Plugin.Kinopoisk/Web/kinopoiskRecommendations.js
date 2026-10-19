@@ -151,7 +151,7 @@
         try {
             var parsed = new URL(String(value));
             var host = parsed.hostname.toLowerCase();
-            var allowed = host === 'kinopoiskapiunofficial.tech'
+            var allowed = host === 'image.tmdb.org' || host === 'kinopoiskapiunofficial.tech'
                 || host.endsWith('.yandex.net')
                 || host.endsWith('.kinopoisk.ru')
                 || host.endsWith('.kp.yandex.net');
@@ -307,21 +307,14 @@
     }
 
     function fetchExtendedItems(item) {
-        var enhanced = window.JellyfinEnhanced;
-        if (!enhanced
-            || !enhanced.jellyseerrAPI
-            || !enhanced.pluginConfig) {
-            return Promise.resolve({ items: [], reason: 'Интеграция Jellyfin Enhanced недоступна.' });
+        var api = window.KinopoiskRecommendationRequests;
+        if (!api) {
+            return Promise.resolve({ items: [], reason: 'Дополнительная подборка пока недоступна.' });
         }
-
-        var showSimilar = enhanced.pluginConfig.JellyseerrShowSimilar === true;
-        var showRecommended = enhanced.pluginConfig.JellyseerrShowRecommended === true;
-        if (!showSimilar && !showRecommended) {
-            return Promise.resolve({
-                items: [],
-                reason: 'Похожие фильмы и рекомендации отключены в настройках Jellyfin Enhanced.'
-            });
-        }
+        var enhanced = { jellyseerrAPI: api };
+        var config = window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
+        var showSimilar = !config || config.JellyseerrShowSimilar !== false;
+        var showRecommended = !config || config.JellyseerrShowRecommended !== false;
 
         var itemId = String(pick(item, 'Id', 'id') || '');
         var key = 'extended:' + itemId;
@@ -385,7 +378,7 @@
 
     function appendKinopoiskMeta(container, item) {
         container.textContent = '';
-        var source = createElement('span', 'kp-similar-card__source', 'КиноПоиск');
+        var source = createElement('span', 'kp-similar-card__source', item.tmdbId ? 'TMDB' : 'КиноПоиск');
         var year = Number(pick(item, 'year', 'Year') || 0);
         var rating = Number(pick(item, 'ratingKinopoisk', 'RatingKinopoisk') || 0);
         container.appendChild(source);
@@ -410,7 +403,7 @@
 
     function createKinopoiskFallbackCard(item) {
         var kinopoiskId = String(pick(item, 'kinopoiskId', 'KinopoiskId') || '');
-        if (!/^\d+$/.test(kinopoiskId)) {
+        if (!/^\d+$/.test(kinopoiskId) && !/^\d+$/.test(String(item.tmdbId || ''))) {
             return null;
         }
 
@@ -470,7 +463,7 @@
             openRecommendation(card);
         });
         var actions = createElement('div', 'kp-similar-card__actions');
-        var request = createElement('button', 'emby-button raised button-submit kp-similar-card__request kp-similar-card__fallback-button', 'Подключение к Seerr…');
+        var request = createElement('button', 'emby-button raised button-submit kp-similar-card__request kp-similar-card__fallback-button', 'Подробнее');
         request.type = 'button';
         request.addEventListener('click', function (event) {
             event.stopPropagation();
@@ -534,13 +527,20 @@
             return;
         }
 
-        var enhanced = window.JellyfinEnhanced;
-        items.forEach(function (item) {
-            var card = enhanced.jellyseerrUI.createJellyseerrCard(item, true, true);
-            if (card) {
-                container.appendChild(card);
-            }
+        var normalized = items.map(function (item) {
+            var type = item.mediaType || item.media_type || 'movie';
+            var date = type === 'tv' ? item.firstAirDate || item.first_air_date : item.releaseDate || item.release_date;
+            var poster = item.posterPath || item.poster_path;
+            return {
+                tmdbId: item.id, mediaType: type,
+                name: item.title || item.name || '',
+                originalName: item.originalTitle || item.originalName || '',
+                year: Number(String(date || '').slice(0, 4)) || null,
+                overview: item.overview || '',
+                posterUrl: poster && /^\/[a-z0-9._/-]+$/i.test(poster) ? 'https://image.tmdb.org/t/p/w500' + poster : ''
+            };
         });
+        renderKinopoisk(container, normalized);
     }
 
     function createSection(itemId, item, kinopoiskId) {

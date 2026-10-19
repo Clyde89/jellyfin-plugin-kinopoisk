@@ -29,10 +29,9 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("fetchSimilarTvShows", script);
             Assert.Contains("fetchRecommendedTvShows", script);
             Assert.Contains("createKinopoiskFallbackCard", script);
-            Assert.Contains("createJellyseerrCard", script);
+            Assert.DoesNotContain("createJellyseerrCard", script);
             Assert.Contains("ratingKinopoisk", script);
-            Assert.Contains("overview", script);
-            Assert.Contains("imdbId", script);
+            Assert.Contains("kinopoisk:recommendation-open", script);
             Assert.Contains("mediaType", script);
             Assert.Contains("--kp-native-card-width", script);
             Assert.Contains("applyNativeCardWidth", script);

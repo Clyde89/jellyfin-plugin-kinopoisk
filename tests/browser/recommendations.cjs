@@ -43,7 +43,7 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname.startsWith('/item/')) { json(response, { Id: url.pathname.split('/').pop(), Type: 'Movie', ProviderIds: { Kinopoisk: '100' } }); return; }
     if (url.pathname === '/KinopoiskPresentation/100/similars') { json(response, { items }); return; }
     if (url.pathname.startsWith('/KinopoiskPresentation/')) { json(response, { ratings: {}, releaseDates: [], relations: [], professions: [], items: [] }); return; }
-    if (url.pathname.startsWith('/JellyfinEnhanced/jellyseerr/')) {
+    if (url.pathname.startsWith('/KinopoiskRequests/')) {
         if (request.headers['x-emby-token'] !== 'fixture-token') { json(response, {}, 401); return; }
         if (url.pathname.endsWith('/user-status')) { json(response, { active: true, userFound: true, jellyseerrUserId: '17' }); return; }
         if (url.pathname.endsWith('/search')) { json(response, { results: [{ id: 9804, mediaType: 'movie', title: 'Водный мир', originalTitle: 'Waterworld', releaseDate: '1995-07-28' }] }); return; }

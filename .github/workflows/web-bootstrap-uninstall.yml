@@ -6,6 +6,7 @@ on:
       - develop
       - 'feature/**'
       - 'fix/**'
+      - '!fix/kinopoisk-seerr-runtime-review'
   pull_request:
     branches:
       - develop

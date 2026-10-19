@@ -113,7 +113,7 @@
         try {
             var parsed = new URL(String(value));
             var host = parsed.hostname.toLowerCase();
-            var allowed = host === 'kinopoiskapiunofficial.tech'
+            var allowed = host === 'image.tmdb.org' || host === 'kinopoiskapiunofficial.tech'
                 || host.endsWith('.yandex.net')
                 || host.endsWith('.kinopoisk.ru')
                 || host.endsWith('.kp.yandex.net');
