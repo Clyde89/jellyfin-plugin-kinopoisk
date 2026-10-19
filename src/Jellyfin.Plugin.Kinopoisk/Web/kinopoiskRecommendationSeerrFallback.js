@@ -537,6 +537,7 @@
             + '.kp-recommendation-dialog::backdrop{background:rgba(0,0,0,.65)}'
             + '.kp-recommendation-dialog h2{margin-top:0}.kp-recommendation-dialog p{line-height:1.5;white-space:pre-wrap}'
             + '.kp-recommendation-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:.6em;flex-wrap:wrap;margin-top:1.4em}'
+            + '.kp-recommendation-dialog__submit[hidden]{display:none}'
             + '.kp-recommendation-dialog__seasons{display:grid;gap:.7em;margin:1em 0}.kp-recommendation-dialog__seasons label{display:flex;gap:.7em;align-items:center}'
             + '.kp-recommendation-dialog__status{line-height:1.5;margin-top:1em}';
         document.head.appendChild(style);
