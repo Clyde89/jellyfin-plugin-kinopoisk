@@ -33,7 +33,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: ${{ runner.temp }}/kinopoisk-source
+        working-directory: ${{ github.workspace }}/kinopoisk-ci-source
 
     steps:
       - name: Получены исходники через Git
@@ -49,6 +49,13 @@ jobs:
           git -C "$source_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+          source_link="${GITHUB_WORKSPACE}/kinopoisk-ci-source"
+          if [[ -L "$source_link" ]]; then
+            test "$(readlink "$source_link")" = "$source_dir"
+            unlink "$source_link"
+          fi
+          test ! -e "$source_link"
+          ln -s "$source_dir" "$source_link"
           upload_dir="${GITHUB_WORKSPACE}/kinopoisk-upload-action"
           upload_sha=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
           if [[ ! -d "${upload_dir}/.git" ]]; then
