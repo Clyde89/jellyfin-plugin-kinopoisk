@@ -103,6 +103,7 @@ const server = http.createServer(async (request, response) => {
     assert.equal(posts.length, 0);
     const dialogBox = await dialog.boundingBox();
     assert.ok(Math.abs(dialogBox.x + dialogBox.width / 2 - 640) < 2, 'Native dialog styles displaced the recommendation dialog');
+    assert.equal(await dialog.getByRole('button', { name: 'Закрыть', exact: true }).evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-confirm.png'), fullPage: true });
     await dialog.getByRole('button', { name: 'Запрос', exact: true }).click();
     await dialog.getByRole('status').filter({ hasText: 'Запрос отправлен' }).waitFor();
@@ -123,7 +124,9 @@ const server = http.createServer(async (request, response) => {
     mobilePage.on('pageerror', error => errors.push(error.message));
     await mobilePage.goto(origin + '/web/#/details?id=item-1');
     await mobilePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="ready"]').waitFor();
-    await mobilePage.locator('.kp-similar-card .cardImageContainer').tap();
+    await mobilePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
+    const touchPoster = await mobilePage.locator('.kp-similar-card .cardScalable').boundingBox();
+    await mobilePage.touchscreen.tap(touchPoster.x + touchPoster.width / 2, touchPoster.y + touchPoster.height / 2);
     await mobilePage.getByRole('dialog').waitFor();
     const box = await mobilePage.getByRole('dialog').boundingBox();
     assert.ok(box.x >= 0 && box.x + box.width <= 390);
@@ -139,7 +142,9 @@ const server = http.createServer(async (request, response) => {
     standalonePage.on('pageerror', error => errors.push(error.message));
     await standalonePage.goto(origin + '/web/#/details?id=item-1');
     await standalonePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="standalone"]').waitFor();
-    await standalonePage.locator('.kp-similar-card .cardImageContainer').click();
+    await standalonePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
+    const standalonePoster = await standalonePage.locator('.kp-similar-card .cardScalable').boundingBox();
+    await standalonePage.mouse.click(standalonePoster.x + standalonePoster.width / 2, standalonePoster.y + standalonePoster.height / 2);
     const standaloneDialog = standalonePage.getByRole('dialog');
     await standaloneDialog.getByRole('link', { name: 'Открыть в Jellyfin' }).waitFor();
     assert.match(await standaloneDialog.textContent(), /Рекомендация выбранного фильма/);

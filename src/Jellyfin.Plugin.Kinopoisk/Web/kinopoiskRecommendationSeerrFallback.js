@@ -572,7 +572,7 @@
         if (source.tmdbId) { kpLink.textContent = 'TMDB'; }
         kpLink.target = '_blank';
         kpLink.rel = 'noopener noreferrer';
-        var cancel = element('button', 'emby-button', 'Закрыть');
+        var cancel = element('button', 'emby-button button-flat', 'Закрыть');
         cancel.type = 'button';
         var submit = element('button', 'emby-button raised button-submit kp-recommendation-dialog__submit', 'Запрос');
         submit.type = 'button';
