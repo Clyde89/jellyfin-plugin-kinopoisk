@@ -5,11 +5,15 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.Configuration;
+using Jellyfin.Plugin.Kinopoisk.Api;
 using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
 
@@ -101,6 +105,25 @@ public sealed class KinopoiskSeerrClientTests
             JsonSerializer.SerializeToElement(new { mediaId = 501, mediaType = "movie" }), CancellationToken.None));
         Assert.Equal(409, error.Status);
         Assert.DoesNotContain(fixture.Http.Calls, c => c.Method == "POST");
+    }
+
+    [Fact]
+    public async Task ControllerIgnoresUserHeadersAndUsesAuthenticatedPrincipal()
+    {
+        using var fixture = new Fixture();
+        var context = new DefaultHttpContext();
+        context.Request.Headers["X-Emby-UserId"] = First.ToString();
+        context.Request.Headers["X-Api-User"] = "1";
+        var controller = new KinopoiskRequestsController(fixture.Client)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context }
+        };
+        Assert.IsType<ForbidResult>(await controller.Status(CancellationToken.None));
+        Assert.Empty(fixture.Http.Calls);
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", Second.ToString()) }, "fixture"));
+        Assert.IsType<OkObjectResult>(await controller.Status(CancellationToken.None));
+        Assert.Equal("28", fixture.Http.Calls.Last().User);
+        Assert.Equal("no-store", context.Response.Headers.CacheControl.ToString());
     }
 
     private sealed class Fixture : IDisposable

@@ -434,7 +434,7 @@ for (const mediaType of ['movie', 'tv']) {
             assert.deepEqual(JSON.parse(posts[0].options.body), {
                 mediaType, mediaId: 501, ...(mediaType === 'tv' ? { seasons: [1] } : {})
             });
-            for (const request of runtime.requests.filter(r => r.url.startsWith('/KinopoiskRequests/') || url.startsWith('/JellyfinEnhanced/'))) {
+            for (const request of runtime.requests.filter(r => r.url.startsWith('/KinopoiskRequests/') || r.url.startsWith('/JellyfinEnhanced/'))) {
                 assert.equal(request.options.headers['X-Emby-Token'], 'test-token');
                 assert.equal(request.options.credentials, 'same-origin');
                 assert.equal(request.options.headers['X-API-KEY'], undefined);

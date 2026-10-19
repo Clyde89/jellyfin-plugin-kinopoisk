@@ -464,7 +464,9 @@
         card.dataset.kpSeerrFallbackState = 'ready';
         delete card.dataset.kpSeerrReason;
         card.dataset.tmdbId = String(resolved.item.id);
-        setCardStatus(card, availability(resolved.item).label);
+        var available = availability(resolved.item);
+        var permitted = resolved.item.mediaType === 'tv' ? resolved.status.canRequestTv : resolved.status.canRequestMovie;
+        setCardStatus(card, available.canRequest && permitted === false ? 'Подробнее' : available.label);
     }
 
     function requestDefaults(item, userStatus) {
@@ -615,6 +617,7 @@
                 return;
             }
             if (!available.canRequest) { return; }
+            if ((item.mediaType === 'tv' ? resolved.status.canRequestTv : resolved.status.canRequestMovie) === false) { return; }
             var enhanced = window.JellyfinEnhanced;
             var nativeUi = enhanced && enhanced.jellyseerrUI;
             var nativeApi = enhanced && enhanced.jellyseerrAPI;

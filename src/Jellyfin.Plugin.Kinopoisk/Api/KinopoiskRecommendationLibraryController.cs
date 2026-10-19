@@ -42,9 +42,8 @@ public sealed class KinopoiskRecommendationLibraryController : ControllerBase
             {
                 [Constants.ProviderId] = kinopoiskId.ToString()
             },
-            EnableTotalRecordCount = false,
-            Limit = 2
-        });
-        return Ok(new { itemId = matches.Count == 1 ? matches[0].Id.ToString("N") : null });
+            EnableTotalRecordCount = false
+        }).Where(item => item.IsVisibleStandalone(user)).Take(2).ToArray();
+        return Ok(new { itemId = matches.Length == 1 ? matches[0].Id.ToString("N") : null });
     }
 }
