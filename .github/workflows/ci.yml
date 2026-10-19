@@ -224,6 +224,19 @@ jobs:
             "$plugin_dll" \
             "$api_client_dll"
 
+      - name: Подготовлен установочный архив кандидата
+        if: contains(github.ref_name, 'runtime-review')
+        run: python3 tools/ci/package-review.py
+
+      - name: Сохранён установочный архив кандидата
+        if: contains(github.ref_name, 'runtime-review')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kinopoisk-12.1.0.6-review.1-systemd
+          path: artifacts/kinopoisk-*-systemd.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Опубликована тестовая сборка
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

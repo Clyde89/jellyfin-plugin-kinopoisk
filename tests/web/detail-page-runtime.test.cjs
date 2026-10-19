@@ -369,24 +369,6 @@ test('ширина рекомендаций взята у штатной кар�
     runtime.dom.window.close();
 });
 
-function attachSeerr(runtime, options = {}) {
-    const { window } = runtime;
-    const submitted = [];
-    window.JellyfinEnhanced = {
-        jellyseerrAPI: {
-            checkUserStatus: options.status || (() => Promise.resolve({ active: true, userFound: true })),
-            search: options.search || (() => Promise.resolve({ results: [{
-                id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025-01-01'
-            }] })),
-            fetchMovieDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
-            fetchTvShowDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
-            requestMedia(id, mediaType) { submitted.push({ id, mediaType }); return Promise.resolve({ id: 77 }); }
-        }
-        // Deliberately no jellyseerrUI or card factory.
-    };
-    return { submitted };
-}
-
 async function createProxyRecommendation(itemOverrides = {}, options = {}) {
     let searches = 0;
     const runtime = await createRecommendationRuntime(itemOverrides, async url => {
@@ -458,17 +440,19 @@ for (const mediaType of ['movie', 'tv']) {
     });
 }
 
-test('API Enhanced используется без зависимости от его фабрики карточек', async () => {
-    const runtime = await createRecommendationRuntime();
+test('сломанные клиентские модули Enhanced не блокируют серверный запрос', async () => {
+    const runtime = await createProxyRecommendation();
     try {
-        const seerr = attachSeerr(runtime);
-        runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'API без UI не подключился.');
+        const unavailable = () => { throw new Error('Enhanced client module failed to load'); };
+        runtime.window.JellyfinEnhanced = {
+            jellyseerrAPI: { checkUserStatus: unavailable, search: unavailable, fetchMovieDetails: unavailable, requestMedia: unavailable },
+            jellyseerrUI: { createJellyseerrCard: unavailable }
+        };
         const dialog = await openRecommendation(runtime);
         await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение недоступно.');
         dialog.querySelector('.kp-recommendation-dialog__submit').click();
-        await waitFor(() => seerr.submitted.length === 1, 'Настоящий обработчик не вызвал API.');
-        assert.deepEqual(seerr.submitted, [{ id: 501, mediaType: 'movie' }]);
+        await waitFor(() => requestPosts(runtime).length === 1, 'Прокси не использован.');
+        assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body), { mediaId: 501, mediaType: 'movie' });
     } finally { runtime.dom.window.close(); }
 });
 

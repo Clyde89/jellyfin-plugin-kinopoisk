@@ -18,7 +18,6 @@
     var bindingGeneration = 0;
     var pendingCards = [];
     var activeRequests = 0;
-    var cardStates = new WeakMap();
     var openDialog = null;
 
     // Use the authenticated server proxy even when Enhanced's UI modules are
@@ -54,27 +53,18 @@
         }).finally(function () { clearTimeout(timer); });
     }
 
-    function callApi(name, args, fallback) {
-        var api = window.JellyfinEnhanced && window.JellyfinEnhanced.jellyseerrAPI;
-        return api && typeof api[name] === 'function'
-            ? Promise.resolve().then(function () { return api[name].apply(api, args); })
-            : fallback();
-    }
-
     var proxyApi = {
         checkUserStatus: function () {
-            return callApi('checkUserStatus', [], function () { return proxy('/user-status'); });
+            return proxy('/user-status');
         },
-        search: function (query, page, options) {
-            return callApi('search', [query, page, options], function () {
-                return proxy('/search?query=' + encodeURIComponent(query) + '&page=1');
-            });
+        search: function (query) {
+            return proxy('/search?query=' + encodeURIComponent(query) + '&page=1');
         },
         fetchMovieDetails: function (id) {
-            return callApi('fetchMovieDetails', [id], function () { return proxy('/movie/' + id); });
+            return proxy('/movie/' + id);
         },
         fetchTvShowDetails: function (id) {
-            return callApi('fetchTvShowDetails', [id], function () { return proxy('/tv/' + id); });
+            return proxy('/tv/' + id);
         }
     };
 
@@ -438,8 +428,8 @@
     }
 
     function bindCard(card, resolved) {
-        cardStates.set(card, resolved);
         card.dataset.kpSeerrFallbackState = 'ready';
+        delete card.dataset.kpSeerrReason;
         card.dataset.tmdbId = String(resolved.item.id);
         setCardStatus(card, availability(resolved.item).label);
     }
@@ -482,14 +472,7 @@
     }
 
     function submitRequest(item, seasons, userStatus, isCurrent) {
-        var api = window.JellyfinEnhanced && window.JellyfinEnhanced.jellyseerrAPI;
         if (!isCurrent()) { return Promise.reject(new Error('Страница или учётная запись изменились.')); }
-        if (item.mediaType === 'tv' && api && typeof api.requestTvSeasons === 'function') {
-            return api.requestTvSeasons(item.id, seasons, {}, item);
-        }
-        if (item.mediaType === 'movie' && api && typeof api.requestMedia === 'function') {
-            return api.requestMedia(item.id, 'movie', {}, false, item);
-        }
         return requestDefaults(item, userStatus).then(function (settings) {
             if (!isCurrent()) { throw new Error('Страница или учётная запись изменились.'); }
             return proxy('/request', Object.assign({}, settings, {
@@ -620,7 +603,6 @@
                     submit.textContent = 'Проверьте состояние';
                     status.textContent = String(error.message || 'Не удалось подтвердить запрос.')
                         + ' Закройте окно и откройте карточку снова для проверки состояния.';
-                    cardStates.delete(card);
                     cache.clear();
                 }
             });
@@ -775,7 +757,7 @@
             return;
         }
         var enhanced = getIntegration();
-        var api = (window.JellyfinEnhanced && window.JellyfinEnhanced.jellyseerrAPI) || proxyApi;
+        var api = proxyApi;
         var userId = getUserId();
         if (api !== activeApi || userId !== activeUserId) {
             activeApi = api;
