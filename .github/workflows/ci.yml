@@ -31,11 +31,38 @@ jobs:
       NUGET_XMLDOC_MODE: skip
       TZ: UTC
 
+    defaults:
+      run:
+        working-directory: ${{ runner.temp }}/kinopoisk-source
+
     steps:
-      - name: Получен исходный код
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          fetch-depth: 1
+      - name: Получены исходники через Git
+        working-directory: ${{ github.workspace }}
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_dir="${RUNNER_TEMP}/kinopoisk-source"
+          mkdir -p "$source_dir"
+          git -C "$source_dir" init --quiet
+          git -C "$source_dir" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+          upload_dir="${GITHUB_WORKSPACE}/kinopoisk-upload-action"
+          upload_sha=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          if [[ ! -d "${upload_dir}/.git" ]]; then
+            test ! -e "$upload_dir"
+            mkdir -p "$upload_dir"
+            git -C "$upload_dir" init --quiet
+            git -C "$upload_dir" remote add origin https://github.com/actions/upload-artifact.git
+          fi
+          test "$(git -C "$upload_dir" remote get-url origin)" = https://github.com/actions/upload-artifact.git
+          if [[ "$(git -C "$upload_dir" rev-parse --verify HEAD 2>/dev/null || true)" != "$upload_sha" ]]; then
+            git -C "$upload_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin "$upload_sha"
+          fi
+          git -C "$upload_dir" checkout --quiet --force --detach "$upload_sha"
+          test "$(git -C "$upload_dir" rev-parse HEAD)" = "$upload_sha"
 
       - name: Подключён .NET SDK
         timeout-minutes: 7
@@ -54,30 +81,30 @@ jobs:
           echo "$sdk_dir" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$sdk_dir" >> "$GITHUB_ENV"
 
-      - name: Подключён установленный Node.js
-        id: node-runtime
+      - name: Подключены Node.js runner и npm
+        timeout-minutes: 3
         shell: bash
         run: |
           set -Eeuo pipefail
           runner_node_bin="$(dirname "$RUNNER_TEMP")/../externals/node24/bin"
-          if command -v npm >/dev/null && [[ -x "${runner_node_bin}/node" ]]; then
-            export PATH="${runner_node_bin}:${PATH}"
-            echo "$runner_node_bin" >> "$GITHUB_PATH"
+          test -x "${runner_node_bin}/node"
+          export PATH="${runner_node_bin}:${PATH}"
+          echo "$runner_node_bin" >> "$GITHUB_PATH"
+          node -e 'if(Number(process.versions.node.split(".")[0]) < 24) process.exit(1)'
+          if ! command -v npm >/dev/null; then
+            npm_dir="${RUNNER_TEMP}/kinopoisk-npm"
+            npm_bin="${RUNNER_TEMP}/kinopoisk-npm-bin"
+            mkdir -p "$npm_dir" "$npm_bin"
+            curl --fail --show-error --silent --location --max-time 90 \
+              https://registry.npmjs.org/npm/-/npm-11.6.2.tgz --output "${RUNNER_TEMP}/npm.tgz"
+            tar -xzf "${RUNNER_TEMP}/npm.tgz" --strip-components=1 -C "$npm_dir"
+            ln -s "${npm_dir}/bin/npm-cli.js" "${npm_bin}/npm"
+            ln -s "${npm_dir}/bin/npx-cli.js" "${npm_bin}/npx"
+            export PATH="${npm_bin}:${PATH}"
+            echo "$npm_bin" >> "$GITHUB_PATH"
           fi
-          if command -v node >/dev/null && command -v npm >/dev/null \
-              && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)'; then
-            node --version
-            npm --version
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Установлен резервный Node.js
-        if: steps.node-runtime.outputs.ready != 'true'
-        timeout-minutes: 3
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-          mirror: https://nodejs.org/dist
+          node --version
+          npm --version
 
       - name: Проверена версия .NET SDK
         shell: bash
@@ -203,10 +230,10 @@ jobs:
 
       - name: Сохранены изображения карточек
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: ./kinopoisk-upload-action
         with:
           name: kinopoisk-cards-${{ github.sha }}
-          path: artifacts/*.png
+          path: ${{ runner.temp }}/kinopoisk-source/artifacts/*.png
           if-no-files-found: ignore
           retention-days: 7
 
@@ -264,22 +291,22 @@ jobs:
 
       - name: Сохранён установочный архив кандидата
         if: contains(github.ref_name, 'runtime-review')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: ./kinopoisk-upload-action
         with:
           name: kinopoisk-12.1.0.6-review.1-systemd
-          path: artifacts/kinopoisk-*-systemd.zip
+          path: ${{ runner.temp }}/kinopoisk-source/artifacts/kinopoisk-*-systemd.zip
           if-no-files-found: error
           retention-days: 7
 
       - name: Опубликована тестовая сборка
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: ./kinopoisk-upload-action
         with:
           name: kinopoisk-plugin-${{ github.sha }}
           path: |
-            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.dll
-            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.pdb
-            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.dll
-            src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.pdb
+            ${{ runner.temp }}/kinopoisk-source/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.dll
+            ${{ runner.temp }}/kinopoisk-source/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.pdb
+            ${{ runner.temp }}/kinopoisk-source/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.dll
+            ${{ runner.temp }}/kinopoisk-source/src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.pdb
           if-no-files-found: error
           retention-days: 7
           compression-level: 9

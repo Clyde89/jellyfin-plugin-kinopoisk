@@ -28,7 +28,7 @@ manifest_source = (PROJECT / 'Services/KinopoiskWebClientBundle.cs').read_text()
 scripts = re.findall(r'"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([^"\s]+[.]js)"', manifest_source)
 if len(scripts) != 12:
     raise RuntimeError('Состав клиентского bundle изменился')
-bundle = '\n\n'.join((PROJECT / 'Web' / name).read_text(encoding='utf-8-sig') for name in scripts).encode()
+bundle = '\n\n'.join((PROJECT / 'Web' / name).read_bytes().decode('utf-8-sig') for name in scripts).encode()
 sha = lambda value: hashlib.sha256(value).hexdigest()
 artifacts = ROOT / 'artifacts'
 artifacts.mkdir(exist_ok=True)

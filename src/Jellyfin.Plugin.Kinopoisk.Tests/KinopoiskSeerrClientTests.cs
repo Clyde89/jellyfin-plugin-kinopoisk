@@ -14,6 +14,10 @@ using Jellyfin.Plugin.Kinopoisk.Services;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -124,6 +128,44 @@ public sealed class KinopoiskSeerrClientTests
         Assert.IsType<OkObjectResult>(await controller.Status(CancellationToken.None));
         Assert.Equal("28", fixture.Http.Calls.Last().User);
         Assert.Equal("no-store", context.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public async Task RoutesActivateInMvcAndRejectArbitraryProxyPaths()
+    {
+        using var fixture = new Fixture();
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton(fixture.Client);
+        builder.Services.AddAuthorization();
+        builder.Services.AddControllers().AddApplicationPart(typeof(KinopoiskRequestsController).Assembly);
+        await using var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", Second.ToString()) }, "fixture"));
+            await next(context);
+        });
+        app.UseAuthorization();
+        app.MapControllers();
+        await app.StartAsync();
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            var status = await http.GetAsync("/KinopoiskRequests/user-status");
+            Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+            Assert.Contains("\"provider\":\"seerr\"", await status.Content.ReadAsStringAsync());
+            Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/movie/501")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/tv/501/recommendations")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/KinopoiskRequests/settings/main")).StatusCode);
+            using var forbiddenBody = new StringContent("{\"mediaId\":501,\"mediaType\":\"movie\",\"requestedBy\":1}", Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.BadRequest, (await http.PostAsync("/KinopoiskRequests/request", forbiddenBody)).StatusCode);
+            Assert.DoesNotContain(fixture.Http.Calls, c => c.Method == "POST");
+            using var body = new StringContent("{\"mediaId\":501,\"mediaType\":\"movie\"}", Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.OK, (await http.PostAsync("/KinopoiskRequests/request", body)).StatusCode);
+            Assert.Equal("28", Assert.Single(fixture.Http.Calls.Where(c => c.Method == "POST")).User);
+        }
+        finally { await app.StopAsync(); }
     }
 
     private sealed class Fixture : IDisposable

@@ -47,7 +47,7 @@ public sealed class KinopoiskRequestsController : ControllerBase
 
     [HttpPost("request")]
     [RequestSizeLimit(16384)]
-    public Task<IActionResult> Request([FromBody] JsonElement body, CancellationToken token)
+    public Task<IActionResult> CreateRequest([FromBody] JsonElement body, CancellationToken token)
         => Execute(() => _seerr.Request(UserId, body, token), token);
 
     private async Task<IActionResult> Execute(Func<Task<JsonElement>> action, CancellationToken token)
