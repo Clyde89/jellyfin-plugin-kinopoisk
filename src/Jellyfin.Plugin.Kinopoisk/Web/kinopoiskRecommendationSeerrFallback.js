@@ -565,12 +565,25 @@
             var enhanced = window.JellyfinEnhanced;
             var nativeUi = enhanced && enhanced.jellyseerrUI;
             var nativeApi = enhanced && enhanced.jellyseerrAPI;
-            if (nativeApi && typeof nativeApi.shouldShowAdvanced === 'function' && nativeApi.shouldShowAdvanced()
-                && nativeUi && (item.mediaType === 'tv' ? typeof nativeUi.showSeasonSelectionModal === 'function'
-                    : typeof nativeUi.showMovieRequestModal === 'function')) {
+            var useAdvanced = false;
+            try {
+                useAdvanced = !card.__kpAdvancedUnavailable && nativeApi
+                    && typeof nativeApi.shouldShowAdvanced === 'function' && nativeApi.shouldShowAdvanced()
+                    && nativeUi && (item.mediaType === 'tv' ? typeof nativeUi.showSeasonSelectionModal === 'function'
+                        : typeof nativeUi.showMovieRequestModal === 'function');
+            } catch (_) { /* The authenticated server path remains available. */ }
+            if (useAdvanced) {
                 close();
-                if (item.mediaType === 'tv') { nativeUi.showSeasonSelectionModal(item.id, 'tv', item.name, item); }
-                else { nativeUi.showMovieRequestModal(item.id, item.title, item); }
+                Promise.resolve().then(function () {
+                    return item.mediaType === 'tv'
+                        ? nativeUi.showSeasonSelectionModal(item.id, 'tv', item.name, item)
+                        : nativeUi.showMovieRequestModal(item.id, item.title, item);
+                }).catch(function () {
+                    card.__kpAdvancedUnavailable = true;
+                    if (card.isConnected && getCurrentItemId() === ownerId && getUserId() === userId) {
+                        showDetails(card);
+                    }
+                });
                 return;
             }
             var selected = Array.prototype.map.call(seasons.querySelectorAll('input:checked'), function (input) { return Number(input.value); });

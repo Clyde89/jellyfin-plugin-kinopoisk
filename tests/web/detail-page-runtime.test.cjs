@@ -329,6 +329,10 @@ test('ширина рекомендаций взята у штатной кар�
     );
     const section = window.document.querySelector('#kinopoiskRecommendationsSection');
     assert.equal(section.style.getPropertyValue('--kp-native-card-width'), '244.00px');
+    window.document.querySelector('#native-card').getBoundingClientRect = () => ({ width: 200 });
+    window.dispatchEvent(new window.Event('resize'));
+    await waitFor(() => section.style.getPropertyValue('--kp-native-card-width') === '200.00px',
+        'Ширина не обновилась при изменении размера окна.');
     assert.equal(section.classList.contains('detailVerticalSection'), true);
     assert.equal(section.classList.contains('verticalSection-extrabottompadding'), true);
     const nativeScroller = section.querySelector('.kp-recommendations-scroller');
@@ -453,6 +457,28 @@ test('сломанные клиентские модули Enhanced не бло�
         dialog.querySelector('.kp-recommendation-dialog__submit').click();
         await waitFor(() => requestPosts(runtime).length === 1, 'Прокси не использован.');
         assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body), { mediaId: 501, mediaType: 'movie' });
+    } finally { runtime.dom.window.close(); }
+});
+
+test('ошибка расширенного окна Enhanced возвращает подтверждение без потери обычного запроса', async () => {
+    const runtime = await createProxyRecommendation();
+    try {
+        let advancedCalls = 0;
+        runtime.window.JellyfinEnhanced = {
+            jellyseerrAPI: { shouldShowAdvanced: () => true },
+            jellyseerrUI: { showMovieRequestModal() { advancedCalls += 1; throw new Error('Missing Enhanced dependency'); } }
+        };
+        const original = await openRecommendation(runtime);
+        await waitFor(() => !original.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение не готово.');
+        original.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => {
+            const current = runtime.window.document.querySelector('.kp-recommendation-dialog');
+            return current && current !== original && !current.querySelector('.kp-recommendation-dialog__submit').disabled;
+        }, 'Подтверждение после ошибки Enhanced не восстановилось.');
+        assert.equal(requestPosts(runtime).length, 0);
+        runtime.window.document.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => requestPosts(runtime).length === 1, 'Обычный запрос не отправлен.');
+        assert.equal(advancedCalls, 1);
     } finally { runtime.dom.window.close(); }
 });
 

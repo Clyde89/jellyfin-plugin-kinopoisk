@@ -777,5 +777,6 @@ if (lifecycle) {
 } else {
     startRenderCycle();
 }
+window.addEventListener('resize', scheduleImmediateRender);
 console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
 }());
