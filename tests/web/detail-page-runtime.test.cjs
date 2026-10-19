@@ -100,12 +100,13 @@ function presentation(kinopoiskId) {
     };
 }
 
-async function createRecommendationRuntime(itemOverrides = {}) {
+async function createRecommendationRuntime(itemOverrides = {}, proxyResponse) {
     const runtime = createRuntime(
         '<div id="active" class="itemDetailPage"><div class="detailPagePrimaryContent"></div>'
             + '<div id="similarCollapsible"><div id="native-card" class="card"></div></div></div>',
         itemId => movie(itemId, 100),
-        url => url.startsWith('/KinopoiskPresentation/image?')
+        url => proxyResponse && url.startsWith('/JellyfinEnhanced/') ? proxyResponse(url)
+            : url.startsWith('/KinopoiskPresentation/image?')
             ? imageResponse()
             : jsonResponse({ items: [{
                 kinopoiskId: 101,
@@ -126,108 +127,29 @@ async function createRecommendationRuntime(itemOverrides = {}) {
     return runtime;
 }
 
-test('постер рекомендации открывал тот же фильм, что и название, без Seerr', async () => {
-    const runtime = await createRecommendationRuntime();
+test('постер и название открывают действия внутри Jellyfin без внешнего перехода', async () => {
+    const runtime = await createRecommendationRuntime({ posterUrl: null, overview: null });
     const { window } = runtime;
     try {
         const card = window.document.querySelector('.kp-similar-card');
         const poster = card.querySelector('.cardImageContainer');
-        const title = card.querySelector('.cardText-first a');
-        assert.equal(poster.tagName, 'A', 'Постер не был доступен для перехода.');
-        assert.equal(poster.href, title.href);
-        assert.equal(poster.href, 'https://www.kinopoisk.ru/film/101/');
-        assert.equal(poster.target, '_blank');
-        assert.match(poster.rel, /noopener/);
-        assert.match(poster.getAttribute('aria-label'), /Похожий фильм/);
-        poster.focus();
-        assert.equal(window.document.activeElement, poster);
-
-        let destination = null;
-        poster.addEventListener('click', event => {
-            destination = event.currentTarget.href;
-            event.preventDefault();
+        const title = card.querySelector('.cardText-first button');
+        assert.equal(poster.tagName, 'BUTTON');
+        assert.equal(title.tagName, 'BUTTON');
+        assert.equal(card.querySelector('a[href*="kinopoisk.ru"]'), null);
+        assert.ok(card.querySelector('.cardOverlayContainer .cardOverlayFab-primary'));
+        assert.ok(card.querySelector('.kp-similar-card__request'));
+        let opened = 0;
+        window.document.addEventListener('kinopoisk:recommendation-open', event => {
+            assert.equal(event.detail.card, card);
+            opened += 1;
         });
-        card.querySelector('.cardScalable').dispatchEvent(new window.MouseEvent('mouseenter'));
-        const description = poster.querySelector('.kp-similar-card__overview');
-        assert.ok(description, 'Описание не было частью ссылки постера.');
-        description.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
-        assert.equal(destination, title.href, 'Описание перекрыло переход по постеру.');
-        assert.equal(card.querySelector('button:disabled'), null);
-    } finally {
-        runtime.dom.window.close();
-    }
-});
-
-test('карточка рекомендации сохранила оформление без стилей Jellyfin Enhanced', async () => {
-    const runtime = await createRecommendationRuntime();
-    const { window } = runtime;
-    try {
-        const card = window.document.querySelector('.kp-similar-card');
-        const meta = card.querySelector('.jellyseerr-meta');
-        const poster = card.querySelector('.cardImageContainer');
-        assert.equal(window.getComputedStyle(meta).display, 'flex');
-        assert.notEqual(window.getComputedStyle(meta).gap, '0px');
-        assert.equal(window.getComputedStyle(poster).position, 'absolute');
-        assert.equal(window.getComputedStyle(card.querySelector('.kp-similar-card__badge')).position, 'absolute');
-        const overviewStyle = window.getComputedStyle(card.querySelector('.kp-similar-card__overview'));
-        assert.equal(overviewStyle.position, 'absolute');
-        assert.equal(overviewStyle.pointerEvents, 'none');
-        assert.equal(window.getComputedStyle(card.querySelector('.cardText-first a')).textDecorationLine, 'none');
-    } finally {
-        runtime.dom.window.close();
-    }
-});
-
-test('переход по рекомендации сохранился при отсутствии постера и описания', async () => {
-    const runtime = await createRecommendationRuntime({ posterUrl: null, overview: null, mediaType: 'tv' });
-    try {
-        const poster = runtime.window.document.querySelector('.kp-similar-card .cardImageContainer');
-        assert.equal(poster.tagName, 'A');
-        assert.equal(poster.href, 'https://www.kinopoisk.ru/film/101/');
-        assert.match(poster.textContent, /Краткое описание отсутствует/);
-        assert.match(poster.textContent, /СЕРИАЛ/);
-    } finally {
-        runtime.dom.window.close();
-    }
-});
-
-test('резервная карточка заменена карточкой Seerr после поздней готовности интеграции', async () => {
-    const runtime = await createRecommendationRuntime({ imdbId: 'tt1234567' });
-    const { window } = runtime;
-    try {
-        let clicks = 0;
-        let cardOptions = null;
-        window.KinopoiskTmdbResolver = { resolve: () => Promise.resolve('501') };
-        window.JellyfinEnhanced = {
-            jellyseerrAPI: {
-                checkUserStatus: () => Promise.resolve({ active: true, userFound: true }),
-                fetchMovieDetails: () => Promise.resolve({ id: 501 })
-            },
-            jellyseerrUI: {
-                createJellyseerrCard(item, active, userFound) {
-                    cardOptions = { item, active, userFound };
-                    const card = window.document.createElement('div');
-                    card.className = 'card jellyseerr-card enhanced-test-card';
-                    card.innerHTML = '<a class="cardImageContainer" href="#/seerr/501"></a>'
-                        + '<div class="jellyseerr-meta"></div>';
-                    card.querySelector('a').addEventListener('click', event => {
-                        event.preventDefault();
-                        clicks += 1;
-                    });
-                    return card;
-                }
-            }
-        };
-        window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await waitFor(() => window.document.querySelector('.enhanced-test-card'),
-            'Карточка Seerr не заменила резервную карточку.');
-        const card = window.document.querySelector('.enhanced-test-card');
-        assert.equal(window.document.querySelector('.kp-similar-card--fallback'), null);
-        assert.equal(cardOptions.item.id, 501);
-        assert.equal(cardOptions.active, true);
-        assert.equal(cardOptions.userFound, true);
-        card.querySelector('a').click();
-        assert.equal(clicks, 1, 'Обработчик карточки Seerr был утрачен при замене.');
+        poster.click();
+        title.click();
+        card.querySelector('.kp-similar-card__request').click();
+        assert.equal(opened, 3);
+        assert.equal(window.location.hash, '#/details?id=item-1');
+        assert.equal(window.document.getElementById('kinopoiskRecommendationsStyles').textContent.includes('linear-gradient'), false);
     } finally {
         runtime.dom.window.close();
     }
@@ -449,221 +371,234 @@ test('ширина рекомендаций взята у штатной кар�
 
 function attachSeerr(runtime, options = {}) {
     const { window } = runtime;
-    const built = [];
     const submitted = [];
-    const api = {
-        checkUserStatus: options.status || (() => Promise.resolve({ active: true, userFound: true })),
-        search: options.search || (() => Promise.resolve({ results: [{
-            id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025-01-01'
-        }] })),
-        fetchMovieDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
-        fetchTvShowDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
-        fetchSimilarMovies: () => assert.fail('Подборка КиноПоиска была заменена подборкой Seerr.'),
-        fetchRecommendedMovies: () => assert.fail('Были запрошены рекомендации Seerr вместо КиноПоиска.'),
-        requestMedia(id, mediaType) { submitted.push({ id, mediaType }); }
-    };
-    let attempts = 0;
     window.JellyfinEnhanced = {
-        jellyseerrAPI: api,
-        jellyseerrUI: {
-            createJellyseerrCard(item, active, userFound) {
-                attempts += 1;
-                if (options.failFirstCard && attempts === 1) {
-                    throw new Error('UI dependencies are still loading');
-                }
-                built.push({ item, active, userFound });
-                const card = window.document.createElement('div');
-                card.className = 'card jellyseerr-card seerr-contract-card';
-                card.innerHTML = '<div class="cardImageContainer"></div>'
-                    + '<button class="jellyseerr-request-button" type="button"></button>'
-                    + '<div class="jellyseerr-meta"></div>';
-                const button = card.querySelector('button');
-                const status = item.mediaInfo?.status || 1;
-                button.textContent = status === 5 ? 'Доступно' : status === 2 ? 'Запрошено' : 'Запрос';
-                button.disabled = !active || !userFound || status === 5 || status === 2;
-                button.addEventListener('click', () => api.requestMedia(item.id, item.mediaType));
-                return card;
-            }
+        jellyseerrAPI: {
+            checkUserStatus: options.status || (() => Promise.resolve({ active: true, userFound: true })),
+            search: options.search || (() => Promise.resolve({ results: [{
+                id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025-01-01'
+            }] })),
+            fetchMovieDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
+            fetchTvShowDetails: options.details || (id => Promise.resolve({ id, mediaInfo: { status: 1 } })),
+            requestMedia(id, mediaType) { submitted.push({ id, mediaType }); return Promise.resolve({ id: 77 }); }
         }
+        // Deliberately no jellyseerrUI or card factory.
     };
-    return { api, built, submitted };
+    return { submitted };
+}
+
+async function createProxyRecommendation(itemOverrides = {}, options = {}) {
+    let searches = 0;
+    const runtime = await createRecommendationRuntime(itemOverrides, async url => {
+        if (url.endsWith('/user-status')) {
+            return options.status ? options.status() : jsonResponse({ active: true, userFound: true, jellyseerrUserId: '17' });
+        }
+        if (url.includes('/search?')) {
+            searches += 1;
+            return options.search ? options.search(url, searches) : jsonResponse({ results: [{
+                id: 501, mediaType: itemOverrides.mediaType || 'movie', title: itemOverrides.name || 'Похожий фильм',
+                releaseDate: String(itemOverrides.year || 2025), firstAirDate: String(itemOverrides.year || 2025)
+            }] });
+        }
+        if (/\/(movie|tv)\/501$/.test(url)) {
+            return options.details ? options.details() : jsonResponse({
+                id: 501, mediaInfo: { status: 1 }, seasons: [{ seasonNumber: 1, episodeCount: 6 }]
+            });
+        }
+        if (url.endsWith('/overrideRule')) { return jsonResponse(options.rules || []); }
+        if (url.endsWith('/request')) { return options.request ? options.request() : jsonResponse({ id: 77 }); }
+        throw new Error('Unexpected proxy request: ' + url);
+    });
+    runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
+    return runtime;
+}
+
+function requestPosts(runtime) {
+    return runtime.requests.filter(request => request.options?.method === 'POST');
+}
+
+async function openRecommendation(runtime, selector = '.cardImageContainer') {
+    runtime.window.document.querySelector('.kp-similar-card ' + selector).click();
+    await waitFor(() => runtime.window.document.querySelector('.kp-recommendation-dialog'), 'Сведения не открылись.');
+    return runtime.window.document.querySelector('.kp-recommendation-dialog');
 }
 
 for (const mediaType of ['movie', 'tv']) {
-    test('рекомендация КиноПоиска без IMDb запрашивается через Seerr: ' + mediaType, async () => {
-        const runtime = await createRecommendationRuntime({
-            mediaType, imdbId: '', name: 'Дюна', originalName: 'Dune', year: 2000
-        });
+    test('реальные обработчики карточки обращаются к серверному прокси без модулей Enhanced: ' + mediaType, async () => {
+        const runtime = await createProxyRecommendation({ mediaType });
         try {
             const { window } = runtime;
-            const mediaInfo = { status: 1, seasons: mediaType === 'tv' ? [{ seasonNumber: 1, status: 1 }] : [] };
-            const seerr = attachSeerr(runtime, {
-                search: query => Promise.resolve({ results: [{
-                    id: 876, mediaType, title: 'Дюна', originalTitle: 'Dune',
-                    releaseDate: '2000-01-01', firstAirDate: '2000-01-01'
-                }] }),
-                details: id => Promise.resolve({ id, mediaInfo })
-            });
-            window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-            await waitFor(() => window.document.querySelector('.seerr-contract-card'), 'Карточка запроса не появилась.');
-            const card = window.document.querySelector('.seerr-contract-card');
-            assert.equal(card.dataset.kinopoiskId, '101');
-            assert.equal(seerr.built[0].item.id, 876);
-            assert.equal(seerr.built[0].item.title, 'Дюна');
-            assert.equal(seerr.built[0].item.overview, 'Описание похожего фильма.');
-            assert.equal(seerr.built[0].item.voteAverage, 7.3);
-            assert.equal(seerr.built[0].item.mediaInfo, mediaInfo);
-            assert.match(card.querySelector('.jellyseerr-meta').textContent, /КиноПоиск2000★7.3/);
-            assert.equal(card.querySelector('button').textContent, 'Запрос');
-            card.querySelector('button').click();
-            assert.deepEqual(seerr.submitted, [{ id: 876, mediaType }]);
-            assert.equal(runtime.requests.filter(r => /\/100\/similars$/.test(r.url)).length, 1,
-                'Связка Seerr повторно загрузила список рекомендаций КиноПоиска.');
-        } finally {
-            runtime.dom.window.close();
-        }
-    });
-}
-
-for (const [status, caption] of [[2, 'Запрошено'], [5, 'Доступно']]) {
-    test('состояние Seerr сохранено в рекомендации: ' + caption, async () => {
-        const runtime = await createRecommendationRuntime();
-        try {
-            const seerr = attachSeerr(runtime, { details: id => Promise.resolve({
-                id, mediaInfo: { status, jellyfinMediaId: status === 5 ? 'library-item' : null }
-            }) });
-            runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-            await waitFor(() => runtime.window.document.querySelector('.seerr-contract-card'), 'Состояние не отобразилось.');
-            const button = runtime.window.document.querySelector('.seerr-contract-card button');
-            assert.equal(button.textContent, caption);
-            assert.equal(button.disabled, true);
+            await waitFor(() => window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Seerr без клиентского Enhanced не подключился.');
+            assert.equal(window.JellyfinEnhanced, undefined);
+            const card = window.document.querySelector('.kp-similar-card');
+            assert.equal(card.dataset.tmdbId, '501');
+            assert.equal(card.querySelector('.kp-similar-card__request').textContent, 'Запрос');
+            assert.equal(requestPosts(runtime).length, 0);
+            const dialog = await openRecommendation(runtime, '.kp-similar-card__request');
+            await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение запроса не подготовилось.');
+            assert.match(dialog.textContent, /Описание похожего фильма/);
+            assert.equal(requestPosts(runtime).length, 0, 'Открытие карточки отправило запрос без подтверждения.');
+            if (mediaType === 'tv') { dialog.querySelector('input').checked = true; }
+            const button = dialog.querySelector('.kp-recommendation-dialog__submit');
             button.click();
-            assert.equal(seerr.submitted.length, 0);
-        } finally {
-            runtime.dom.window.close();
-        }
+            button.click();
+            await waitFor(() => dialog.textContent.includes('Запрос отправлен'), 'Запрос не был подтверждён.');
+            const posts = requestPosts(runtime);
+            assert.equal(posts.length, 1, 'Двойной клик создал повторный POST.');
+            assert.deepEqual(JSON.parse(posts[0].options.body), {
+                mediaType, mediaId: 501, ...(mediaType === 'tv' ? { seasons: [1] } : {})
+            });
+            for (const request of runtime.requests.filter(r => r.url.startsWith('/JellyfinEnhanced/'))) {
+                assert.equal(request.options.headers['X-Emby-Token'], 'test-token');
+                assert.equal(request.options.credentials, 'same-origin');
+                assert.equal(request.options.headers['X-API-KEY'], undefined);
+            }
+            assert.equal(runtime.requests.filter(r => /\/100\/similars$/.test(r.url)).length, 1);
+        } finally { runtime.dom.window.close(); }
     });
 }
 
-test('готовность Seerr замечена после единственного события страницы без новых DOM-мутаций', async () => {
+test('API Enhanced используется без зависимости от его фабрики карточек', async () => {
     const runtime = await createRecommendationRuntime();
     try {
-        const { window } = runtime;
-        window.KinopoiskDetailPageLifecycle = {
-            ...window.KinopoiskDetailPageLifecycle,
-            subscribe(handler) { handler(); return () => {}; }
-        };
-        window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await new Promise(resolve => setTimeout(resolve, 650));
-        attachSeerr(runtime);
-        await waitFor(() => window.document.querySelector('.seerr-contract-card'),
-            'Поздняя готовность Seerr осталась незамеченной.', 5000);
-    } finally {
-        runtime.dom.window.close();
-    }
-});
-
-test('отказ TMDB и ошибка одного поискового запроса не блокируют точное сопоставление Seerr', async () => {
-    const runtime = await createRecommendationRuntime({ imdbId: 'tt1234567', originalName: 'Original Film' });
-    try {
-        runtime.window.KinopoiskTmdbResolver = { resolve: () => Promise.reject(new Error('TMDB unavailable')) };
-        const seerr = attachSeerr(runtime, { search: query => query === 'Original Film'
-            ? Promise.reject(new Error('Temporary failure'))
-            : Promise.resolve({ results: [{ id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025' }] }) });
+        const seerr = attachSeerr(runtime);
         runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await waitFor(() => runtime.window.document.querySelector('.seerr-contract-card'), 'Поиск по локальному названию не выполнен.');
-        assert.equal(seerr.built[0].item.id, 501);
-    } finally {
-        runtime.dom.window.close();
-    }
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'API без UI не подключился.');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение недоступно.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => seerr.submitted.length === 1, 'Настоящий обработчик не вызвал API.');
+        assert.deepEqual(seerr.submitted, [{ id: 501, mediaType: 'movie' }]);
+    } finally { runtime.dom.window.close(); }
 });
 
-for (const failure of ['search', 'details', 'status', 'ui']) {
-    test('временная ошибка не оставляет карточку без Seerr навсегда: ' + failure, async () => {
-        const runtime = await createRecommendationRuntime();
+for (const [status, caption] of [[2, 'Запрошено'], [3, 'Загружается'], [5, 'Доступно']]) {
+    test('уже обработанный фильм нельзя запросить повторно: ' + caption, async () => {
+        const runtime = await createProxyRecommendation({}, { details: () => jsonResponse({ id: 501, mediaInfo: { status } }) });
         try {
-            let first = true;
-            const seerr = attachSeerr(runtime, {
-                failFirstCard: failure === 'ui',
-                search: () => {
-                    if (failure === 'search' && first) { first = false; return Promise.reject(new Error('Temporary search error')); }
-                    return Promise.resolve({ results: [{ id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025' }] });
-                },
-                details: id => {
-                    if (failure === 'details' && first) { first = false; return Promise.resolve(null); }
-                    return Promise.resolve({ id, mediaInfo: { status: 1 } });
-                },
-                status: () => {
-                    if (failure === 'status' && first) { first = false; return Promise.resolve({ active: false, userFound: false }); }
-                    return Promise.resolve({ active: true, userFound: true });
-                }
-            });
-            runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-            await waitFor(() => runtime.window.document.querySelector('.seerr-contract-card'),
-                'Карточка не восстановилась после временной ошибки.', 7000);
-            assert.equal(seerr.built[0].active, true);
-            assert.equal(seerr.built[0].userFound, true);
-        } finally {
-            runtime.dom.window.close();
-        }
+            await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Состояние не получено.');
+            assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, caption);
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => dialog.querySelector('[role="status"]').textContent === caption, 'Состояние не перенесено в сведения.');
+            assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+            assert.equal(requestPosts(runtime).length, 0);
+        } finally { runtime.dom.window.close(); }
     });
 }
 
-test('одинаковые названия разных лет и неоднозначные совпадения не создают запрос другого фильма', async () => {
-    const runtime = await createRecommendationRuntime({ name: 'Дюна', originalName: 'Dune', year: 2000 });
+test('связанный библиотечный фильм открывается в Jellyfin', async () => {
+    const runtime = await createProxyRecommendation({}, { details: () => jsonResponse({
+        id: 501, mediaInfo: { status: 5, jellyfinMediaId: 'library-item' }
+    }) });
     try {
-        const seerr = attachSeerr(runtime, { search: () => Promise.resolve({ results: [
-            { id: 1, mediaType: 'movie', title: 'Дюна', releaseDate: '1984' },
-            { id: 2, mediaType: 'movie', title: 'Дюна', releaseDate: '2021' },
-            { id: 3, mediaType: 'movie', title: 'Дюна', releaseDate: '2000' },
-            { id: 4, mediaType: 'movie', title: 'Дюна', releaseDate: '2000' },
-            { id: 5, mediaType: 'tv', name: 'Дюна', firstAirDate: '2000' }
-        ] }) });
-        runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="unmatched"]'),
-            'Неоднозначное совпадение не было отклонено.');
-        assert.equal(seerr.built.length, 0);
-        assert.equal(seerr.submitted.length, 0);
-        assert.equal(runtime.window.document.querySelector('.kp-similar-card').dataset.kinopoiskId, '101');
-    } finally {
-        runtime.dom.window.close();
-    }
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__submit').textContent === 'Открыть в Jellyfin', 'Ссылка на медиатеку не получена.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        assert.equal(runtime.window.location.hash, '#/details?id=library-item');
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
 });
 
-test('запоздавшее сопоставление предыдущего фильма не попадает в новую SPA-карточку', async () => {
-    const runtime = createRuntime(
-        '<div id="active" class="itemDetailPage"><div class="detailPagePrimaryContent"></div>'
-            + '<div id="similarCollapsible"><div id="native-card" class="card"></div></div></div>',
-        itemId => movie(itemId, itemId === 'item-1' ? 100 : 200),
-        url => url.startsWith('/KinopoiskPresentation/image?') ? imageResponse() : jsonResponse({ items: [{
-            kinopoiskId: url.includes('/100/') ? 101 : 201,
-            name: url.includes('/100/') ? 'Первый' : 'Второй', mediaType: 'movie', year: 2025
-        }] })
-    );
-    let resolveOld;
-    let oldStarted = false;
+test('частично доступный сериал разрешает выбрать только отсутствующий сезон', async () => {
+    const runtime = await createProxyRecommendation({ mediaType: 'tv' }, { details: () => jsonResponse({
+        id: 501, mediaInfo: { status: 4, jellyfinMediaId: 'library-item', seasons: [{ seasonNumber: 1, status: 5 }] },
+        seasons: [{ seasonNumber: 1, episodeCount: 6 }, { seasonNumber: 2, episodeCount: 8 }]
+    }) });
     try {
-        const seerr = attachSeerr(runtime, { search: query => {
-            if (query === 'Первый') {
-                oldStarted = true;
-                return new Promise(resolve => { resolveOld = resolve; });
-            }
-            return Promise.resolve({ results: [{ id: 502, mediaType: 'movie', title: 'Второй', releaseDate: '2025' }] });
-        } });
-        runtime.window.eval(readScript('kinopoiskDetailPageLifecycle.js'));
-        runtime.window.eval(readScript('kinopoiskRecommendations.js'));
-        runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
-        await waitFor(() => oldStarted, 'Первый поиск не начался.');
-        runtime.window.history.replaceState({}, '', '#/details?id=item-2');
-        await waitFor(() => runtime.window.document.querySelector('.seerr-contract-card[data-kinopoisk-id="201"]'),
-            'Не появились рекомендации второго фильма.');
-        resolveOld({ results: [{ id: 501, mediaType: 'movie', title: 'Первый', releaseDate: '2025' }] });
-        await new Promise(resolve => setTimeout(resolve, 100));
-        assert.equal(runtime.window.document.querySelector('[data-kinopoisk-id="101"]'), null);
-        assert.deepEqual(seerr.built.map(result => result.item.id), [502]);
-        assert.equal(runtime.window.document.querySelector('#kinopoiskRecommendationsSection').dataset.itemId, 'item-2');
-    } finally {
-        resolveOld?.({ results: [] });
-        runtime.dom.window.close();
-    }
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelectorAll('input').length === 2, 'Сезоны не получены.');
+        const inputs = dialog.querySelectorAll('input');
+        assert.equal(inputs[0].disabled, true);
+        assert.equal(inputs[1].disabled, false);
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        assert.equal(requestPosts(runtime).length, 0);
+        inputs[1].checked = true;
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => requestPosts(runtime).length === 1, 'Выбранный сезон не отправлен.');
+        assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body).seasons, [2]);
+    } finally { runtime.dom.window.close(); }
+});
+
+for (const reason of ['disabled', 'unlinked', 'blocked']) {
+    test('недоступность интеграции показана явно: ' + reason, async () => {
+        const runtime = await createProxyRecommendation({}, { status: () => jsonResponse({ active: false, userFound: false, reason }) });
+        try {
+            await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="retry"]'), 'Ошибка не показана.');
+            assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, 'Seerr недоступен');
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__submit').textContent === 'Запрос недоступен', 'Объяснение не показано.');
+            assert.ok(dialog.querySelector('[role="status"]').textContent.length > 20);
+            assert.equal(runtime.window.location.hash, '#/details?id=item-1');
+            assert.equal(requestPosts(runtime).length, 0);
+        } finally { runtime.dom.window.close(); }
+    });
+}
+
+test('временная ошибка поиска восстановилась без модулей Enhanced', async () => {
+    const runtime = await createProxyRecommendation({}, { search: (_url, attempt) => attempt === 1
+        ? new Response('{}', { status: 503 })
+        : jsonResponse({ results: [{ id: 501, mediaType: 'movie', title: 'Похожий фильм', releaseDate: '2025' }] }) });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Повторное сопоставление не выполнено.', 7000);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('неоднозначные названия и разные годы не создают запрос другого фильма', async () => {
+    const runtime = await createProxyRecommendation({ name: 'Дюна', year: 2000 }, { search: () => jsonResponse({ results: [
+        { id: 1, mediaType: 'movie', title: 'Дюна', releaseDate: '1984' },
+        { id: 2, mediaType: 'movie', title: 'Дюна', releaseDate: '2000' },
+        { id: 3, mediaType: 'movie', title: 'Дюна', releaseDate: '2000' },
+        { id: 4, mediaType: 'tv', name: 'Дюна', firstAirDate: '2000' }
+    ] }) });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="unmatched"]'), 'Неоднозначный результат не отклонён.');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.textContent.includes('Однозначное совпадение'), 'Причина не показана.');
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+for (const status of [403, 409, 429, 503]) {
+    test('отказ запроса показан без автоматического повторного POST: ' + status, async () => {
+        const runtime = await createProxyRecommendation({}, { request: () => new Response(JSON.stringify({ message: 'Запрос отклонён' }), { status }) });
+        try {
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Запрос недоступен.');
+            dialog.querySelector('.kp-recommendation-dialog__submit').click();
+            await waitFor(() => dialog.textContent.includes('Проверьте состояние'), 'Ошибка не показана.');
+            assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+            assert.equal(requestPosts(runtime).length, 1);
+        } finally { runtime.dom.window.close(); }
+    });
+}
+
+test('правило Seerr применено только к подходящему фильму и пользователю', async () => {
+    const runtime = await createProxyRecommendation({}, { rules: [
+        { id: 1, radarrServiceId: 9, users: '99', profileId: 1 },
+        { id: 2, radarrServiceId: 2, users: '17', profileId: 3, rootFolder: '/movies', tags: '4|5' }
+    ] });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Запрос недоступен.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => requestPosts(runtime).length === 1, 'Запрос не отправлен.');
+        assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body), {
+            mediaId: 501, mediaType: 'movie', serverId: 2, profileId: 3, rootFolder: '/movies', tags: [4, 5]
+        });
+    } finally { runtime.dom.window.close(); }
+});
+
+test('смена пользователя закрывает подтверждение и не отправляет запрос', async () => {
+    const runtime = await createProxyRecommendation();
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Подтверждение не готово.');
+        runtime.window.ApiClient.getCurrentUserId = () => 'user-2';
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        assert.equal(requestPosts(runtime).length, 0);
+        runtime.window.document.dispatchEvent(new runtime.window.Event('kinopoisk:recommendations-rendered'));
+        await waitFor(() => !runtime.window.document.querySelector('.kp-recommendation-dialog'), 'Окно прежнего пользователя не закрыто.');
+    } finally { runtime.dom.window.close(); }
 });

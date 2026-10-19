@@ -145,6 +145,37 @@ jobs:
       - name: Выполнены DOM-тесты клиентской карточки
         run: npm run test:web
 
+      - name: Подготовлен браузер для проверки карточек
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          browser_tools="${RUNNER_TEMP}/kinopoisk-browser-tools"
+          npm install --prefix "$browser_tools" --no-save --package-lock=false --ignore-scripts playwright@1.56.1 sass@1.93.2
+          export PLAYWRIGHT_BROWSERS_PATH="${RUNNER_TEMP}/kinopoisk-browsers"
+          "${browser_tools}/node_modules/.bin/playwright" install chromium --only-shell
+          echo "NODE_PATH=${browser_tools}/node_modules" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}" >> "$GITHUB_ENV"
+          style_dir="${RUNNER_TEMP}/jellyfin-native-styles"
+          mkdir -p "$style_dir"
+          upstream=https://raw.githubusercontent.com/jellyfin/jellyfin-web/ee8efb417e5377ba444509a68ed22af33e45950b
+          curl --fail --show-error --silent --location "$upstream/src/components/cardbuilder/card.scss" --output "$style_dir/card.scss"
+          curl --fail --show-error --silent --location "$upstream/src/elements/emby-button/emby-button.scss" --output "$style_dir/emby-button.scss"
+          echo "JELLYFIN_STYLE_DIR=${style_dir}" >> "$GITHUB_ENV"
+
+      - name: Проверены полный клиентский bundle и штатное оформление Jellyfin
+        timeout-minutes: 3
+        run: node tests/browser/recommendations.cjs
+
+      - name: Сохранены изображения карточек
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kinopoisk-cards-${{ github.sha }}
+          path: artifacts/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Подготовлен FFmpeg для автономных проверок
         timeout-minutes: 5
         shell: bash

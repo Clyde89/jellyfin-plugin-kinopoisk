@@ -186,17 +186,11 @@
             '.kp-similar-card__source{font-size:.86em;opacity:.86;white-space:nowrap}',
             '.kp-similar-card__rating{display:flex;align-items:center;gap:.25em;color:#bdbdbd;white-space:nowrap}',
             '.kp-similar-card__star{color:#ffd700;font-size:1.15em;line-height:1}',
-            '.kp-similar-card--fallback .cardScalable{position:relative;overflow:hidden;border-radius:.3em}',
-            '.kp-similar-card--fallback .kp-similar-card__poster{display:block;position:absolute;inset:0;color:inherit;text-decoration:none;cursor:pointer}',
-            '.kp-similar-card--fallback .kp-similar-card__badge{position:absolute;top:.6em;left:.6em;right:auto;bottom:auto;display:inline-block;padding:.22em .45em;border-radius:.25em;background:rgba(0,0,0,.7);color:#fff;font-size:.7em;font-weight:600;line-height:1.3;pointer-events:none}',
-            '.kp-similar-card--fallback .kp-similar-card__overview{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;gap:.8em;padding:.9em;background:linear-gradient(transparent,rgba(0,0,0,.9) 45%);color:#fff;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .15s ease}',
-            '.kp-similar-card--fallback .kp-similar-card__description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:7;overflow:hidden;font-size:.85em;line-height:1.4}',
-            '.kp-similar-card--fallback .kp-similar-card__open{display:block;font-size:.8em;font-weight:600}',
-            '.kp-similar-card--fallback .kp-similar-card__poster:hover .kp-similar-card__overview,.kp-similar-card--fallback .kp-similar-card__poster:focus .kp-similar-card__overview{opacity:1;visibility:visible}',
-            '.kp-similar-card--fallback .kp-similar-card__title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration-line:none}',
-            '.kp-similar-card--fallback .jellyseerr-meta{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.45em;line-height:1.5}',
-            '.kp-similar-card--fallback .kp-similar-card__poster:focus-visible{outline:2px solid currentColor;outline-offset:-2px}',
-            '@media(prefers-reduced-motion:reduce){.kp-similar-card--fallback .kp-similar-card__overview{transition:none}}',
+            '.kp-similar-card__badge{position:absolute;top:.6em;left:.6em;padding:.22em .45em;border-radius:.25em;background:rgba(0,0,0,.7);color:#fff;font-size:.7em;font-weight:600;line-height:1.3;pointer-events:none}',
+            '.kp-similar-card__actions{position:absolute;bottom:.5em;left:.5em;right:.5em;display:flex;justify-content:center}',
+            '.kp-similar-card__request{max-width:100%;white-space:normal;font-size:.85em}',
+            '.kp-similar-card__title{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;font:inherit}',
+            '.kp-similar-card .jellyseerr-meta{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.45em;line-height:1.5}',
             '@media(max-width:600px){.kp-recommendations-header{align-items:flex-start}.kp-recommendations-tabs{width:100%}.kp-recommendations-tab{flex:1 1 auto}}'
         ].join('');
         document.head.appendChild(style);
@@ -316,7 +310,6 @@
         var enhanced = window.JellyfinEnhanced;
         if (!enhanced
             || !enhanced.jellyseerrAPI
-            || !enhanced.jellyseerrUI
             || !enhanced.pluginConfig) {
             return Promise.resolve({ items: [], reason: 'Интеграция Jellyfin Enhanced недоступна.' });
         }
@@ -409,20 +402,10 @@
         }
     }
 
-    function addFallbackOverview(poster, item) {
-        var overview = createElement('span', 'kp-similar-card__overview');
-        overview.setAttribute('aria-hidden', 'true');
-        var description = String(
-            pick(item, 'overview', 'Overview')
-            || 'Краткое описание отсутствует.'
-        );
-        overview.appendChild(createElement('span', 'kp-similar-card__description', description.slice(0, 500)));
-        overview.appendChild(createElement(
-            'span',
-            'kp-similar-card__open kp-similar-card__fallback-button',
-            'Открыть на КиноПоиске'
-        ));
-        poster.appendChild(overview);
+    function openRecommendation(card) {
+        document.dispatchEvent(new CustomEvent('kinopoisk:recommendation-open', {
+            detail: { card: card }
+        }));
     }
 
     function createKinopoiskFallbackCard(item) {
@@ -448,16 +431,17 @@
             'card overflowPortraitCard card-hoverable card-withuserdata kp-similar-card kp-similar-card--fallback'
         );
         card.dataset.kinopoiskId = kinopoiskId;
+        card.__kinopoiskRecommendationItem = item;
         var box = createElement('div', 'cardBox cardBox-bottompadded');
         var scalable = createElement('div', 'cardScalable');
         scalable.appendChild(createElement('div', 'cardPadder cardPadder-overflowPortrait'));
-        var kinopoiskUrl = 'https://www.kinopoisk.ru/film/' + kinopoiskId + '/';
-        var image = createElement('a', 'cardImageContainer coveredImage cardContent kp-similar-card__poster');
-        image.href = kinopoiskUrl;
-        image.target = '_blank';
-        image.rel = 'noopener noreferrer';
-        image.referrerPolicy = 'strict-origin-when-cross-origin';
-        image.setAttribute('aria-label', name + ' — открыть на КиноПоиске');
+        var image = createElement('button', 'cardImageContainer coveredImage cardContent kp-similar-card__poster');
+        image.type = 'button';
+        image.setAttribute('aria-label', name + ' — сведения и запрос');
+        image.addEventListener('click', function (event) {
+            event.stopPropagation();
+            openRecommendation(card);
+        });
         if (imageUrl) {
             var lifecycle = window.KinopoiskDetailPageLifecycle;
             if (lifecycle) {
@@ -473,16 +457,37 @@
             mediaType === 'tv' ? 'СЕРИАЛ' : 'ФИЛЬМ'
         );
         image.appendChild(badge);
-        addFallbackOverview(image, item);
         scalable.appendChild(image);
+        // Jellyfin owns the hover background, opacity, radius and focus behavior.
+        var overlay = createElement('div', 'cardOverlayContainer');
+        var info = createElement('button', 'cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light');
+        info.type = 'button';
+        info.setAttribute('is', 'paper-icon-button-light');
+        info.setAttribute('aria-label', name + ' — сведения и запрос');
+        info.appendChild(createElement('span', 'material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover', 'info'));
+        info.addEventListener('click', function (event) {
+            event.stopPropagation();
+            openRecommendation(card);
+        });
+        var actions = createElement('div', 'kp-similar-card__actions');
+        var request = createElement('button', 'emby-button raised button-submit kp-similar-card__request kp-similar-card__fallback-button', 'Подключение к Seerr…');
+        request.type = 'button';
+        request.addEventListener('click', function (event) {
+            event.stopPropagation();
+            openRecommendation(card);
+        });
+        actions.appendChild(request);
+        overlay.append(info, actions);
+        scalable.appendChild(overlay);
         box.appendChild(scalable);
 
         var title = createElement('div', 'cardText cardTextCentered cardText-first');
-        var link = createElement('a', 'kp-similar-card__title', name);
-        link.href = kinopoiskUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.referrerPolicy = 'strict-origin-when-cross-origin';
+        var link = createElement('button', 'textActionButton kp-similar-card__title', name);
+        link.type = 'button';
+        link.addEventListener('click', function (event) {
+            event.stopPropagation();
+            openRecommendation(card);
+        });
         title.appendChild(link);
         box.appendChild(title);
         var meta = createElement(

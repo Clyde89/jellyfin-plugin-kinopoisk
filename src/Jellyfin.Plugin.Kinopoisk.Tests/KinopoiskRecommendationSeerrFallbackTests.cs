@@ -27,7 +27,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             Assert.Contains("originalName", script);
             Assert.Contains("mediaType", script);
             Assert.Contains("KinopoiskTmdbResolver", script);
-            Assert.Contains("createJellyseerrCard", script);
+            Assert.Contains("/JellyfinEnhanced/jellyseerr", script);
+            Assert.DoesNotContain("createJellyseerrCard", script);
             Assert.Contains("kp-similar-card__fallback-button", script);
             Assert.DoesNotContain("X-API-KEY", script, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("ProviderIds.Tmdb =", script, StringComparison.Ordinal);
