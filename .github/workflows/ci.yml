@@ -98,7 +98,7 @@ jobs:
           export PATH="${runner_node_bin}:${PATH}"
           echo "$runner_node_bin" >> "$GITHUB_PATH"
           node -e 'if(Number(process.versions.node.split(".")[0]) < 24) process.exit(1)'
-          if ! command -v npm >/dev/null; then
+          if ! npm --version >/dev/null 2>&1; then
             npm_dir="${RUNNER_TEMP}/kinopoisk-npm"
             npm_bin="${RUNNER_TEMP}/kinopoisk-npm-bin"
             mkdir -p "$npm_dir" "$npm_bin"
@@ -205,6 +205,7 @@ jobs:
           upstream=https://raw.githubusercontent.com/jellyfin/jellyfin-web/ee8efb417e5377ba444509a68ed22af33e45950b
           curl --fail --show-error --silent --location "$upstream/src/components/cardbuilder/card.scss" --output "$style_dir/card.scss"
           curl --fail --show-error --silent --location "$upstream/src/elements/emby-button/emby-button.scss" --output "$style_dir/emby-button.scss"
+          curl --fail --show-error --silent --location "$upstream/src/components/dialogHelper/dialoghelper.scss" --output "$style_dir/dialoghelper.scss"
           echo "JELLYFIN_STYLE_DIR=${style_dir}" >> "$GITHUB_ENV"
 
       - name: Подготовлены библиотеки браузера без изменения системы

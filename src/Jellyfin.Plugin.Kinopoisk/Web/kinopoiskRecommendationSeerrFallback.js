@@ -63,7 +63,9 @@
             if (getUserId() !== userId) { throw new Error('Учётная запись изменилась.'); }
             requestProvider = status.provider === 'enhanced' ? 'enhanced' : 'seerr';
             if (requestProvider !== 'enhanced') { return status; }
-            return proxyFetch('/JellyfinEnhanced/jellyseerr', path).catch(function (error) {
+            return proxyFetch('/JellyfinEnhanced/jellyseerr', path).then(function (legacyStatus) {
+                return Object.assign({}, legacyStatus, { provider: 'enhanced' });
+            }).catch(function (error) {
                 if (error.status !== 404) { throw error; }
                 return { active: false, userFound: false, reason: 'disabled' };
             });
@@ -531,7 +533,7 @@
         if (document.getElementById('kinopoiskRecommendationDialogStyles')) { return; }
         var style = element('style');
         style.id = 'kinopoiskRecommendationDialogStyles';
-        style.textContent = '.kp-recommendation-dialog{box-sizing:border-box;width:min(38em,calc(100vw - 2em));max-height:calc(100dvh - 2em);padding:1.5em;border:0;border-radius:.3em;overflow:auto;color:inherit;background:#202020}'
+        style.textContent = '.kp-recommendation-dialog{box-sizing:border-box;margin:auto;width:min(38em,calc(100vw - 2em));max-height:calc(100dvh - 2em);padding:1.5em;border:0;border-radius:.3em;overflow:auto;color:inherit}'
             + '.kp-recommendation-dialog::backdrop{background:rgba(0,0,0,.65)}'
             + '.kp-recommendation-dialog h2{margin-top:0}.kp-recommendation-dialog p{line-height:1.5;white-space:pre-wrap}'
             + '.kp-recommendation-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:.6em;flex-wrap:wrap;margin-top:1.4em}'
@@ -705,7 +707,7 @@
             }
             if (item.mediaType === 'tv' && available.canRequest) {
                 var known = asArray(item.mediaInfo && item.mediaInfo.seasons);
-                var config = window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
+                var config = requestProvider === 'enhanced' && window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
                 var choices = asArray(item.seasons).filter(function (season) {
                     return Number.isInteger(season.seasonNumber) && season.seasonNumber >= 0 && Number(season.episodeCount) > 0;
                 });

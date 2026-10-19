@@ -54,9 +54,9 @@ async function waitFor(predicate, message, timeout = 3000) {
     assert.fail(message);
 }
 
-function jsonResponse(value) {
+function jsonResponse(value, status = 200) {
     return new Response(JSON.stringify(value), {
-        status: 200,
+        status,
         headers: { 'content-type': 'application/json' }
     });
 }
@@ -360,7 +360,7 @@ test('ширина рекомендаций взята у штатной кар�
     const tabs = section.querySelectorAll('.kp-recommendations-tab');
     tabs[1].click();
     await waitFor(
-        () => nativeItems.textContent.includes('Интеграция Jellyfin Enhanced недоступна.'),
+        () => nativeItems.textContent.includes('Дополнительная подборка пока недоступна.'),
         'Вкладка The Movie Database не была открыта в штатном scroller.'
     );
     assert.equal(section.querySelector('.kp-recommendations-scroller'), nativeScroller);
@@ -386,6 +386,7 @@ async function createProxyRecommendation(itemOverrides = {}, options = {}) {
                 releaseDate: String(itemOverrides.year || 2025), firstAirDate: String(itemOverrides.year || 2025)
             }] });
         }
+        if (/\/movie\/1000\/(similar|recommendations)$/.test(url)) { return jsonResponse({ results: options.related || [] }); }
         if (/\/(movie|tv)\/501$/.test(url)) {
             return options.details ? options.details() : jsonResponse({
                 id: 501, mediaInfo: { status: 1 }, seasons: [{ seasonNumber: 1, episodeCount: 6 }]
@@ -530,7 +531,7 @@ test('частично доступный сериал разрешает выб
     } finally { runtime.dom.window.close(); }
 });
 
-for (const reason of ['disabled', 'unlinked', 'blocked']) {
+for (const reason of ['unlinked', 'blocked']) {
     test('недоступность интеграции показана явно: ' + reason, async () => {
         const runtime = await createProxyRecommendation({}, { status: () => jsonResponse({ active: false, userFound: false, reason }) });
         try {
@@ -660,5 +661,27 @@ test('Seerr без права запроса сохраняет описание
         dialog.querySelector('.kp-recommendation-dialog__submit').click();
         assert.equal(requestPosts(runtime).length, 0);
         assert.equal(runtime.requests.some(r => r.url.includes('/JellyfinEnhanced/')), false);
+    } finally { runtime.dom.window.close(); }
+});
+
+
+test('дополнительная подборка использует самостоятельные карточки и запросы без Enhanced', async () => {
+    const runtime = await createProxyRecommendation({}, { related: [{
+        id: 501, mediaType: 'movie', title: 'Фильм из TMDB', releaseDate: '2025-01-01',
+        overview: 'Описание из дополнительной подборки.', posterPath: '/poster.jpg'
+    }] });
+    try {
+        runtime.window.KinopoiskTmdbResolver = { resolve: () => Promise.resolve('1000') };
+        runtime.window.document.querySelectorAll('.kp-recommendations-tab')[1].click();
+        await waitFor(() => runtime.window.document.querySelector('.kp-similar-card')?.__kinopoiskRecommendationItem.tmdbId === 501, 'Самостоятельная карточка TMDB не появилась.');
+        assert.equal(runtime.window.document.querySelectorAll('.kp-similar-card').length, 1);
+        assert.equal(runtime.window.JellyfinEnhanced, undefined);
+        assert.ok(runtime.window.document.querySelector('.kp-similar-card .cardOverlayContainer'));
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Запрос TMDB недоступен.');
+        assert.match(dialog.textContent, /Описание из дополнительной подборки/);
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => requestPosts(runtime).length === 1, 'Запрос не отправлен.');
+        assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body), { mediaType: 'movie', mediaId: 501 });
     } finally { runtime.dom.window.close(); }
 });

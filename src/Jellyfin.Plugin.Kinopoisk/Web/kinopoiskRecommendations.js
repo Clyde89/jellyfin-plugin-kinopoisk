@@ -312,9 +312,6 @@
             return Promise.resolve({ items: [], reason: 'Дополнительная подборка пока недоступна.' });
         }
         var enhanced = { jellyseerrAPI: api };
-        var config = window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
-        var showSimilar = !config || config.JellyseerrShowSimilar !== false;
-        var showRecommended = !config || config.JellyseerrShowRecommended !== false;
 
         var itemId = String(pick(item, 'Id', 'id') || '');
         var key = 'extended:' + itemId;
@@ -325,6 +322,9 @@
             ]).then(function (values) {
                 var status = values[0];
                 var tmdbId = values[1];
+                var config = status && status.provider === 'enhanced' && window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
+                var showSimilar = !config || config.JellyseerrShowSimilar !== false;
+                var showRecommended = !config || config.JellyseerrShowRecommended !== false;
                 if (!status || !status.active || !tmdbId) {
                     return { items: [], reason: 'Подборка The Movie Database временно недоступна.' };
                 }
