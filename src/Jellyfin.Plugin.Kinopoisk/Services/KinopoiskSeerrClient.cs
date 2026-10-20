@@ -155,7 +155,11 @@ public sealed class KinopoiskSeerrClient
         // Re-resolve before every write. Never accept requestedBy or X-API-User from the browser.
         var user = await FindUser(config, userId, true, token).ConfigureAwait(false)
             ?? throw new KinopoiskSeerrException(403, "Учётная запись Jellyfin не связана с Seerr.");
-        return await Send(config, "request", user, body, token).ConfigureAwait(false);
+        var result = await Send(config, "request", user, body, token).ConfigureAwait(false);
+        if (result.ValueKind != JsonValueKind.Object || !result.TryGetProperty("id", out var requestId)
+            || requestId.ValueKind != JsonValueKind.Number || !requestId.TryGetInt32(out var requestNumber) || requestNumber < 1)
+            throw new KinopoiskSeerrException(409, "Seerr не подтвердил создание заявки. Обновите состояние фильма или сезонов.");
+        return result;
     }
 
     private (Uri Url, string Key) Connection() => Connection(_configuration());

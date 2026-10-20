@@ -957,3 +957,17 @@ test('запоздавшее живое состояние прежнего по
         assert.equal(requestPosts(runtime).length, 0);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('ответ Seerr 202 без заявки не показан как успешное создание', async () => {
+    const runtime = await createProxyRecommendation({}, { request: () => jsonResponse({ message: 'No seasons available to request' }, 202) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Окно не готово.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => dialog.textContent.includes('не подтвердил создание'), 'Отсутствующая заявка показана как успешная.');
+        assert.doesNotMatch(dialog.textContent, /Запрос отправлен/);
+        assert.equal(requestPosts(runtime).length, 1);
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+    } finally { runtime.dom.window.close(); }
+});

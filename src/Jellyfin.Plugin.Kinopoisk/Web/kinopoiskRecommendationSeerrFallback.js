@@ -625,7 +625,12 @@
             return proxy('/request', Object.assign({}, settings, {
                 mediaType: item.mediaType,
                 mediaId: Number(item.id)
-            }, item.mediaType === 'tv' ? { seasons: seasons } : {}));
+            }, item.mediaType === 'tv' ? { seasons: seasons } : {})).then(function (response) {
+                if (!response || !Number.isInteger(response.id) || response.id < 1) {
+                    throw new Error('Seerr не подтвердил создание заявки. Обновите состояние фильма или сезонов.');
+                }
+                return response;
+            });
         });
     }
 

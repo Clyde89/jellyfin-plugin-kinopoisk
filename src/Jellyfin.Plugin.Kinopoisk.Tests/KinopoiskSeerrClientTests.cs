@@ -316,6 +316,19 @@ public sealed class KinopoiskSeerrClientTests
         Assert.Empty(fixture.Http.Calls);
     }
 
+    [Fact]
+    public async Task AcceptedResponseWithoutRequestIsNotReportedAsCreated()
+    {
+        using var fixture = new Fixture();
+        fixture.Http.PostStatus = HttpStatusCode.Accepted;
+        fixture.Http.NoSeasons = true;
+        var error = await Assert.ThrowsAsync<KinopoiskSeerrException>(() => fixture.Client.Request(First,
+            JsonSerializer.SerializeToElement(new { mediaId = 501, mediaType = "tv", seasons = new[] { 1 } }), CancellationToken.None));
+        Assert.Equal(409, error.Status);
+        Assert.Contains("не подтвердил создание", error.Message);
+        Assert.Single(fixture.Http.Calls.Where(c => c.Method == "POST"));
+    }
+
     private sealed class FixtureAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
         public FixtureAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -345,6 +358,7 @@ public sealed class KinopoiskSeerrClientTests
         public readonly List<(string Method, string Path, string Key, string User, string Body)> Calls = new();
         public string ApplicationUrl = "https://public.example/seerr";
         public HttpStatusCode PublicStatus = HttpStatusCode.OK;
+        public bool NoSeasons;
         public bool Linked = true;
         public bool Paginate;
         public bool Duplicate;
@@ -357,6 +371,7 @@ public sealed class KinopoiskSeerrClientTests
                 request.Headers.TryGetValues("X-Api-User", out var values) ? values.Single() : "",
                 request.Content == null ? "" : await request.Content.ReadAsStringAsync(token)));
             object body = new { id = 501 };
+            if (request.Method == HttpMethod.Post && NoSeasons) body = new { message = "No seasons available to request" };
             if (uri.AbsolutePath.EndsWith("/user"))
             {
                 var users = new List<object>();
