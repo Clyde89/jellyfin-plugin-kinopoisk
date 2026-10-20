@@ -32,11 +32,7 @@ const userSettings={getSortValuesLegacy:()=>({sortBy:'SortName',sortOrder:'Ascen
 // Run Jellyfin's actual legacy scroller and arrow handlers. Only the v0
 // custom-element lifecycle adapter and service imports belong to the fixture.
 const nativeSource = name => fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, name), 'utf8').replace(/^import[^;]*;\s*$/gm, '');
-const scrollUtils = nativeSource('elements/emby-scrollbuttons/utils.ts')
-    .replace(/export enum ScrollDirection \{[\s\S]*?\n\}/, "const ScrollDirection={RIGHT:'right',LEFT:'left'};")
-    .replace(/^interface \w+ \{[\s\S]*?\n\}/gm, '')
-    .replace(/: ScrollerItemSlideIntoViewProps|: ScrollToWindowProps|: HTMLElement\[\]|: HTMLElement|: number/g, '')
-    .replace(/ as HTMLElement\[\]/g, '').replace('export function', 'function');
+const scrollUtils = require('node:module').stripTypeScriptTypes(nativeSource('elements/emby-scrollbuttons/utils.ts').replace(/^export /gm, ''), { mode: 'transform' });
 const carouselFixture = `(function(){
 const dom={addEventListener:(node,name,handler,options)=>node.addEventListener(name,handler,options),removeEventListener:(node,name,handler,options)=>node.removeEventListener(name,handler,options)};
 const browser={animate:true,supportsCssAnimation:()=>true};
@@ -62,6 +58,7 @@ new MutationObserver(upgrade).observe(document.documentElement,{childList:true,s
     + nativeSource('elements/emby-scrollbuttons/emby-scrollbuttons.js')
     + nativeSource('elements/emby-scroller/emby-scroller.js').replace("import('../emby-scrollbuttons/emby-scrollbuttons')", 'Promise.resolve()')
     + '})();';
+new (require('node:vm').Script)(carouselFixture, { filename: 'native-carousel-fixture.js' });
 const poster = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><rect width="400" height="600" fill="#20394a"/><circle cx="200" cy="240" r="100" fill="#375970"/><text x="200" y="410" text-anchor="middle" font-size="36" font-family="sans-serif" fill="white">WATERWORLD</text><text x="200" y="455" text-anchor="middle" font-size="24" font-family="sans-serif" fill="white">1995</text></svg>';
 const items = [{ kinopoiskId: 8169, name: 'Водный мир', originalName: 'Waterworld', year: 1995, mediaType: 'movie',
     overview: 'В будущем полярные льды растаяли и вода покрыла Землю. Рекомендация выбранного фильма с КиноПоиска.',
@@ -158,7 +155,7 @@ const server = http.createServer(async (request, response) => {
     origin = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
     await page.route('**/*', route => {
         const url = new URL(route.request().url());
         return url.origin === origin || url.protocol === 'blob:' ? route.continue() : route.abort();
@@ -262,7 +259,7 @@ const server = http.createServer(async (request, response) => {
     mediaStatus = null;
     posts = [];
     const enhancedPage = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
-    enhancedPage.on('pageerror', error => errors.push(error.message));
+    enhancedPage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
     await enhancedPage.goto(origin + '/web/#/details?id=item-1');
     await enhancedPage.getByRole('button', { name: 'Запросить', exact: true }).click();
     const enhancedDialog = enhancedPage.getByRole('dialog');
@@ -279,7 +276,7 @@ const server = http.createServer(async (request, response) => {
     posts = [];
     const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const mobilePage = await mobile.newPage();
-    mobilePage.on('pageerror', error => errors.push(error.message));
+    mobilePage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
     await mobilePage.goto(origin + '/web/#/details?id=item-1');
     await mobilePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="ready"]').waitFor();
     await mobilePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
@@ -297,7 +294,7 @@ const server = http.createServer(async (request, response) => {
     const previousReads = serviceReads;
     const standalone = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
     const standalonePage = await standalone.newPage();
-    standalonePage.on('pageerror', error => errors.push(error.message));
+    standalonePage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
     await standalonePage.goto(origin + '/web/#/details?id=item-1');
     await standalonePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="standalone"]').waitFor();
     await standalonePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
@@ -408,7 +405,7 @@ const server = http.createServer(async (request, response) => {
     wishes = [];
     libraryAvailable = true;
     const localPage = await standalone.newPage();
-    localPage.on('pageerror', error => errors.push(error.message));
+    localPage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
     await localPage.goto(origin + '/web/#/details?id=item-1');
     const localCard = localPage.locator('.kp-similar-card');
     await localCard.locator('.kp-similar-card__play:not([hidden])').waitFor();
