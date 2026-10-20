@@ -1055,3 +1055,19 @@ test('временная ошибка Enhanced отличалась от отс�
         assert.equal(requestPosts(runtime).length, 0);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('отсутствующий сервис запросов не объявил отсутствующим установленный Enhanced', async () => {
+    const runtime = await createProxyRecommendation({}, {
+        enhanced: true,
+        status: url => url.startsWith('/KinopoiskRequests/') ? jsonResponse({ provider: 'enhanced' }) : jsonResponse({}, 404)
+    });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="standalone"]'),
+            'Недоступный сервис заблокировал карточку.');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.textContent.includes('Enhanced временно недоступна'), '404 сервиса подменил состояние плагина.');
+        assert.equal((await runtime.window.KinopoiskEnhancedIntegration.status()).available, true);
+        assert.equal(runtime.requests.filter(request => request.url === '/JellyfinEnhanced/jellyseerr/user-status').length, 1);
+    } finally { runtime.dom.window.close(); }
+});

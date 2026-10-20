@@ -94,8 +94,10 @@
                     reason: legacyStatus.reason || (!legacyStatus.active ? 'disabled' : !legacyStatus.userFound ? 'unlinked' : 'linked') });
             }).catch(function (error) {
                 if (error.status !== 404 && !error.reason) { throw error; }
-                return { provider: 'enhanced', enhancedDetected: error.status !== 404, active: false, userFound: false,
-                    reason: error.status === 404 ? 'enhanced_missing' : 'enhanced_unavailable' };
+                // Наличие расширения уже подтверждено реестром и конфигурацией.
+                // 404 отдельного сервиса не означал отсутствие всего Enhanced.
+                return { provider: 'enhanced', enhancedDetected: true, active: false, userFound: false,
+                    reason: 'enhanced_unavailable' };
             });
             });
         });
