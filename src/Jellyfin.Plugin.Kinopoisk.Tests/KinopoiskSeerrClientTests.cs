@@ -19,6 +19,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Common.Api;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
+using System.Text.Encodings.Web;
 using Moq;
 using Xunit;
 
@@ -198,6 +201,7 @@ public sealed class KinopoiskSeerrClientTests
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(fixture.Client);
+        builder.Services.AddAuthentication("fixture").AddScheme<AuthenticationSchemeOptions, FixtureAuthenticationHandler>("fixture", _ => { });
         builder.Services.AddAuthorization(options => options.AddPolicy(Policies.RequiresElevation,
             policy => policy.RequireClaim("fixture-admin", "true")));
         builder.Services.AddControllers().AddApplicationPart(typeof(KinopoiskRequestsController).Assembly);
@@ -244,6 +248,15 @@ public sealed class KinopoiskSeerrClientTests
             Assert.Equal("28", Assert.Single(fixture.Http.Calls.Where(c => c.Method == "POST")).User);
         }
         finally { await app.StopAsync(); }
+    }
+
+    private sealed class FixtureAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+    {
+        public FixtureAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
+            ILoggerFactory logger, UrlEncoder encoder) : base(options, logger, encoder) { }
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+            => Task.FromResult(AuthenticateResult.NoResult());
     }
 
     private sealed class Fixture : IDisposable
