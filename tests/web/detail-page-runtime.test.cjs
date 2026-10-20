@@ -1036,3 +1036,22 @@ test('дополнительная подборка дождалась стат�
         assert.equal(resolutions, 1);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('временная ошибка Enhanced отличалась от отсутствующего расширения и сохранила автономную карточку', async () => {
+    const runtime = await createRecommendationRuntime({}, url => {
+        if (url === '/KinopoiskRequests/user-status') return jsonResponse({ provider: 'enhanced' });
+        if (url === '/JellyfinEnhanced/public-config') return jsonResponse({}, 503);
+        throw new Error('Неожиданное обращение к интеграции: ' + url);
+    });
+    runtime.window.__fixtureEnhanced = true;
+    runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="standalone"]'),
+            'Временная ошибка остановила автономную карточку.');
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.textContent.includes('Enhanced временно недоступна'), 'Ошибка названа отсутствием расширения.');
+        assert.equal(runtime.requests.filter(request => request.url.startsWith('/JellyfinEnhanced/')).length, 1);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});

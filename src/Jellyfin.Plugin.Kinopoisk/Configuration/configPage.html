@@ -486,14 +486,16 @@
         }
 
         var enhancedDetection = null;
+        var enhancedDetectionState = 'unknown';
         var enhancedDetectionExpiresAt = 0;
         function detectEnhanced() {
             if (enhancedDetection && Date.now() < enhancedDetectionExpiresAt) { return enhancedDetection; }
             enhancedDetectionExpiresAt = Date.now() + 60000;
             enhancedDetection = connectionFetch('/KinopoiskRequests/integrations').then(function (state) {
+                enhancedDetectionState = state && state.enhanced && state.enhanced.state || 'unknown';
                 return state && state.enhanced && typeof state.enhanced.available === 'boolean'
                     ? state.enhanced.available : null;
-            }).catch(function () { return null; });
+            }).catch(function () { enhancedDetectionState = 'unknown'; return null; });
             return enhancedDetection;
         }
 
@@ -531,7 +533,10 @@
                 var result = results[1];
                 var status = result.status || {};
                 var detected = status.enhancedDetected === true ? true : results[0];
-                $('#EnhancedDetectionStatus').text(detected === true ? 'обнаружен' : detected === false ? 'не установлен' : 'не удалось определить');
+                $('#EnhancedDetectionStatus').text(detected === true ? 'обнаружен'
+                    : enhancedDetectionState === 'disabled' ? 'установлен, но отключён'
+                    : enhancedDetectionState === 'pending' ? 'установлен, но ещё не загружен'
+                    : enhancedDetectionState === 'missing' ? 'не установлен' : 'не удалось определить');
                 var messages = {
                     disabled: status.provider === 'enhanced'
                         ? 'Seerr в Enhanced выключен или не настроен. Доступно прямое подключение Seerr.'

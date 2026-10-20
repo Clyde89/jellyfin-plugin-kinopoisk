@@ -85,8 +85,9 @@
             var integration = window.KinopoiskEnhancedIntegration;
             return (integration ? integration.status() : Promise.resolve({ available: false })).then(function (state) {
                 if (!state.available) {
-                    return { provider: 'enhanced', enhancedDetected: false, active: false, userFound: false,
-                        reason: 'enhanced_missing' };
+                    return { provider: 'enhanced', enhancedDetected: state.state === 'disabled' || state.state === 'pending',
+                        active: false, userFound: false,
+                        reason: state.state === 'missing' ? 'enhanced_missing' : 'enhanced_unavailable' };
                 }
                 return proxyFetch('/JellyfinEnhanced/jellyseerr', path).then(function (legacyStatus) {
                 return Object.assign({}, legacyStatus, { provider: 'enhanced', enhancedDetected: true,
@@ -948,7 +949,9 @@
             if (result && result.standalone) {
                 bindStandaloneCard(card);
                 quota.textContent = '';
-                status.textContent = result.connection.reason === 'enhanced_missing'
+                status.textContent = result.connection.reason === 'enhanced_unavailable'
+                    ? 'Интеграция Enhanced временно недоступна. Рекомендации, желаемое и просмотр работают самостоятельно.'
+                    : result.connection.reason === 'enhanced_missing'
                     ? 'Для запросов подключите Seerr в настройках КиноПоиска. Jellyfin Enhanced не установлен.'
                     : result.connection.enhancedDetected
                         ? 'Jellyfin Enhanced обнаружен, но Seerr в нём выключен или не настроен. Можно подключить Seerr напрямую в настройках КиноПоиска.' : '';
