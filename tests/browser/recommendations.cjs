@@ -13,7 +13,8 @@ const manifest = fs.readFileSync(path.join(root, 'src/Jellyfin.Plugin.Kinopoisk/
 const scripts = [...manifest.matchAll(/"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([^"\s]+[.]js)"/g)].map(match => match[1]);
 assert.equal(scripts.length, 13);
 const bundle = scripts.map(name => fs.readFileSync(path.join(web, name), 'utf8')).join('\n\n');
-const css = ['card.scss', 'emby-button.scss', 'dialoghelper.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
+const iconCss = fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'material-design-icons.css'), 'utf8').replace(/@font-face\s*\{[\s\S]*?\}/, '');
+const css = iconCss + ['card.scss', 'emby-button.scss', 'dialoghelper.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
 // The actual Jellyfin click handler is exercised with a playback recorder.
 // Imports are substituted only in this fixture; the production bundle delegates
 // to the normal emby-itemscontainer handler already loaded by Jellyfin Web.

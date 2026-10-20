@@ -220,6 +220,7 @@ jobs:
           assert hashlib.sha512(pathlib.Path(sys.argv[1]).read_bytes()).digest() == base64.b64decode(expected)
           PY
           tar -xOf "$icon_archive" package/dist/fonts/MaterialIcons-Regular.woff2 > "${style_dir}/MaterialIcons-Regular.woff2"
+          tar -xOf "$icon_archive" package/dist/material-design-icons.css > "${style_dir}/material-design-icons.css"
           echo "JELLYFIN_STYLE_DIR=${style_dir}" >> "$GITHUB_ENV"
 
       - name: Подготовлены библиотеки браузера без изменения системы

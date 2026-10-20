@@ -48,7 +48,7 @@
         var button = node('button', 'cardOverlayButton cardOverlayButton-hover paper-icon-button-light ' + className);
         button.type = 'button';
         button.setAttribute('is', 'paper-icon-button-light');
-        var glyph = node('span', 'material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover ' + icon, icon);
+        var glyph = node('span', 'material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover ' + icon);
         glyph.setAttribute('aria-hidden', 'true');
         button.appendChild(glyph);
         return button;
@@ -67,7 +67,7 @@
         var play = card.querySelector('.kp-similar-card__play');
         if (play) { play.hidden = true; play.disabled = true; }
         var heart = card.querySelector('.kp-similar-card__heart');
-        if (heart) { heart.disabled = true; heart.setAttribute('aria-pressed', 'false'); heart.querySelector('span').textContent = 'favorite_border'; }
+        if (heart) { heart.disabled = true; heart.setAttribute('aria-pressed', 'false'); heart.querySelector('span').classList.remove('favorite'); heart.querySelector('span').classList.add('favorite_border'); }
     }
     function apply(card, state) {
         var item = card.__kinopoiskRecommendationItem;
@@ -113,7 +113,8 @@
         heart.setAttribute('aria-pressed', String(selected));
         heart.classList.toggle('ratingbutton-withrating', selected);
         var glyph = heart.querySelector('span');
-        glyph.textContent = selected ? 'favorite' : 'favorite_border';
+        glyph.classList.toggle('favorite', selected);
+        glyph.classList.toggle('favorite_border', !selected);
         glyph.classList.toggle('ratingbutton-icon-withrating', selected);
         heart.disabled = pending.has(user() + ':' + key(item));
     }

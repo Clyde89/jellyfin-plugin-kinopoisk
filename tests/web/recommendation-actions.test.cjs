@@ -74,6 +74,8 @@ test('доступный фильм получил штатное действи
         assert.equal(play.hidden, false);
         assert.equal(play.dataset.action, 'resume');
         assert.equal(play.getAttribute('aria-label'), 'Продолжить просмотр');
+        assert.equal(play.querySelector('.material-icons').textContent, '');
+        assert.equal(play.querySelector('.material-icons').classList.contains('play_arrow'), true);
         assert.equal(card.dataset.id, 'library-101');
         assert.equal(card.dataset.serverid, 'server-1');
         assert.equal(card.dataset.positionticks, '12345');

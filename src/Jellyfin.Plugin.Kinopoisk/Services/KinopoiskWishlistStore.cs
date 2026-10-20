@@ -56,6 +56,8 @@ public sealed class KinopoiskWishlistStore
                 await stream.FlushAsync(token).ConfigureAwait(false);
                 stream.Flush(true);
             }
+            if (new FileInfo(temporary).Length > 4 * 1024 * 1024)
+                throw new InvalidOperationException("Достигнут предел размера желаемого. Удалите ненужные записи.");
             token.ThrowIfCancellationRequested();
             if (File.Exists(target)) File.Copy(target, target + ".previous", true);
             File.Move(temporary, target, true);
