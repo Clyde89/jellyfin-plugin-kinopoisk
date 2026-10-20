@@ -51,7 +51,7 @@ function fixture(options = {}) {
             if (!home) {
                 home = window.document.createElement('div');
                 home.id = 'indexPage';
-                home.innerHTML = '<div id="homeTab" class="tabContent"><div class="sections">Главная</div></div><div id="favoritesTab" class="tabContent"><div class="sections"><section id="native-favorites">Штатное избранное</section></div></div>';
+                home.innerHTML = '<div id="homeTab" class="tabContent"><div class="sections">Главная</div></div><div id="favoritesTab" class="tabContent"><div class="sections"><section id="native-favorites"><a href="#/list?itemTypes=Movie&amp;isFavorite=true"><h2 class="sectionTitle">Фильмы</h2></a></section><section id="native-music"><a href="#/list?itemTypes=MusicAlbum"><h2 class="sectionTitle">Альбомы</h2></a></section></div></div>';
                 window.document.body.appendChild(home);
             }
             window.location.hash = '#/home?tab=' + (active ? 1 : 0);
@@ -92,6 +92,13 @@ test('желаемое открыто в штатном избранном, уд
         const section = () => app.window.document.querySelector('#kinopoiskFavoritesWishlist');
         await wait(() => section()?.querySelector('.kp-similar-card__title')?.textContent === 'Сохранённый фильм', 'Желаемое отсутствует в штатном избранном.');
         assert.ok(app.window.document.querySelector('#native-favorites'), 'Штатные разделы удалены.');
+        assert.equal(app.window.document.querySelector('#native-favorites h2').textContent, 'Готово к просмотру — фильмы');
+        assert.match(app.window.document.querySelector('#native-favorites a').getAttribute('href'), /itemTypes=Movie/);
+        assert.equal(app.window.document.querySelector('#native-music h2').textContent, 'Альбомы');
+        assert.equal(section().querySelector('h2').textContent, 'Хочу посмотреть');
+        assert.match(section().querySelector('.kp-favorites-wishlist-description').textContent, /ещё не скачан/);
+        assert.equal(section().querySelector('.scrollSlider.padded-left'), null);
+
         await wait(() => section()?.querySelector('.kp-similar-card__heart')?.disabled === false, 'Действия в избранном не готовы.');
         assert.equal(section().querySelector('.kp-similar-card__heart').getAttribute('aria-pressed'), 'true');
         section().querySelector('.kp-similar-card__heart').click();

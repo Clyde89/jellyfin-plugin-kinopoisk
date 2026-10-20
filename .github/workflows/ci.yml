@@ -212,6 +212,16 @@ jobs:
           curl --fail --show-error --silent --location "$upstream/src/components/dialogHelper/dialoghelper.scss" --output "$style_dir/dialoghelper.scss"
           curl --fail --show-error --silent --location "$upstream/src/components/shortcuts.js" --output "$style_dir/shortcuts.js"
           curl --fail --show-error --silent --location "$upstream/src/constants/itemAction.ts" --output "$style_dir/itemAction.ts"
+          # Native carousel geometry, controls and theme are part of the UI fixture.
+          for native_path in \
+            styles/_mixins.scss styles/librarybrowser.scss styles/scrollstyles.scss \
+            themes/_base/_theme.scss themes/_base/_palette.scss \
+            elements/emby-scroller/emby-scroller.scss elements/emby-scroller/emby-scroller.js \
+            elements/emby-scrollbuttons/emby-scrollbuttons.scss elements/emby-scrollbuttons/emby-scrollbuttons.js \
+            elements/emby-scrollbuttons/utils.ts lib/scroller/index.js; do
+            mkdir -p "${style_dir}/$(dirname "$native_path")"
+            curl --fail --show-error --silent --location "$upstream/src/$native_path" --output "${style_dir}/$native_path"
+          done
           icon_archive="${style_dir}/icons.tgz"
           curl --fail --show-error --silent --location https://registry.npmjs.org/material-design-icons-iconfont/-/material-design-icons-iconfont-6.7.0.tgz --output "$icon_archive"
           python3 - "$icon_archive" <<'PY'
@@ -324,7 +334,7 @@ jobs:
         if: contains(github.ref_name, 'runtime-review')
         uses: ./kinopoisk-upload-action
         with:
-          name: kinopoisk-12.1.0.6-review.6-systemd
+          name: kinopoisk-12.1.0.6-review.7-systemd
           path: ${{ runner.temp }}/kinopoisk-source/artifacts/kinopoisk-*-systemd.zip
           if-no-files-found: error
           retention-days: 7

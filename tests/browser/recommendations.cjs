@@ -14,7 +14,7 @@ const scripts = [...manifest.matchAll(/"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([
 assert.equal(scripts.length, 13);
 const bundle = scripts.map(name => fs.readFileSync(path.join(web, name), 'utf8')).join('\n\n');
 const iconCss = fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'material-design-icons.css'), 'utf8').replace(/@font-face\s*\{[\s\S]*?\}/, '');
-const css = iconCss + ['card.scss', 'emby-button.scss', 'dialoghelper.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
+const css = iconCss + ['card.scss', 'emby-button.scss', 'dialoghelper.scss', 'styles/librarybrowser.scss', 'styles/scrollstyles.scss', 'themes/_base/_theme.scss', 'elements/emby-scroller/emby-scroller.scss', 'elements/emby-scrollbuttons/emby-scrollbuttons.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
 // The actual Jellyfin click handler is exercised with a playback recorder.
 // Imports are substituted only in this fixture; the production bundle delegates
 // to the normal emby-itemscontainer handler already loaded by Jellyfin Web.
@@ -29,6 +29,39 @@ const playbackManager={canPlay:()=>true,play:options=>{window.playbackRequests.p
 const dom={parentWithClass:(node,name)=>node.closest('.'+name),parentWithAttribute:(node,name)=>node.closest('['+name+']')};
 const userSettings={getSortValuesLegacy:()=>({sortBy:'SortName',sortOrder:'Ascending'})};
 ` + shortcutSource + ';document.addEventListener("click",onClick);})();';
+// Run Jellyfin's actual legacy scroller and arrow handlers. Only the v0
+// custom-element lifecycle adapter and service imports belong to the fixture.
+const nativeSource = name => fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, name), 'utf8').replace(/^import[^;]*;\s*$/gm, '');
+const scrollUtils = nativeSource('elements/emby-scrollbuttons/utils.ts')
+    .replace(/export enum ScrollDirection \{[\s\S]*?\n\}/, "const ScrollDirection={RIGHT:'right',LEFT:'left'};")
+    .replace(/^interface \w+ \{[\s\S]*?\n\}/gm, '')
+    .replace(/: ScrollerItemSlideIntoViewProps|: ScrollToWindowProps|: HTMLElement\[\]|: HTMLElement|: number/g, '')
+    .replace(/ as HTMLElement\[\]/g, '').replace('export function', 'function');
+const carouselFixture = `(function(){
+const dom={addEventListener:(node,name,handler,options)=>node.addEventListener(name,handler,options),removeEventListener:(node,name,handler,options)=>node.removeEventListener(name,handler,options)};
+const browser={animate:true,supportsCssAnimation:()=>true};
+const layoutManager={desktop:matchMedia('(pointer:fine)').matches,tv:false};
+const focusManager={focusableParent:node=>node.closest('button,a,input')};
+const inputManager={on(){},off(){}};
+const hasFinePointer=()=>matchMedia('(pointer:fine)').matches;
+const globalize={getIsRTL:()=>document.documentElement.dir==='rtl',getIsElementRTL:node=>getComputedStyle(node).direction==='rtl',translate:key=>key==='Previous'?'Назад':'Далее'};
+const registered=new Map(),upgraded=new Map();
+function upgrade(){
+ document.querySelectorAll('[is]').forEach(node=>{
+  const name=node.getAttribute('is'),prototype=registered.get(name);
+  if(name==='paper-icon-button-light')node.classList.add(name);
+  if(prototype&&!upgraded.has(node)){Object.setPrototypeOf(node,prototype);upgraded.set(node,false);if(prototype.createdCallback)prototype.createdCallback.call(node);}
+ });
+ upgraded.forEach((attached,node)=>{const connected=node.isConnected;if(connected!==attached){upgraded.set(node,connected);const callback=connected?node.attachedCallback:node.detachedCallback;if(callback)callback.call(node);if(!connected)upgraded.delete(node);}});
+}
+document.registerElement=(name,options)=>{registered.set(name,options.prototype);upgrade();};
+window.CustomElements={upgradeSubtree:upgrade};
+new MutationObserver(upgrade).observe(document.documentElement,{childList:true,subtree:true});
+` + nativeSource('lib/scroller/index.js').replace('export default scrollerFactory;', 'const ScrollerFactory=scrollerFactory;')
+    + scrollUtils
+    + nativeSource('elements/emby-scrollbuttons/emby-scrollbuttons.js')
+    + nativeSource('elements/emby-scroller/emby-scroller.js').replace("import('../emby-scrollbuttons/emby-scrollbuttons')", 'Promise.resolve()')
+    + '})();';
 const poster = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><rect width="400" height="600" fill="#20394a"/><circle cx="200" cy="240" r="100" fill="#375970"/><text x="200" y="410" text-anchor="middle" font-size="36" font-family="sans-serif" fill="white">WATERWORLD</text><text x="200" y="455" text-anchor="middle" font-size="24" font-family="sans-serif" fill="white">1995</text></svg>';
 const items = [{ kinopoiskId: 8169, name: 'Водный мир', originalName: 'Waterworld', year: 1995, mediaType: 'movie',
     overview: 'В будущем полярные льды растаяли и вода покрыла Землю. Рекомендация выбранного фильма с КиноПоиска.',
@@ -57,16 +90,17 @@ const server = http.createServer(async (request, response) => {
         response.end(`<!doctype html><html lang="ru" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}
         @font-face{font-family:'Material Icons';font-style:normal;font-weight:400;src:url('/material-icons.woff2') format('woff2')}
         .material-icons{font-family:'Material Icons';font-weight:normal;font-style:normal;display:inline-block;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;word-wrap:normal;direction:ltr;font-feature-settings:'liga'}
-        .hide,[hidden]{display:none!important}#indexPage .tabContent:not(.is-active){display:none}body{margin:0;padding:24px;background:#101010;color:#eee;font:16px Arial,sans-serif}h2{font-size:24px}.card{width:220px}.dialog{background:#202020}.textActionButton{border:0;background:transparent;padding:0;color:inherit}.raised{background:#303030}.button-submit{background:#00a4dc;color:white}button:disabled{opacity:.6}.material-icons{font-size:22px}.itemsContainer{overflow-x:auto}.cardText{overflow:hidden}.cardText-secondary{color:#bbb}.verticalSection{margin-bottom:30px}
-        </style></head><body><div class="itemDetailPage" id="active"><div class="detailPagePrimaryContent"></div><section id="similarCollapsible"><h2>Штатная карточка Jellyfin</h2><div class="itemsContainer"><div class="card overflowPortraitCard card-hoverable" id="native-card"><div class="cardBox cardBox-bottompadded"><div class="cardScalable"><div class="cardPadder cardPadder-overflowPortrait"></div><button class="cardContent cardImageContainer coveredImage" style="background-image:url('/poster.svg')" aria-label="Штатный постер"></button><div class="cardOverlayContainer"><button class="cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light" aria-label="Воспроизвести">▶</button></div></div><div class="cardText cardTextCentered cardText-first">Водный мир</div><div class="cardText cardTextCentered cardText-secondary">1995</div></div></div></div></section></div><div id="indexPage" class="page homePage" hidden><div id="homeTab" class="tabContent pageTabContent"><div class="sections"></div></div><div id="favoritesTab" class="tabContent pageTabContent"><div class="sections"><section class="verticalSection" id="native-favorites"><h2>Фильмы</h2><div class="itemsContainer" id="native-favorite-items"></div></section></div></div></div><script>
+        .hide,[hidden]{display:none!important}#indexPage .tabContent:not(.is-active){display:none}body{margin:0;padding:24px;background:#101010;color:#eee;font:16px Arial,sans-serif}h2{font-size:24px}.card{width:220px}.dialog{background:#202020}.textActionButton{border:0;background:transparent;padding:0;color:inherit}.raised{background:#303030}.button-submit{background:#00a4dc;color:white}button:disabled{opacity:.6}.material-icons{font-size:22px}.cardText{overflow:hidden}.cardText-secondary{color:#bbb}.verticalSection{margin-bottom:30px}
+        </style></head><body><div class="itemDetailPage" id="active"><div class="detailPagePrimaryContent"></div><section id="similarCollapsible"><h2>Штатная карточка Jellyfin</h2><div class="itemsContainer"><div class="card overflowPortraitCard card-hoverable" id="native-card"><div class="cardBox cardBox-bottompadded"><div class="cardScalable"><div class="cardPadder cardPadder-overflowPortrait"></div><button class="cardContent cardImageContainer coveredImage" style="background-image:url('/poster.svg')" aria-label="Штатный постер"></button><div class="cardOverlayContainer"><button class="cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light" aria-label="Воспроизвести">▶</button></div></div><div class="cardText cardTextCentered cardText-first">Водный мир</div><div class="cardText cardTextCentered cardText-secondary">1995</div></div></div></div></section></div><div id="indexPage" class="page homePage" hidden><div id="homeTab" class="tabContent pageTabContent"><div class="sections"></div></div><div id="favoritesTab" class="tabContent pageTabContent"><div class="sections"><section class="verticalSection" id="native-favorites"><div class="sectionTitleContainer sectionTitleContainer-cards padded-left"><a href="#/list?itemTypes=Movie&amp;isFavorite=true" class="sectionTitleTextButton"><h2 class="sectionTitle sectionTitle-cards">Фильмы</h2></a></div><div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale"><div is="emby-itemscontainer" class="itemsContainer scrollSlider focuscontainer-x" id="native-favorite-items"></div></div></section></div></div></div><script>
         const nativeFavorite=document.querySelector('#native-card').cloneNode(true);nativeFavorite.id='native-favorite-card';document.querySelector('#native-favorite-items').appendChild(nativeFavorite);
         window.fixtureFavorites=active=>{document.querySelector('#active').hidden=true;document.querySelector('#indexPage').hidden=false;document.querySelector('#favoritesTab').classList.toggle('is-active',active);document.querySelector('#homeTab').classList.toggle('is-active',!active);location.hash='#/home?tab='+(active?1:0);};
         if(location.hash.startsWith('#/home'))window.fixtureFavorites(location.hash.includes('tab=1'));
         window.ApiClient={accessToken:()=> 'fixture-token',getCurrentUserId:()=> 'fixture-user',serverInfo:()=>({Id:'fixture-server'}),getUrl:p=>new URL(p,location.origin).href,getItem:(_u,id)=>fetch('/item/'+id).then(r=>r.json())};
-        </script><script src="/native-shortcuts.js"></script><script src="/bundle.js"></script></body></html>`);
+        </script><script src="/native-carousels.js"></script><script src="/native-shortcuts.js"></script><script src="/bundle.js"></script></body></html>`);
         return;
     }
     if (url.pathname === '/material-icons.woff2') { response.setHeader('content-type', 'font/woff2'); response.end(fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'MaterialIcons-Regular.woff2'))); return; }
+    if (url.pathname === '/native-carousels.js') { response.setHeader('content-type', 'text/javascript'); response.end(carouselFixture); return; }
     if (url.pathname === '/native-shortcuts.js') { response.setHeader('content-type', 'text/javascript'); response.end(shortcutFixture); return; }
     if (url.pathname === '/bundle.js') { response.setHeader('content-type', 'text/javascript'); response.end(bundle); return; }
     if (url.pathname === '/poster.svg' || url.pathname === '/KinopoiskPresentation/image') { response.setHeader('content-type', 'image/svg+xml'); response.end(poster); return; }
@@ -180,6 +214,14 @@ const server = http.createServer(async (request, response) => {
     const dialogBox = await dialog.boundingBox();
     assert.ok(Math.abs(dialogBox.x + dialogBox.width / 2 - 640) < 2, 'Native dialog styles displaced the recommendation dialog');
     assert.equal(await dialog.getByRole('button', { name: 'Закрыть', exact: true }).evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
+    for (const name of ['КиноПоиск', 'Открыть в Seerr']) {
+        const link = dialog.getByRole('link', { name, exact: true });
+        await link.hover();
+        await page.waitForTimeout(250);
+        assert.equal(await link.evaluate(node => getComputedStyle(node).color), 'rgb(0, 164, 220)', name + ' missed the native hover color');
+        assert.equal(await link.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
+    }
+
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-confirm.png'), fullPage: true });
     await dialog.getByRole('button', { name: 'Запросить', exact: true }).click();
     await dialog.getByRole('status').filter({ hasText: 'Запрос отправлен' }).waitFor();
@@ -265,6 +307,11 @@ const server = http.createServer(async (request, response) => {
     await standaloneDialog.getByRole('link', { name: 'Открыть в Jellyfin' }).waitFor();
     assert.match(await standaloneDialog.textContent(), /Рекомендация выбранного фильма/);
     assert.equal(await standaloneDialog.locator('.kp-recommendation-dialog__submit').isVisible(), false);
+    const libraryLink = standaloneDialog.getByRole('link', { name: 'Открыть в Jellyfin' });
+    await libraryLink.hover();
+    await standalonePage.waitForTimeout(250);
+    assert.equal(await libraryLink.evaluate(node => getComputedStyle(node).color), 'rgb(0, 164, 220)');
+
     assert.equal(serviceReads, previousReads, 'Standalone cards contacted the request service');
     await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-standalone.png'), fullPage: true });
     assert.deepEqual(errors, []);
@@ -292,6 +339,17 @@ const server = http.createServer(async (request, response) => {
     await standaloneDialog.getByRole('link', { name: 'Открыть в Jellyfin' }).waitFor();
     assert.equal(await standaloneDialog.locator('.kp-recommendation-dialog__submit').isVisible(), false);
     await standalonePage.keyboard.press('Escape');
+
+    await standalonePage.waitForTimeout(350);
+    const nativePosterBox = await standalonePage.locator('#native-favorite-card .cardImageContainer').boundingBox();
+    const wishPosterBox = await favorites.locator('.kp-similar-card__poster').boundingBox();
+    assert.ok(Math.abs(nativePosterBox.x - wishPosterBox.x) < 1, 'Favorites rows have different left padding');
+    assert.ok(Math.abs(nativePosterBox.width - wishPosterBox.width) < 1, 'Favorites poster widths differ');
+    assert.ok(Math.abs(nativePosterBox.height - wishPosterBox.height) < 1, 'Favorites poster heights differ');
+    await standalonePage.getByRole('heading', { name: 'Готово к просмотру — фильмы', exact: true }).waitFor();
+    await favorites.getByRole('heading', { name: 'Хочу посмотреть', exact: true }).waitFor();
+    assert.match(await favorites.locator('.kp-favorites-wishlist-description').textContent(), /ещё не скачан/);
+    assert.equal(await favorites.locator('.emby-scrollbuttons-button:visible').count(), 0, 'Sparse wishlist has navigation arrows');
     await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-favorites.png'), fullPage: true });
     assert.equal(serviceReads, previousReads, 'Favorites introduced a request-service dependency');
     await standalonePage.reload();
@@ -314,6 +372,33 @@ const server = http.createServer(async (request, response) => {
     serviceConnected = false;
     await standalonePage.reload();
     await favorites.locator('.kp-similar-card__heart:not([disabled])').waitFor();
+    wishes = Array.from({ length: 12 }, (_, index) => ({ ...items[0], kinopoiskId: 8169 + index, name: 'Сохранённый фильм ' + (index + 1) }));
+    await standalonePage.reload();
+    await standalonePage.waitForFunction(() => document.querySelectorAll('#kinopoiskFavoritesWishlist .kp-similar-card').length === 12);
+    const nextWish = favorites.locator('.emby-scrollbuttons-button[data-direction="right"]');
+    const previousWish = favorites.locator('.emby-scrollbuttons-button[data-direction="left"]');
+    await nextWish.waitFor({ state: 'visible' });
+    assert.equal(await previousWish.isDisabled(), true);
+    await nextWish.click();
+    await standalonePage.waitForFunction(() => document.querySelector('#kinopoiskFavoritesWishlist .kp-recommendations-scroller').getScrollPosition() > 0);
+    assert.equal(await previousWish.isDisabled(), false);
+    for (let attempt = 0; attempt < 4 && !await nextWish.isDisabled(); attempt++) {
+        await nextWish.click();
+        await standalonePage.waitForTimeout(350);
+    }
+    assert.equal(await nextWish.isDisabled(), true, 'Carousel did not stop at the final card');
+    await standalonePage.setViewportSize({ width: 3200, height: 1000 });
+    await standalonePage.waitForFunction(() => document.querySelector('#kinopoiskFavoritesWishlist [is="emby-scrollbuttons"]').hidden);
+    assert.equal(await favorites.locator('.emby-scrollbuttons-button:visible').count(), 0, 'Resize left arrows without overflow');
+    await standalonePage.setViewportSize({ width: 1280, height: 1000 });
+    await nextWish.waitFor({ state: 'visible' });
+    await standalonePage.evaluate(() => document.querySelector('#kinopoiskFavoritesWishlist .kp-recommendations-scroller').scrollToBeginning());
+    await standalonePage.waitForTimeout(350);
+    await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-favorites-carousel.png'), fullPage: true });
+    wishes = [{ ...items[0] }];
+    await standalonePage.reload();
+    await favorites.locator('.kp-similar-card__heart:not([disabled])').waitFor();
+    assert.equal(await favorites.locator('.emby-scrollbuttons-button:visible').count(), 0, 'Removing titles left stale arrows');
     await favorites.locator('.kp-similar-card__heart').click();
     await favorites.getByText('В желаемом пока ничего нет.', { exact: false }).waitFor();
     assert.equal(wishes.length, 0);

@@ -195,6 +195,8 @@
             '.kp-card-action-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}',
             '.kp-card-action-status.is-error{position:static;display:block;width:auto;height:auto;margin:.3em 0;clip:auto;white-space:normal;color:var(--jf-palette-error-main,#f44336);font-size:.85em}',
             '.kp-wishlist-pagination{display:flex;gap:.8em;align-items:center;margin:1em 0}',
+            '.kp-favorites-wishlist-description{margin:0 0 .6em;opacity:.72}',
+            '.kp-recommendations-section .emby-scrollbuttons[hidden],.kp-favorites-wishlist-section .emby-scrollbuttons[hidden]{display:none!important}',
             '.kp-similar-card__request{max-width:100%;white-space:normal;font-size:.85em}',
             '.kp-similar-card__title{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;font:inherit}',
             '.kp-similar-card .jellyseerr-meta{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.45em;line-height:1.5}',
@@ -217,15 +219,26 @@
         };
     }
 
-    function resetNativeScroller(scroller) {
+    function refreshNativeScroller(scroller, reset) {
         window.requestAnimationFrame(function () {
-            if (typeof scroller.scrollToBeginning === 'function') {
-                scroller.scrollToBeginning();
-            } else {
-                scroller.scrollLeft = 0;
+            if (!scroller.isConnected) { return; }
+            // Jellyfin measures its slider before the asynchronous cards arrive.
+            // Reload it after rendering and use the slider's real overflow.
+            if (scroller.scroller && typeof scroller.scroller.reload === 'function') { scroller.scroller.reload(); }
+            if (reset) {
+                if (typeof scroller.scrollToBeginning === 'function') { scroller.scrollToBeginning(); }
+                else { scroller.scrollLeft = 0; }
+            }
+            var items = scroller.querySelector('.kp-recommendations-items');
+            var buttons = scroller.previousElementSibling;
+            if (items && buttons && buttons.matches('[is="emby-scrollbuttons"]')) {
+                var hidden = items.scrollWidth <= items.clientWidth + 20;
+                if (buttons.hidden !== hidden) { buttons.hidden = hidden; }
+                if (typeof buttons.scrollHandler === 'function') { buttons.scrollHandler(); }
             }
         });
     }
+    function resetNativeScroller(scroller) { refreshNativeScroller(scroller, true); }
 
     function getVisiblePage() {
     var lifecycle = window.KinopoiskDetailPageLifecycle;
@@ -259,7 +272,8 @@
             }
             var width = card.getBoundingClientRect().width;
             if (width >= 80 && width <= 600) {
-                section.style.setProperty('--kp-native-card-width', width.toFixed(2) + 'px');
+                var value = width.toFixed(2) + 'px';
+                if (section.style.getPropertyValue('--kp-native-card-width') !== value) { section.style.setProperty('--kp-native-card-width', value); }
                 return;
             }
         }
@@ -707,6 +721,21 @@
 // wishlist inside Jellyfin's Favorites tab without inventing playable items.
 var favoritesSession = null;
 var favoritesTimer = null;
+function labelLibraryFavorites(host) {
+    Array.prototype.forEach.call(host.children, function (section) {
+        if (section.id === 'kinopoiskFavoritesWishlist') { return; }
+        var heading = section.querySelector('.sectionTitle');
+        if (!heading) { return; }
+        var link = heading.closest('a');
+        var type = link && new URL(link.href, location.href).searchParams.get('itemTypes');
+        // Legacy list routes keep their query inside the hash.
+        if (link) { type = new URLSearchParams(link.hash.split('?')[1] || '').get('itemTypes') || type; }
+        var card = section.querySelector('.card[data-type="Movie"],.card[data-type="Series"]');
+        type = card ? card.dataset.type : type;
+        var label = type === 'Movie' ? 'Готово к просмотру — фильмы' : type === 'Series' ? 'Готово к просмотру — сериалы' : null;
+        if (label && heading.textContent !== label) { heading.textContent = label; }
+    });
+}
 function scheduleFavorites() {
     if (!favoritesTimer) { favoritesTimer = setTimeout(function () { favoritesTimer = null; renderFavorites(); }, 80); }
 }
@@ -722,20 +751,25 @@ function renderFavorites() {
         document.dispatchEvent(new CustomEvent('kinopoisk:recommendation-surface-changed'));
     }
     if (!page || !userId) { return; }
-    if (favoritesSession) { applyNativeCardWidth(page, favoritesSession.section); return; }
     var host = page.querySelector('.sections');
     if (!host) { return; }
+    labelLibraryFavorites(host);
+    if (favoritesSession) {
+        applyNativeCardWidth(page, favoritesSession.section);
+        refreshNativeScroller(favoritesSession.section.querySelector('.kp-recommendations-scroller'));
+        return;
+    }
     ensureStyles();
     var section = createElement('section', 'verticalSection verticalSection-extrabottompadding kp-favorites-wishlist-section');
     section.id = 'kinopoiskFavoritesWishlist';
     section.dataset.userId = userId;
     var header = createElement('div', 'sectionTitleContainer sectionTitleContainer-cards padded-left padded-right');
-    header.appendChild(createElement('h2', 'sectionTitle sectionTitle-cards', 'Желаемое'));
+    header.appendChild(createElement('h2', 'sectionTitle sectionTitle-cards', 'Хочу посмотреть'));
+    var description = createElement('p', 'padded-left padded-right kp-favorites-wishlist-description', 'Сохранено на потом, даже если фильм ещё не скачан.');
     var scroller = createNativeScroller();
     scroller.scroller.classList.remove('no-padding');
-    scroller.items.classList.add('padded-left', 'padded-right');
     var navigation = createElement('div', 'padded-left padded-right');
-    section.append(header, scroller.scroller, navigation);
+    section.append(header, description, scroller.scroller, navigation);
     host.appendChild(section);
     if (window.CustomElements && window.CustomElements.upgradeSubtree) { window.CustomElements.upgradeSubtree(section); }
     applyNativeCardWidth(page, section);
@@ -755,6 +789,7 @@ function renderFavorites() {
             show(result);
             resetNativeScroller(scroller.scroller);
         }, navigation);
+        refreshNativeScroller(scroller.scroller);
     }
     session.load = function () {
         var sequence = ++session.sequence;
@@ -790,6 +825,14 @@ document.addEventListener('visibilitychange', function () { if (!document.hidden
 window.addEventListener('hashchange', scheduleFavorites);
 window.addEventListener('popstate', scheduleFavorites);
 window.addEventListener('resize', scheduleFavorites);
+document.addEventListener('kinopoisk:recommendations-rendered', function (event) {
+    var container = event.detail && event.detail.container;
+    var scroller = container && container.closest('.kp-recommendations-scroller');
+    if (scroller) { refreshNativeScroller(scroller); }
+});
+window.addEventListener('resize', function () {
+    document.querySelectorAll('.kp-recommendations-scroller').forEach(function (scroller) { refreshNativeScroller(scroller); });
+});
 scheduleFavorites();
 
 function clearRetryTimers() {

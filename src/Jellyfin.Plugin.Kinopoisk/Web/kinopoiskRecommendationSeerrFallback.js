@@ -691,7 +691,7 @@
         var seasons = element('div', 'kp-recommendation-dialog__seasons');
         dialog.appendChild(seasons);
         var actions = element('div', 'kp-recommendation-dialog__actions');
-        var kpLink = element('a', 'emby-button', 'КиноПоиск');
+        var kpLink = element('a', 'emby-button button-flat', 'КиноПоиск');
         var tmdbSource = source.tmdbId && !Number(source.kinopoiskId || source.KinopoiskId);
         kpLink.href = tmdbSource ? 'https://www.themoviedb.org/' + (source.mediaType === 'tv' ? 'tv/' : 'movie/') + encodeURIComponent(source.tmdbId)
             : 'https://www.kinopoisk.ru/film/' + encodeURIComponent(card.dataset.kinopoiskId) + '/';
@@ -729,7 +729,7 @@
         openDialog = { element: dialog, close: close, ownerId: ownerId, userId: userId, card: card };
         findLibraryItem(card, source).then(function (libraryId) {
             if (!isCurrent() || !libraryId || actions.querySelector('.kp-recommendation-library')) { return; }
-            var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
+            var library = element('a', 'emby-button button-flat kp-recommendation-library', 'Открыть в Jellyfin');
             library.href = '#/details?id=' + encodeURIComponent(libraryId);
             actions.insertBefore(library, cancel);
             library.addEventListener('click', close);
@@ -741,7 +741,7 @@
         cancel.focus();
         var quota = element('div', 'secondaryText kp-recommendation-dialog__quota', 'Проверка квоты…');
         status.after(quota);
-        var seerrLink = element('a', 'emby-button kp-recommendation-seerr-link', 'Открыть в Seerr');
+        var seerrLink = element('a', 'emby-button button-flat kp-recommendation-seerr-link', 'Открыть в Seerr');
         seerrLink.target = '_blank';
         seerrLink.rel = 'noopener noreferrer';
         seerrLink.hidden = true;
