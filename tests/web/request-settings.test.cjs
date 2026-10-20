@@ -150,6 +150,7 @@ test('адрес ссылки выбран независимо от адрес�
     const runtime = configRuntime('seerr', false);
     try {
         await runtime.window.loadConfiguration();
+        await runtime.window.loadRequestConnection();
         const mode = runtime.window.document.querySelector('#SeerrLinkMode');
         const url = runtime.window.document.querySelector('#SeerrWebUrl');
         assert.equal(mode.value, 'auto');

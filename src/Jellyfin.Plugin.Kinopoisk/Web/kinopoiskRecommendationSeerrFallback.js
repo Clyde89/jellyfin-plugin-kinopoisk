@@ -535,6 +535,18 @@
                 var url = safeWebUrl(settings.url);
                 if (url || settings.mode === 'custom' || requestProvider !== 'enhanced') { return url; }
                 return proxyFetch('/JellyfinEnhanced', '/public-config').then(function (config) {
+                    if (settings.mode !== 'local') {
+                        var client = window.ApiClient;
+                        var address = client && typeof client.serverAddress === 'function' ? client.serverAddress() : window.location.origin;
+                        var current = String(address).replace(/\/+$/, '').toLowerCase();
+                        var mappings = String(config.JellyseerrUrlMappings || '').split('\n');
+                        for (var index = 0; index < mappings.length; index++) {
+                            var pair = mappings[index].split('|').map(function (value) { return value.trim(); });
+                            if (pair.length === 2 && pair[0].replace(/\/+$/, '').toLowerCase() === current && safeWebUrl(pair[1])) {
+                                return safeWebUrl(pair[1]);
+                            }
+                        }
+                    }
                     return safeWebUrl(config.JellyseerrBaseUrl);
                 });
             }).catch(function () { cache.delete(key); return ''; });
@@ -908,6 +920,7 @@
             bindCard(card, result);
             renderActions();
             refreshQuota();
+            cache.delete('seerr-link');
             getSeerrLink(result.item).then(function (url) {
                 if (isCurrent() && url) { seerrLink.href = url; seerrLink.hidden = false; }
             });
@@ -1131,7 +1144,7 @@
             if (!card.__kpSeerrResolved || card.dataset.kpSeerrFallbackState !== 'ready') { return false; }
             if (openDialog && openDialog.card === card) { return true; }
             var rect = card.getBoundingClientRect();
-            return rect.width === 0 || (rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth);
+            return rect.width > 0 && (rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth);
         }).slice(0, 24);
         if (!cards.length) { return; }
         function current(card) {

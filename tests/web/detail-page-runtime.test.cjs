@@ -394,12 +394,13 @@ async function createProxyRecommendation(itemOverrides = {}, options = {}) {
         }
         if (url.endsWith('/quota')) { return options.quota ? options.quota() : jsonResponse({ movie: { limit: 0 }, tv: { limit: 0 } }); }
         if (url.endsWith('/link')) { return jsonResponse(options.link || { mode: 'auto', url: 'https://seerr.example/subpath' }); }
-        if (url === '/JellyfinEnhanced/public-config') { return jsonResponse({ JellyseerrBaseUrl: 'http://legacy-seerr:5055/base' }); }
+        if (url === '/JellyfinEnhanced/public-config') { return jsonResponse(options.enhancedConfig || { JellyseerrBaseUrl: 'http://legacy-seerr:5055/base' }); }
         if (url.endsWith('/overrideRule')) { return jsonResponse(options.rules || []); }
         if (url.endsWith('/request')) { return options.request ? options.request() : jsonResponse({ id: 77 }); }
         throw new Error('Unexpected proxy request: ' + url);
     });
     if (options.manualRefresh) {
+        runtime.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 100, height: 100, top: 0, bottom: 100, left: 0, right: 100 });
         const originalTimeout = runtime.window.setTimeout.bind(runtime.window);
         const ticks = [];
         runtime.window.setTimeout = (callback, delay, ...args) => {
@@ -913,5 +914,46 @@ test('автоматическое одобрение из ответа Seerr с
         assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, 'Одобрено');
         assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
         assert.equal(requestPosts(runtime).length, 1);
+    } finally { runtime.dom.window.close(); }
+});
+
+
+for (const [mode, expected] of [['auto', 'https://public.example/seerr'], ['local', 'http://legacy-seerr:5055']]) {
+    test('Enhanced сохранил выбор локального адреса и сопоставление адреса Jellyfin: ' + mode, async () => {
+        const runtime = await createProxyRecommendation({}, {
+            status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' }
+                : { active: true, userFound: true, jellyseerrUserId: '17' }),
+            link: { mode, url: '' }, enhancedConfig: { JellyseerrBaseUrl: 'http://legacy-seerr:5055',
+                JellyseerrUrlMappings: 'https://another.example|https://other.example\nhttps://jellyfin.test/|https://public.example/seerr/' }
+        });
+        try {
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => !dialog.querySelector('.kp-recommendation-seerr-link').hidden, 'Ссылка не получена.');
+            assert.equal(dialog.querySelector('.kp-recommendation-seerr-link').href, expected + '/movie/501');
+        } finally { runtime.dom.window.close(); }
+    });
+}
+
+
+test('запоздавшее живое состояние прежнего пользователя не меняет новую карточку', async () => {
+    let defer = false;
+    let complete;
+    const runtime = await createProxyRecommendation({}, { manualRefresh: true, details: () => {
+        if (defer) { defer = false; return new Promise(resolve => { complete = resolve; }); }
+        return jsonResponse({ id: 501, mediaInfo: { status: 1 } });
+    } });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Окно не готово.');
+        defer = true;
+        runtime.nextRefresh();
+        await waitFor(() => complete, 'Обновление не началось.');
+        runtime.window.ApiClient.getCurrentUserId = () => 'user-2';
+        runtime.window.document.dispatchEvent(new runtime.window.Event('kinopoisk:recommendations-rendered'));
+        await waitFor(() => !dialog.isConnected, 'Окно прежнего пользователя не закрыто.');
+        complete(jsonResponse({ id: 501, mediaInfo: { status: 5 } }));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, 'Запросить');
+        assert.equal(requestPosts(runtime).length, 0);
     } finally { runtime.dom.window.close(); }
 });
