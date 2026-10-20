@@ -1,15 +1,6 @@
 name: Проверка Runtime Web Bootstrap ARM64
 
 on:
-  push:
-    branches:
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - '!fix/kinopoisk-seerr-runtime-review'
-  pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,8 @@ concurrency:
 
 jobs:
   arm64-runtime:
+    # Возобновление возможно после подключения собственного runner нужной платформы.
+    if: ${{ false }}
     name: Jellyfin Linux ARM64
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25

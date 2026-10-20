@@ -1,15 +1,6 @@
 name: Проверка платформенной переносимости
 
 on:
-  push:
-    branches:
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - '!fix/kinopoisk-seerr-runtime-review'
-  pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,8 @@ concurrency:
 
 jobs:
   managed-tests:
+    # Возобновление возможно после подключения собственного runner нужной платформы.
+    if: ${{ false }}
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false

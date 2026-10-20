@@ -308,6 +308,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          python3 -m unittest discover -s tools/ci -p 'test_*.py' -v
           python3 -m unittest discover -s tools/systemd -p 'test_*.py' -v
 
       - name: Рассчитаны контрольные суммы
@@ -326,15 +327,28 @@ jobs:
             "$plugin_dll" \
             "$api_client_dll"
 
+      - name: Определён тип сборки
+        id: package
+        run: |
+          python3 - <<'PY_VERSION'
+          import os
+          import xml.etree.ElementTree as ET
+          props = ET.parse('src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj').getroot().find('PropertyGroup')
+          version = props.findtext('InformationalVersion').replace('$(Version)', props.findtext('Version'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('candidate=' + str('-review.' in version).lower() + '\n')
+              output.write('name=kinopoisk-' + version + '-systemd\n')
+          PY_VERSION
+
       - name: Подготовлен установочный архив кандидата
-        if: contains(github.ref_name, 'runtime-review')
+        if: steps.package.outputs.candidate == 'true'
         run: python3 tools/ci/package-review.py
 
       - name: Сохранён установочный архив кандидата
-        if: contains(github.ref_name, 'runtime-review')
+        if: steps.package.outputs.candidate == 'true'
         uses: ./kinopoisk-upload-action
         with:
-          name: kinopoisk-12.1.0.6-review.7-systemd
+          name: ${{ steps.package.outputs.name }}
           path: ${{ runner.temp }}/kinopoisk-source/artifacts/kinopoisk-*-systemd.zip
           if-no-files-found: error
           retention-days: 7

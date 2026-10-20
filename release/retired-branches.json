@@ -1,0 +1,25 @@
+[
+  {
+    "name": "feature/jellyfin-12-compatibility",
+    "sha": "2a9f513bbd959bfb19aa3aadc2a95eb7135aed97",
+    "integratedAs": "7987c9675a60c130f20a3c4477b2a8b79ab1fc5e"
+  },
+  {
+    "name": "fix/api-token-hot-reload",
+    "sha": "84aa2c3a70910e33ddf67249ec07c35b59daf7d8"
+  },
+  {
+    "name": "fix/kinopoisk-seerr-requests",
+    "sha": "31f19aa4c1fe427ef32a1f4e550eee0cd37d8294",
+    "integratedAs": "1431fcde8af12d8abe0b9fa784216ac2703c343d"
+  },
+  {
+    "name": "fix/recommendation-card-navigation",
+    "sha": "18d4292afd6384562739c08c26fa2f71df881d83"
+  },
+  {
+    "name": "fix/kinopoisk-seerr-runtime-review",
+    "sha": "053ba589c2d7d4c4e5279070d1ae090a0224ddeb",
+    "releaseBranch": true
+  }
+]

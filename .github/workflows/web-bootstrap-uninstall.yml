@@ -1,15 +1,6 @@
 name: Проверка удаления Runtime Web Bootstrap
 
 on:
-  push:
-    branches:
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - '!fix/kinopoisk-seerr-runtime-review'
-  pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,8 @@ concurrency:
 
 jobs:
   uninstall-probe:
+    # Возобновление возможно после подключения собственного runner нужной платформы.
+    if: ${{ false }}
     name: Удаление без следов
     runs-on: ubuntu-24.04
     timeout-minutes: 25

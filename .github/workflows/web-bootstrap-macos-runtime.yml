@@ -1,15 +1,6 @@
 name: Проверка Runtime Web Bootstrap macOS
 
 on:
-  push:
-    branches:
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - '!fix/kinopoisk-seerr-runtime-review'
-  pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,8 @@ concurrency:
 
 jobs:
   macos-runtime:
+    # Возобновление возможно после подключения собственного runner нужной платформы.
+    if: ${{ false }}
     name: Jellyfin macOS ${{ matrix.arch }}
     strategy:
       fail-fast: false

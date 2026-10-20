@@ -40,19 +40,76 @@ jobs:
     runs-on: [self-hosted, Linux, X64, kinopoisk-ci]
     timeout-minutes: 30
 
-    steps:
-      - name: Получен исходный код
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          fetch-depth: 0
-          fetch-tags: true
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/kinopoisk-release-source
 
-      - name: Установлен .NET SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
-        env:
-          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
-        with:
-          dotnet-version: 10.0.x
+    steps:
+      - name: Получены исходники через Git
+        working-directory: ${{ github.workspace }}
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_dir="${RUNNER_TEMP}/kinopoisk-release-source"
+          mkdir -p "$source_dir"
+          git -C "$source_dir" init --quiet
+          git -C "$source_dir" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --tags origin "+refs/heads/*:refs/remotes/origin/*"
+          git -C "$source_dir" fetch origin "$GITHUB_SHA"
+          git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+          source_link="${GITHUB_WORKSPACE}/kinopoisk-release-source"
+          if [[ -L "$source_link" ]]; then
+            test "$(readlink "$source_link")" = "$source_dir"
+            unlink "$source_link"
+          fi
+          test ! -e "$source_link"
+          ln -s "$source_dir" "$source_link"
+          upload_dir="${GITHUB_WORKSPACE}/kinopoisk-upload-action"
+          upload_sha=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          if [[ ! -d "${upload_dir}/.git" ]]; then
+            test ! -e "$upload_dir"
+            mkdir -p "$upload_dir"
+            git -C "$upload_dir" init --quiet
+            git -C "$upload_dir" remote add origin https://github.com/actions/upload-artifact.git
+          fi
+          test "$(git -C "$upload_dir" remote get-url origin)" = https://github.com/actions/upload-artifact.git
+          if [[ "$(git -C "$upload_dir" rev-parse --verify HEAD 2>/dev/null || true)" != "$upload_sha" ]]; then
+            git -C "$upload_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin "$upload_sha"
+          fi
+          git -C "$upload_dir" checkout --quiet --force --detach "$upload_sha"
+          test "$(git -C "$upload_dir" rev-parse HEAD)" = "$upload_sha"
+
+          release_action_dir="${GITHUB_WORKSPACE}/kinopoisk-release-action"
+          release_action_sha=1853d73993c8ca1b2c9c1a7fede39682d0ab5c2a
+          if [[ ! -d "${release_action_dir}/.git" ]]; then
+            test ! -e "$release_action_dir"
+            mkdir -p "$release_action_dir"
+            git -C "$release_action_dir" init --quiet
+            git -C "$release_action_dir" remote add origin https://github.com/softprops/action-gh-release.git
+          fi
+          test "$(git -C "$release_action_dir" remote get-url origin)" = https://github.com/softprops/action-gh-release.git
+          git -C "$release_action_dir" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin "$release_action_sha"
+          git -C "$release_action_dir" checkout --quiet --force --detach "$release_action_sha"
+          test "$(git -C "$release_action_dir" rev-parse HEAD)" = "$release_action_sha"
+
+      - name: Подключён .NET SDK
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sdk_dir="${RUNNER_WORKSPACE}/../kinopoisk-tools/dotnet"
+          mkdir -p "$sdk_dir"
+          if [[ ! -x "${sdk_dir}/dotnet" ]] || ! "${sdk_dir}/dotnet" --list-sdks | grep -q '^10\.0\.402 '; then
+            curl --fail --show-error --silent --location --max-time 60 \
+              https://dot.net/v1/dotnet-install.sh --output "${RUNNER_TEMP}/install-dotnet.sh"
+            bash "${RUNNER_TEMP}/install-dotnet.sh" --version 10.0.402 \
+              --install-dir "$sdk_dir" --no-path \
+              --azure-feed https://dotnetcli.blob.core.windows.net/dotnet
+          fi
+          echo "$sdk_dir" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$sdk_dir" >> "$GITHUB_ENV"
 
       - name: Проверены параметры релиза
         shell: bash
@@ -84,6 +141,7 @@ jobs:
             exit 1
           fi
 
+          grep -Fq '<InformationalVersion>$(Version)</InformationalVersion>' src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj
           project_version="$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Jellyfin.Plugin.Kinopoisk/Jellyfin.Plugin.Kinopoisk.csproj)"
           if [[ "$VERSION" != "$project_version" ]]; then
             echo "Версия релиза не совпала с версией проекта." >&2
@@ -100,6 +158,8 @@ jobs:
             exit 1
           fi
 
+          release_title="$(python3 -c 'import json,sys; print(json.load(open("release/metadata.json"))["releaseTitle"].format(version=sys.argv[1]))' "$VERSION")"
+          echo "RELEASE_TITLE=${release_title}" >> "$GITHUB_ENV"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "TARGET_ABI=${TARGET_ABI}" >> "$GITHUB_ENV"
 
@@ -174,7 +234,7 @@ jobs:
 
           output_dir="src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0"
           release_filename="jellyfin-plugin-kinopoisk_${VERSION}.zip"
-          release_file="${DIST_ARCHIVES_PATH}/${release_filename}"
+          release_file="${PWD}/${DIST_ARCHIVES_PATH}/${release_filename}"
 
           mkdir -p "${DIST_ARCHIVES_PATH}"
 
@@ -198,12 +258,12 @@ jobs:
           echo "RELEASE_SHA256=${sha256}" >> "$GITHUB_ENV"
 
       - name: Опубликован GitHub Release
-        uses: softprops/action-gh-release@1853d73993c8ca1b2c9c1a7fede39682d0ab5c2a
+        uses: ./kinopoisk-release-action
         with:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
-          name: КиноПоиск ${{ env.VERSION }}
-          body_path: release-notes.md
+          name: ${{ env.RELEASE_TITLE }}
+          body_path: ${{ runner.temp }}/kinopoisk-release-source/release-notes.md
           files: |
             ${{ env.RELEASE_FILE }}
             ${{ env.RELEASE_FILE }}.sha256
@@ -211,69 +271,28 @@ jobs:
           generate_release_notes: false
           make_latest: true
 
-      - name: Обновлён стабильный manifest.json
-        shell: bash
+      - name: Обновлён стабильный каталог плагинов
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.RELEASE_FILENAME }}
+        run: python3 tools/ci/release_control.py catalog
+
+      - name: Удалены завершённые рабочие ветки
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-
-          git fetch origin --prune
-
-          if git show-ref --verify --quiet refs/remotes/origin/release; then
-            git worktree add release-worktree origin/release
-            git -C release-worktree switch -C release --track origin/release
-          else
-            git worktree add -b release release-worktree "${GITHUB_SHA}"
-          fi
-
-          manifest_path="release-worktree/${MANIFEST_FILE}"
-          test -f "${manifest_path}"
-          jq empty "${manifest_path}"
-
-          if jq -e --arg version "${VERSION}" '.[0].versions[]? | select(.version == $version)' "${manifest_path}" >/dev/null; then
-            echo "Версия ${VERSION} уже присутствует в manifest.json." >&2
-            exit 1
-          fi
-
-          changelog_json="$(jq -Rs . < release-notes.md)"
-          timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
-          jq \
-            --arg version "${VERSION}" \
-            --arg checksum "${RELEASE_MD5}" \
-            --argjson changelog "${changelog_json}" \
-            --arg target_abi "${TARGET_ABI}" \
-            --arg source_url "${SOURCE_URL}" \
-            --arg timestamp "${timestamp}" \
-            '.[0].versions = [{
-              "version": $version,
-              "checksum": $checksum,
-              "changelog": $changelog,
-              "targetAbi": $target_abi,
-              "sourceUrl": $source_url,
-              "timestamp": $timestamp
-            }] + .[0].versions' \
-            "${manifest_path}" > "${manifest_path}.tmp"
-
-          mv "${manifest_path}.tmp" "${manifest_path}"
-          jq empty "${manifest_path}"
-
-          git -C release-worktree add "${MANIFEST_FILE}"
-          git -C release-worktree commit -m "Опубликована версия ${VERSION} в manifest.json [skip ci]"
-          git -C release-worktree push origin HEAD:release
+          git fetch origin --tags
+          python3 tools/ci/release_control.py cleanup
 
       - name: Опубликован архив проверки
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: ./kinopoisk-upload-action
         with:
           name: kinopoisk-release-${{ env.VERSION }}
           path: |
             ${{ env.RELEASE_FILE }}
             ${{ env.RELEASE_FILE }}.sha256
-            release-notes.md
+            ${{ runner.temp }}/kinopoisk-release-source/release-notes.md
           if-no-files-found: error
           retention-days: 30
           compression-level: 0

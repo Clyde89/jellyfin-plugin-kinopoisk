@@ -6,7 +6,7 @@
     <Version>12.1.0.6</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
-    <InformationalVersion>$(Version)-review.7</InformationalVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
     <Authors>Clyde89; LinFor; skrashevich</Authors>
     <Company>Clyde89; LinFor; skrashevich</Company>
     <Product>КиноПоиск</Product>

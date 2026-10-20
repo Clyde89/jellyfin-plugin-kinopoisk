@@ -1,15 +1,6 @@
 name: Проверка Runtime Web Bootstrap Windows
 
 on:
-  push:
-    branches:
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - '!fix/kinopoisk-seerr-runtime-review'
-  pull_request:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,8 @@ concurrency:
 
 jobs:
   windows-runtime:
+    # Возобновление возможно после подключения собственного runner нужной платформы.
+    if: ${{ false }}
     name: Jellyfin Windows x64
     runs-on: windows-2025
     timeout-minutes: 30
