@@ -195,9 +195,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           tool_cache="${RUNNER_WORKSPACE}/../kinopoisk-tools"
-          browser_tools="${tool_cache}/browser-tools-1.56.1-1.93.2"
+          browser_tools="${tool_cache}/browser-tools-1.56.1-1.102.0"
           if [[ ! -f "${browser_tools}/.ready" ]]; then
-            npm install --prefix "$browser_tools" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.56.1 sass@1.93.2
+            npm install --prefix "$browser_tools" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.56.1 sass@1.102.0
             touch "${browser_tools}/.ready"
           fi
           export PLAYWRIGHT_BROWSERS_PATH="${tool_cache}/playwright-browsers"
