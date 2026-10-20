@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Common.Api;
 using Moq;
 using Xunit;
 
@@ -55,6 +56,64 @@ public sealed class KinopoiskSeerrClientTests
         Assert.EndsWith("/base/api/v1/tv/902", reads[2].Path);
         Assert.Equal("new-key", reads[2].Key);
         Assert.DoesNotContain("fixture-service-key", status.GetRawText());
+    }
+
+    [Fact]
+    public async Task ConnectionCheckUsesDraftWithoutChangingSavedSettingsOrCreatingRequests()
+    {
+        using var fixture = new Fixture();
+        var saved = fixture.Config;
+        var status = await fixture.Client.CheckConnection(First, "seerr", " http://draft-seerr:5055/base/ ", " draft-key ", CancellationToken.None);
+        Assert.Same(saved, fixture.Config);
+        Assert.Equal("http://seerr:5055", saved.SeerrUrl);
+        Assert.True(status.GetProperty("userFound").GetBoolean());
+        Assert.All(fixture.Http.Calls, call =>
+        {
+            Assert.StartsWith("http://draft-seerr:5055/base/api/v1/", call.Path);
+            Assert.Equal("draft-key", call.Key);
+            Assert.Equal("GET", call.Method);
+        });
+        Assert.DoesNotContain("draft-key", status.GetRawText());
+        await fixture.Client.Get(First, "movie/501", CancellationToken.None);
+        Assert.StartsWith("http://seerr:5055/api/v1/", fixture.Http.Calls.Last().Path);
+        Assert.Equal("fixture-service-key", fixture.Http.Calls.Last().Key);
+    }
+
+    [Fact]
+    public async Task ConnectionCheckDoesNotStoreDraftCredentialsInUserMappingCache()
+    {
+        using var fixture = new Fixture();
+        await fixture.Client.CheckConnection(First, "seerr", "http://draft-seerr:5055", "draft-key", CancellationToken.None);
+        fixture.Config = new PluginConfiguration { RecommendationRequestProvider = "seerr", SeerrUrl = "http://draft-seerr:5055", SeerrApiKey = "draft-key" };
+        fixture.Http.Linked = false;
+        var status = await fixture.Client.Status(First, CancellationToken.None);
+        Assert.False(status.GetProperty("userFound").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("invalid", "http://seerr:5055", "key", 400)]
+    [InlineData("seerr", "file:///etc/config", "key", 409)]
+    [InlineData("seerr", "http://seerr:5055?key=test", "key", 409)]
+    [InlineData("seerr", "http://seerr:5055", "", 409)]
+    [InlineData("seerr", "http://seerr:5055", "bad\nkey", 409)]
+    public async Task InvalidDraftIsRejectedBeforeNetwork(string provider, string url, string key, int expectedStatus)
+    {
+        using var fixture = new Fixture();
+        var error = await Assert.ThrowsAsync<KinopoiskSeerrException>(() => fixture.Client.CheckConnection(First, provider, url, key, CancellationToken.None));
+        Assert.Equal(expectedStatus, error.Status);
+        Assert.Empty(fixture.Http.Calls);
+    }
+
+    [Fact]
+    public async Task SeerrKeyRejectionIsNotReportedAsExpiredJellyfinSession()
+    {
+        using var fixture = new Fixture();
+        fixture.Http.ReadStatus = HttpStatusCode.Unauthorized;
+        var error = await Assert.ThrowsAsync<KinopoiskSeerrException>(() => fixture.Client.CheckConnection(First,
+            "seerr", "http://seerr:5055", "invalid-key", CancellationToken.None));
+        Assert.Equal(502, error.Status);
+        Assert.Contains("Seerr отклонил API-ключ", error.Message);
+        Assert.DoesNotContain("invalid-key", error.Message);
     }
 
     [Fact]
@@ -135,15 +194,18 @@ public sealed class KinopoiskSeerrClientTests
     {
         using var fixture = new Fixture();
         var builder = WebApplication.CreateBuilder();
+        var administrator = false;
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(fixture.Client);
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorization(options => options.AddPolicy(Policies.RequiresElevation,
+            policy => policy.RequireClaim("fixture-admin", "true")));
         builder.Services.AddControllers().AddApplicationPart(typeof(KinopoiskRequestsController).Assembly);
         await using var app = builder.Build();
         app.Use(async (context, next) =>
         {
-            context.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", Second.ToString()) }, "fixture"));
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", Second.ToString()),
+                new Claim("fixture-admin", administrator ? "true" : "false") }, "fixture"));
             await next(context);
         });
         app.UseAuthorization();
@@ -152,6 +214,22 @@ public sealed class KinopoiskSeerrClientTests
         try
         {
             using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            var draft = "{\"provider\":\"seerr\",\"url\":\"http://draft-seerr:5055\",\"apiKey\":\"draft-key\"}";
+            using var denied = new StringContent(draft, Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.Forbidden, (await http.PostAsync("/KinopoiskRequests/connection-test", denied)).StatusCode);
+            Assert.Empty(fixture.Http.Calls);
+            administrator = true;
+            using var preview = new StringContent(draft, Encoding.UTF8, "application/json");
+            var previewResult = await http.PostAsync("/KinopoiskRequests/connection-test", preview);
+            Assert.Equal(HttpStatusCode.OK, previewResult.StatusCode);
+            Assert.DoesNotContain("draft-key", await previewResult.Content.ReadAsStringAsync());
+            Assert.Equal("http://seerr:5055", fixture.Config.SeerrUrl);
+            Assert.All(fixture.Http.Calls, call => Assert.Equal("GET", call.Method));
+            var callsBeforeInvalid = fixture.Http.Calls.Count;
+            using var arbitrary = new StringContent(draft.Replace("}", ",\"requestedBy\":1}"), Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.BadRequest, (await http.PostAsync("/KinopoiskRequests/connection-test", arbitrary)).StatusCode);
+            Assert.Equal(callsBeforeInvalid, fixture.Http.Calls.Count);
+            administrator = false;
             var status = await http.GetAsync("/KinopoiskRequests/user-status");
             Assert.Equal(HttpStatusCode.OK, status.StatusCode);
             Assert.Contains("\"provider\":\"seerr\"", await status.Content.ReadAsStringAsync());
@@ -190,6 +268,7 @@ public sealed class KinopoiskSeerrClientTests
         public bool Paginate;
         public bool Duplicate;
         public HttpStatusCode PostStatus = HttpStatusCode.Created;
+        public HttpStatusCode ReadStatus = HttpStatusCode.OK;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var uri = request.RequestUri!;
@@ -211,7 +290,7 @@ public sealed class KinopoiskSeerrClientTests
                 body = new { results = users };
             }
             if (uri.AbsolutePath.EndsWith("/auth/me")) body = new { permissions = 32 };
-            return new HttpResponseMessage(request.Method == HttpMethod.Post ? PostStatus : HttpStatusCode.OK)
+            return new HttpResponseMessage(request.Method == HttpMethod.Post ? PostStatus : ReadStatus)
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };

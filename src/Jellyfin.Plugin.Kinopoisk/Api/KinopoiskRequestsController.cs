@@ -2,10 +2,13 @@
 
 using System;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.Services;
+using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,6 +28,12 @@ public sealed class KinopoiskRequestsController : ControllerBase
 
     [HttpGet("user-status")]
     public Task<IActionResult> Status(CancellationToken token) => Execute(() => _seerr.Status(UserId, token), token);
+
+    [HttpPost("connection-test")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [RequestSizeLimit(16384)]
+    public Task<IActionResult> CheckConnection([FromBody] SeerrConnectionTest options, CancellationToken token)
+        => Execute(() => _seerr.CheckConnection(UserId, options.Provider, options.Url, options.ApiKey, token), token);
 
     [HttpGet("search")]
     public Task<IActionResult> Search([FromQuery] string query, CancellationToken token)
@@ -57,6 +66,17 @@ public sealed class KinopoiskRequestsController : ControllerBase
         try { return Ok(await action().ConfigureAwait(false)); }
         catch (KinopoiskSeerrException error) { return StatusCode(error.Status, new { message = error.Message }); }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) { return StatusCode(504, new { message = "Seerr не ответил вовремя. Проверьте адрес и доступность сервиса." }); }
+        catch (HttpRequestException) { return StatusCode(502, new { message = "Не удалось подключиться к Seerr. Проверьте адрес и доступность сервиса из Jellyfin." }); }
+        catch (JsonException) { return StatusCode(502, new { message = "Получен ответ не в формате Seerr API. Проверьте адрес и путь подключения." }); }
         catch (Exception) { return StatusCode(502, new { message = "Seerr сейчас недоступен." }); }
     }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class SeerrConnectionTest
+{
+    public string Provider { get; set; } = "auto";
+    public string? Url { get; set; }
+    public string? ApiKey { get; set; }
 }

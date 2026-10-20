@@ -133,7 +133,7 @@
                     <div class="kinopoiskActions">
                         <button id="CheckSeerrConnection" is="emby-button" type="button" class="raised emby-button"><span>Проверить подключение</span></button>
                     </div>
-                    <div class="fieldDescription">Проверяются сохранённые настройки. При прямом подключении Seerr установка Jellyfin Enhanced не требуется. Поиском и загрузкой управляют настройки Seerr, Radarr и Sonarr.</div>
+                    <div class="fieldDescription">Кнопка проверяет введённые адрес и API-ключ без сохранения настроек. Чтобы использовать подключение для запросов, сохраните параметры. При прямом подключении Seerr установка Jellyfin Enhanced не требуется. Поиском и загрузкой управляют настройки Seerr, Radarr и Sonarr.</div>
 
                     <h2>Стандартные функции Jellyfin</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -440,33 +440,39 @@
 
         var connectionSequence = 0;
 
-        function connectionFetch(path, textResponse) {
+        function connectionFetch(path, textResponse, body) {
             var controller = new AbortController();
             var timer = setTimeout(function () { controller.abort(); }, 20000);
+            var headers = {
+                'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"',
+                'X-Emby-Token': ApiClient.accessToken(),
+                'X-Jellyfin-User-Id': ApiClient.getCurrentUserId(),
+                'Accept': textResponse ? 'text/plain' : 'application/json'
+            };
+            if (body !== undefined) { headers['Content-Type'] = 'application/json'; }
             return fetch(ApiClient.getUrl(path), {
+                method: body === undefined ? 'GET' : 'POST',
                 credentials: 'same-origin',
-                headers: {
-                    'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"',
-                    'X-Emby-Token': ApiClient.accessToken(),
-                    'X-Jellyfin-User-Id': ApiClient.getCurrentUserId(),
-                    'Accept': textResponse ? 'text/plain' : 'application/json'
-                },
+                headers: headers,
+                body: body === undefined ? undefined : JSON.stringify(body),
                 signal: controller.signal
             }).then(function (response) {
                 if (!response.ok) {
-                    var error = new Error(response.status === 409
-                        ? 'Укажите адрес и API-ключ Seerr, затем сохраните настройки.'
-                        : response.status === 401 || response.status === 403
+                    return response.json().catch(function () { return {}; }).then(function (data) {
+                        var error = new Error(typeof data.message === 'string' ? data.message
+                            : response.status === 401 || response.status === 403
                             ? 'Недостаточно прав или требуется повторный вход в Jellyfin.'
                             : 'Подключение недоступно: HTTP ' + response.status + '.');
-                    error.status = response.status;
-                    throw error;
+                        error.status = response.status;
+                        throw error;
+                    });
                 }
                 return textResponse ? response.text() : response.json();
             }).finally(function () { clearTimeout(timer); });
         }
 
-        function loadRequestConnection() {
+        function loadRequestConnection(useForm) {
+            useForm = useForm === true;
             var sequence = ++connectionSequence;
             $('#CheckSeerrConnection').prop('disabled', true);
             $('#SeerrConnectionStatus').text('Проверка подключения…');
@@ -474,7 +480,12 @@
             var detection = connectionFetch('/JellyfinEnhanced/version', true).then(function (version) {
                 return /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?$/.test(version.trim()) ? true : null;
             }).catch(function (error) { return error.status === 404 ? false : null; });
-            var connection = connectionFetch('/KinopoiskRequests/user-status').then(function (status) {
+            var draft = useForm ? {
+                provider: $('#RecommendationRequestProvider').val(),
+                url: $('#SeerrUrl').val(),
+                apiKey: $('#SeerrApiKey').val()
+            } : undefined;
+            var connection = connectionFetch(useForm ? '/KinopoiskRequests/connection-test' : '/KinopoiskRequests/user-status', false, draft).then(function (status) {
                 if (status.provider !== 'enhanced') { return status; }
                 return connectionFetch('/JellyfinEnhanced/jellyseerr/user-status').then(function (legacy) {
                     return Object.assign({}, legacy, { provider: 'enhanced', enhancedDetected: true,
@@ -509,6 +520,9 @@
                     message = (status.provider === 'enhanced' ? 'Seerr подключён через Enhanced.' : 'Seerr подключён напрямую.')
                         + (status.canRequestMovie === false && status.canRequestTv === false
                             ? ' Учётная запись связана, но право запроса отсутствует.' : ' Учётная запись связана.');
+                }
+                if (useForm && !result.error) {
+                    message += ' Проверены введённые параметры. Для применения сохраните настройки.';
                 }
                 $('#SeerrConnectionStatus').text(message);
             }).finally(function () {
@@ -707,7 +721,14 @@
         $('#KinopoiskDiagnosticsTab').on('click', function () { showTab('KinopoiskDiagnosticsPanel'); });
         $('#RefreshDiagnosticStatus').on('click', loadConfiguration);
         $('#RefreshTrailerCacheStatistics').on('click', loadTrailerCacheStatistics);
-        $('#CheckSeerrConnection').on('click', loadRequestConnection);
+        $('#CheckSeerrConnection').on('click', function () { loadRequestConnection(true); });
+        function requestConnectionEdited() {
+            connectionSequence += 1;
+            $('#CheckSeerrConnection').prop('disabled', false);
+            $('#SeerrConnectionStatus').text('Параметры изменены. Нажмите «Проверить подключение» для проверки без сохранения.');
+        }
+        $('#RecommendationRequestProvider, #SeerrUrl, #SeerrApiKey')
+            .on('input', requestConnectionEdited).on('change', requestConnectionEdited);
 
         $('#StartDiagnosticSession').on('click', function () {
             Dashboard.showLoadingMsg();

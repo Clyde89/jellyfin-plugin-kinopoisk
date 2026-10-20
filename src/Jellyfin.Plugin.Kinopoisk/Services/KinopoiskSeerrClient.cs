@@ -29,28 +29,45 @@ public sealed class KinopoiskSeerrClient
         _configuration = configuration;
     }
 
-    public string Provider
+    public string Provider => SelectProvider(_configuration());
+
+    private static string SelectProvider(PluginConfiguration config)
     {
-        get
-        {
-            var config = _configuration();
-            if (config.RecommendationRequestProvider == "disabled") return "disabled";
-            if (config.RecommendationRequestProvider == "enhanced") return "enhanced";
-            if (config.RecommendationRequestProvider == "seerr"
-                || !string.IsNullOrWhiteSpace(config.SeerrUrl)
-                || !string.IsNullOrWhiteSpace(config.SeerrApiKey)) return "seerr";
-            return "enhanced";
-        }
+        if (config.RecommendationRequestProvider == "disabled") return "disabled";
+        if (config.RecommendationRequestProvider == "enhanced") return "enhanced";
+        if (config.RecommendationRequestProvider == "seerr"
+            || !string.IsNullOrWhiteSpace(config.SeerrUrl)
+            || !string.IsNullOrWhiteSpace(config.SeerrApiKey)) return "seerr";
+        return "enhanced";
     }
 
-    public async Task<JsonElement> Status(Guid jellyfinUserId, CancellationToken token)
+    public Task<JsonElement> Status(Guid jellyfinUserId, CancellationToken token)
+        => Status(_configuration(), jellyfinUserId, false, token);
+
+    public Task<JsonElement> CheckConnection(Guid jellyfinUserId, string provider, string? url, string? apiKey, CancellationToken token)
     {
-        var provider = Provider;
+        if (provider is not ("auto" or "disabled" or "seerr" or "enhanced")
+            || (url?.Length ?? 0) > 2048 || (apiKey?.Length ?? 0) > 512)
+            throw new KinopoiskSeerrException(400, "Проверьте режим подключения, адрес и API-ключ Seerr.");
+        // The entered values are used only for this check. Neither the saved
+        // configuration nor the user mapping cache receives these credentials.
+        var draft = new PluginConfiguration
+        {
+            RecommendationRequestProvider = provider,
+            SeerrUrl = url?.Trim().TrimEnd('/') ?? string.Empty,
+            SeerrApiKey = apiKey?.Trim() ?? string.Empty
+        };
+        return Status(draft, jellyfinUserId, true, token);
+    }
+
+    private async Task<JsonElement> Status(PluginConfiguration settings, Guid jellyfinUserId, bool preview, CancellationToken token)
+    {
+        var provider = SelectProvider(settings);
         if (provider != "seerr")
             return JsonSerializer.SerializeToElement(new { provider, active = false, userFound = false,
                 reason = provider == "disabled" ? "disabled" : "legacy" });
-        var config = Connection();
-        var user = await FindUser(config, jellyfinUserId, false, token).ConfigureAwait(false);
+        var config = Connection(settings);
+        var user = await FindUser(config, jellyfinUserId, preview, token, !preview).ConfigureAwait(false);
         if (!user.HasValue)
             return JsonSerializer.SerializeToElement(new { provider, active = true, userFound = false, reason = "unlinked" });
         // Use the same identity and permissions as requests, never the API key owner's identity.
@@ -92,19 +109,20 @@ public sealed class KinopoiskSeerrClient
         return await Send(config, "request", user, body, token).ConfigureAwait(false);
     }
 
-    private (Uri Url, string Key) Connection()
+    private (Uri Url, string Key) Connection() => Connection(_configuration());
+
+    private static (Uri Url, string Key) Connection(PluginConfiguration config)
     {
-        var config = _configuration();
-        if (Provider != "seerr") throw new KinopoiskSeerrException(409, "Подключение Seerr не выбрано.");
+        if (SelectProvider(config) != "seerr") throw new KinopoiskSeerrException(409, "Подключение Seerr не выбрано.");
         if (!Uri.TryCreate(config.SeerrUrl.TrimEnd('/') + "/", UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo)
             || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)
-            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
-            throw new KinopoiskSeerrException(409, "Укажите адрес и API-ключ Seerr в настройках плагина.");
+            || string.IsNullOrWhiteSpace(config.SeerrApiKey) || config.SeerrApiKey.Any(char.IsControl))
+            throw new KinopoiskSeerrException(409, "Укажите корректный адрес HTTP или HTTPS и API-ключ Seerr.");
         return (uri, config.SeerrApiKey.Trim());
     }
 
-    private async Task<int?> FindUser((Uri Url, string Key) config, Guid userId, bool refresh, CancellationToken token)
+    private async Task<int?> FindUser((Uri Url, string Key) config, Guid userId, bool refresh, CancellationToken token, bool cacheResult = true)
     {
         if (userId == Guid.Empty) throw new KinopoiskSeerrException(403, "Войдите в Jellyfin.");
         var cacheKey = (nameof(KinopoiskSeerrClient), config.Url, config.Key, userId);
@@ -126,7 +144,7 @@ public sealed class KinopoiskSeerrClient
             }
             if (results.GetArrayLength() < 100)
             {
-                if (match.HasValue) _cache.Set(cacheKey, match.Value, TimeSpan.FromSeconds(30));
+                if (match.HasValue && cacheResult) _cache.Set(cacheKey, match.Value, TimeSpan.FromSeconds(30));
                 return match;
             }
         }
@@ -150,6 +168,7 @@ public sealed class KinopoiskSeerrClient
         if (!response.IsSuccessStatusCode)
         {
             var status = (int)response.StatusCode;
+            if (status == 401) throw new KinopoiskSeerrException(502, "Seerr отклонил API-ключ. Проверьте ключ в общих настройках Seerr.");
             throw new KinopoiskSeerrException(status is >= 400 and < 500 ? status : 502,
                 status == 403 ? "Недостаточно прав в Seerr." : status == 409 ? "Запрос уже существует в Seerr."
                 : status == 429 ? "Достигнут лимит запросов Seerr." : "Seerr сейчас недоступен.");
