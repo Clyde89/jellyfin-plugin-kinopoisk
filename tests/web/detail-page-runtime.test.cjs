@@ -971,3 +971,23 @@ test('ответ Seerr 202 без заявки не показан как усп
         assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('живые статусы возобновлены после возвращения к карточкам прокруткой', async () => {
+    let state = 1;
+    const runtime = await createProxyRecommendation({}, { manualRefresh: true, details: () => jsonResponse({ id: 501, mediaInfo: { status: state } }) });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Карточка не готова.');
+        const card = runtime.window.document.querySelector('.kp-similar-card');
+        card.getBoundingClientRect = () => ({ width: 100, top: 2000, bottom: 2100, left: 0, right: 100 });
+        const reads = runtime.requests.length;
+        runtime.nextRefresh();
+        await new Promise(resolve => setTimeout(resolve, 60));
+        assert.equal(runtime.requests.length, reads, 'Скрытая прокруткой карточка обратилась к Seerr.');
+        state = 5;
+        card.getBoundingClientRect = () => ({ width: 100, top: 0, bottom: 100, left: 0, right: 100 });
+        runtime.window.document.dispatchEvent(new runtime.window.Event('scroll'));
+        await waitFor(() => card.querySelector('.kp-similar-card__request').textContent === 'Доступно', 'Обновление после прокрутки не возобновлено.');
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});

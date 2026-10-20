@@ -575,7 +575,7 @@
         if (!Number.isFinite(remaining)) { remaining = Math.max(0, limit - Number(value.used || 0)); }
         var unit = type === 'tv' ? 'сезонов' : 'фильмов';
         return { text: 'Квота: осталось ' + Math.max(0, remaining) + ' из ' + limit + ' ' + unit
-            + (Number(value.days) > 0 ? ' за ' + Number(value.days) + ' дн.' : ' за всё время') + '.'
+            + (Number(value.days) > 0 ? ' за ' + Number(value.days) + ' дн' : ' за всё время') + '.'
             + (type === 'tv' ? ' Выбрано: ' + count + '.' : '')
             + (value.restricted || count > remaining ? ' Лимит запроса исчерпан или выбранных сезонов слишком много.' : ''),
             blocked: !!value.restricted || count > remaining };
@@ -1225,10 +1225,13 @@
         if (!document.hidden) { scheduleProcessing(); scheduleLiveRefresh(100); }
     });
     window.addEventListener('pagehide', function () { clearTimeout(liveTimer); liveTimer = null; });
+    document.addEventListener('scroll', function () { scheduleLiveRefresh(1000); }, true);
+    window.addEventListener('resize', function () { scheduleLiveRefresh(1000); });
     document.addEventListener('focusin', function (event) {
         if (event.target.closest && event.target.closest('.kp-similar-card--fallback')) {
             retryAttempt = 0;
             scheduleProcessing();
+            scheduleLiveRefresh(100);
         }
     });
     var lifecycle = window.KinopoiskDetailPageLifecycle;
