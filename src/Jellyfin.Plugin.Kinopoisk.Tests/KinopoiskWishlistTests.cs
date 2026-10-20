@@ -112,7 +112,7 @@ public sealed class KinopoiskWishlistTests : IDisposable
         var library = new Mock<ILibraryManager>();
         library.Setup(service => service.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new BaseItem[] { movie });
         var userData = new Mock<IUserDataManager>();
-        userData.Setup(service => service.GetUserData(user, movie)).Returns(new UserItemData { IsFavorite = true, PlaybackPositionTicks = 12345678 });
+        userData.Setup(service => service.GetUserData(user, movie)).Returns(new UserItemData { Key = "fixture-user-data", IsFavorite = true, PlaybackPositionTicks = 12345678 });
         var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", First.ToString()) }, "fixture")) };
         var controller = Controller(users, library, userData, context);
         var response = Json(await controller.State("movie:kp:100", CancellationToken.None)).GetProperty("items")[0];
