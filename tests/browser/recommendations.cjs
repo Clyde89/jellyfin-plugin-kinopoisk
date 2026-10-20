@@ -272,24 +272,6 @@ const server = http.createServer(async (request, response) => {
     await enhancedPage.close();
     enhancedConnected = false;
 
-    // Touch needs one tap, and the dialog must fit a narrow viewport.
-    posts = [];
-    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-    const mobilePage = await mobile.newPage();
-    mobilePage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
-    await mobilePage.goto(origin + '/web/#/details?id=item-1');
-    await mobilePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="ready"]').waitFor();
-    await mobilePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
-    const touchPoster = await mobilePage.locator('.kp-similar-card .cardScalable').boundingBox();
-    await mobilePage.touchscreen.tap(touchPoster.x + touchPoster.width / 2, touchPoster.y + touchPoster.height / 2);
-    await mobilePage.getByRole('dialog').waitFor();
-    const box = await mobilePage.getByRole('dialog').boundingBox();
-    assert.ok(box.x >= 0 && box.x + box.width <= 390);
-    assert.equal(posts.length, 0);
-    await mobilePage.screenshot({ path: path.join(root, 'artifacts/recommendations-mobile.png'), fullPage: true });
-    assert.deepEqual(errors, []);
-
-    await mobile.close();
     serviceConnected = false;
     const previousReads = serviceReads;
     const standalone = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
@@ -347,6 +329,7 @@ const server = http.createServer(async (request, response) => {
     await favorites.getByRole('heading', { name: 'Хочу посмотреть', exact: true }).waitFor();
     assert.match(await favorites.locator('.kp-favorites-wishlist-description').textContent(), /ещё не скачан/);
     assert.equal(await favorites.locator('.emby-scrollbuttons-button:visible').count(), 0, 'Sparse wishlist has navigation arrows');
+    console.log('Native Favorites alignment:', JSON.stringify({ nativePosterBox, wishPosterBox }));
     await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-favorites.png'), fullPage: true });
     assert.equal(serviceReads, previousReads, 'Favorites introduced a request-service dependency');
     await standalonePage.reload();
@@ -427,6 +410,31 @@ const server = http.createServer(async (request, response) => {
     assert.equal(await localPage.evaluate(() => window.playbackRequests.length), 1, 'Information click started playback');
     await localPage.close();
     assert.deepEqual(errors, []);
+    // Touch needs one tap, and the dialog must fit a narrow viewport.
+    posts = [];
+    serviceConnected = true;
+    libraryAvailable = false;
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const mobilePage = await mobile.newPage();
+    mobilePage.on('pageerror', error => { errors.push(error.message); console.error(error.stack || error.message); });
+    await mobilePage.goto(origin + '/web/#/details?id=item-1');
+    await mobilePage.locator('.kp-similar-card[data-kp-seerr-fallback-state="ready"]').waitFor();
+    await mobilePage.locator('.kp-similar-card .cardScalable').scrollIntoViewIfNeeded();
+    const touchPoster = await mobilePage.locator('.kp-similar-card .cardScalable').boundingBox();
+    await mobilePage.touchscreen.tap(touchPoster.x + touchPoster.width / 2, touchPoster.y + touchPoster.height / 2);
+    await mobilePage.getByRole('dialog').waitFor();
+    const box = await mobilePage.getByRole('dialog').boundingBox();
+    await mobilePage.screenshot({ path: path.join(root, 'artifacts/recommendations-mobile.png'), fullPage: true });
+    const mobileLayout = await mobilePage.evaluate(() => ({ innerWidth, screenWidth: screen.width,
+        visualWidth: visualViewport.width, documentWidth: document.documentElement.scrollWidth,
+        dialog: getComputedStyle(document.querySelector('dialog')).cssText }));
+    console.log('Mobile dialog layout:', JSON.stringify({ box, ...mobileLayout }));
+    assert.ok(box.x >= 0 && box.x + box.width <= 390, JSON.stringify({ box, ...mobileLayout }));
+    assert.equal(posts.length, 0);
+    await mobilePage.screenshot({ path: path.join(root, 'artifacts/recommendations-mobile.png'), fullPage: true });
+    assert.deepEqual(errors, []);
+
+    await mobile.close();
     console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch, native playback handler, resume, favorites, persistent wishlist, stable information hover, native Favorites tab, standalone and optional Seerr/Enhanced actions.');
     console.log(JSON.stringify({ nativeHover, modules: scripts.length, errors }));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
