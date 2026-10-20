@@ -485,15 +485,25 @@
             }).finally(function () { clearTimeout(timer); });
         }
 
+        var enhancedDetection = null;
+        var enhancedDetectionExpiresAt = 0;
+        function detectEnhanced() {
+            if (enhancedDetection && Date.now() < enhancedDetectionExpiresAt) { return enhancedDetection; }
+            enhancedDetectionExpiresAt = Date.now() + 60000;
+            enhancedDetection = connectionFetch('/KinopoiskRequests/integrations').then(function (state) {
+                return state && state.enhanced && typeof state.enhanced.available === 'boolean'
+                    ? state.enhanced.available : null;
+            }).catch(function () { return null; });
+            return enhancedDetection;
+        }
+
         function loadRequestConnection(useForm) {
             useForm = useForm === true;
             var sequence = ++connectionSequence;
             $('#CheckSeerrConnection').prop('disabled', true);
             $('#SeerrConnectionStatus').text('Проверка подключения…');
             $('#EnhancedDetectionStatus').text('проверка…');
-            var detection = connectionFetch('/JellyfinEnhanced/version', true).then(function (version) {
-                return /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?$/.test(version.trim()) ? true : null;
-            }).catch(function (error) { return error.status === 404 ? false : null; });
+            var detection = detectEnhanced();
             var draft = useForm ? {
                 provider: $('#RecommendationRequestProvider').val(),
                 url: $('#SeerrUrl').val(),
@@ -501,12 +511,17 @@
             } : undefined;
             var connection = connectionFetch(useForm ? '/KinopoiskRequests/connection-test' : '/KinopoiskRequests/user-status', false, draft).then(function (status) {
                 if (status.provider !== 'enhanced') { return status; }
-                return connectionFetch('/JellyfinEnhanced/jellyseerr/user-status').then(function (legacy) {
+                return detection.then(function (detected) {
+                    if (detected !== true) {
+                        return { provider: 'enhanced', active: false, userFound: false, reason: 'enhanced_missing' };
+                    }
+                    return connectionFetch('/JellyfinEnhanced/jellyseerr/user-status').then(function (legacy) {
                     return Object.assign({}, legacy, { provider: 'enhanced', enhancedDetected: true,
                         reason: legacy.reason || (!legacy.active ? 'disabled' : !legacy.userFound ? 'unlinked' : 'linked') });
                 }).catch(function (error) {
                     if (error.status !== 404) { throw error; }
                     return { provider: 'enhanced', active: false, userFound: false, reason: 'enhanced_missing' };
+                });
                 });
             }).then(function (status) { return { status: status }; }, function (error) {
                 return { error: error.name === 'AbortError' ? 'Seerr не ответил вовремя.' : error.message };

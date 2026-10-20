@@ -38,8 +38,18 @@ function createRuntime(body, itemFactory, responseFactory) {
     };
     window.fetch = async (url, options) => {
         requests.push({ url: String(url), options });
+        if (String(url) === '/KinopoiskRequests/integrations') {
+            return jsonResponse({ enhanced: { available: window.__fixtureEnhanced === true,
+                state: window.__fixtureEnhanced ? 'available' : 'missing' } });
+        }
+        if (String(url) === '/JellyfinEnhanced/public-config') {
+            const response = await responseFactory(String(url));
+            const config = await response.json();
+            return jsonResponse({ TmdbEnabled: true, ...config }, response.status);
+        }
         return responseFactory(String(url));
     };
+    window.eval(readScript('kinopoiskEnhancedIntegration.js'));
     return { dom, window, requests };
 }
 
@@ -399,6 +409,7 @@ async function createProxyRecommendation(itemOverrides = {}, options = {}) {
         if (url.endsWith('/request')) { return options.request ? options.request() : jsonResponse({ id: 77 }); }
         throw new Error('Unexpected proxy request: ' + url);
     });
+    runtime.window.__fixtureEnhanced = options.enhanced === true;
     if (options.manualRefresh) {
         runtime.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 100, height: 100, top: 0, bottom: 100, left: 0, right: 100 });
         const originalTimeout = runtime.window.setTimeout.bind(runtime.window);
@@ -478,7 +489,7 @@ test('сломанные клиентские модули Enhanced не бло�
 });
 
 test('ошибка расширенного окна Enhanced возвращает подтверждение без потери обычного запроса', async () => {
-    const runtime = await createProxyRecommendation({}, { status: url => jsonResponse(url.startsWith('/KinopoiskRequests/')
+    const runtime = await createProxyRecommendation({}, { enhanced: true, status: url => jsonResponse(url.startsWith('/KinopoiskRequests/')
         ? { provider: 'enhanced' } : { active: true, userFound: true, jellyseerrUserId: '17' }) });
     try {
         let advancedCalls = 0;
@@ -673,6 +684,7 @@ test('автоматическое подключение без Enhanced ост
 
 test('автоматически обнаруженный Enhanced обслуживает запрос без клиентских модулей', async () => {
     const runtime = await createProxyRecommendation({}, {
+        enhanced: true,
         status: url => jsonResponse(url.startsWith('/KinopoiskRequests/')
             ? { provider: 'enhanced', active: false, userFound: false }
             : { active: true, userFound: true, jellyseerrUserId: '17' })
@@ -852,6 +864,7 @@ for (const url of ['https://seerr.example/subpath', 'http://192.168.1.1:5055', '
 
 test('Enhanced предоставляет адрес ссылки и квоту без клиентских модулей', async () => {
     const runtime = await createProxyRecommendation({ mediaType: 'tv' }, {
+        enhanced: true,
         status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' }
             : { active: true, userFound: true, jellyseerrUserId: '17' }), link: { mode: 'auto', url: '' }
     });
@@ -921,6 +934,7 @@ test('автоматическое одобрение из ответа Seerr с
 for (const [mode, expected] of [['auto', 'https://public.example/seerr'], ['local', 'http://legacy-seerr:5055']]) {
     test('Enhanced сохранил выбор локального адреса и сопоставление адреса Jellyfin: ' + mode, async () => {
         const runtime = await createProxyRecommendation({}, {
+            enhanced: true,
             status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' }
                 : { active: true, userFound: true, jellyseerrUserId: '17' }),
             link: { mode, url: '' }, enhancedConfig: { JellyseerrBaseUrl: 'http://legacy-seerr:5055',

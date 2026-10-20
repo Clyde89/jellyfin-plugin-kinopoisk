@@ -337,12 +337,11 @@
         var itemId = String(pick(item, 'Id', 'id') || '');
         var key = 'extended:' + String(getApiClient().getCurrentUserId() || '') + ':' + itemId;
         if (!dataCache.has(key)) {
-            dataCache.set(key, Promise.all([
-                enhanced.jellyseerrAPI.checkUserStatus(),
-                resolveTmdbId(item)
-            ]).then(function (values) {
-                var status = values[0];
-                var tmdbId = values[1];
+            dataCache.set(key, enhanced.jellyseerrAPI.checkUserStatus().then(function (status) {
+                if (!status || !status.active || !status.userFound) {
+                    return { items: [], reason: 'Для дополнительной подборки подключите Seerr.' };
+                }
+                return Promise.resolve(typeof api.resolveItemId === 'function' ? api.resolveItemId(item) : resolveTmdbId(item)).then(function (tmdbId) {
                 var config = status && status.provider === 'enhanced' && window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
                 var showSimilar = !config || config.JellyseerrShowSimilar !== false;
                 var showRecommended = !config || config.JellyseerrShowRecommended !== false;
@@ -387,6 +386,7 @@
                         return true;
                     }).slice(0, 20);
                     return { items: items, reason: '' };
+                });
                 });
             }).catch(function (error) {
                 dataCache.delete(key);

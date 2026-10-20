@@ -3,10 +3,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <DebugType>portable</DebugType>
-    <Version>12.1.0.6</Version>
+    <Version>12.1.0.7</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
-    <InformationalVersion>$(Version)</InformationalVersion>
+    <InformationalVersion>$(Version)-review.1</InformationalVersion>
     <Authors>Clyde89; LinFor; skrashevich</Authors>
     <Company>Clyde89; LinFor; skrashevich</Company>
     <Product>КиноПоиск</Product>
@@ -54,6 +54,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskTagLocalization.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskTagLocalization.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Web\kinopoiskEnhancedIntegration.js">
+      <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskEnhancedIntegration.js</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Web\kinopoiskElsewhereBridge.js">
       <LogicalName>Jellyfin.Plugin.Kinopoisk.Web.kinopoiskElsewhereBridge.js</LogicalName>

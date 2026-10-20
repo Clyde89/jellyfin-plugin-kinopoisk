@@ -117,30 +117,36 @@
     }
 
     function resolveTmdbId(imdbId, itemType) {
+        if (!/^tt\d+$/.test(String(imdbId || '')) || (itemType !== 'Movie' && itemType !== 'Series')) {
+            return Promise.resolve(null);
+        }
+        var integration = window.KinopoiskEnhancedIntegration;
+        if (!integration) { return Promise.resolve(null); }
         var mediaType = itemType === 'Series' ? 'tv' : 'movie';
         var cacheKey = mediaType + ':' + imdbId;
-        if (!resolutionCache.has(cacheKey)) {
-            resolutionCache.set(
-                cacheKey,
-                fetchJson(
-                    '/JellyfinEnhanced/tmdb/find/'
-                    + encodeURIComponent(imdbId)
-                    + '?external_source=imdb_id&language=ru-RU'
-                ).then(function (data) {
-                    var candidates = mediaType === 'tv'
-                        ? asArray(data && data.tv_results)
-                        : asArray(data && data.movie_results);
-                    var candidate = candidates.find(function (item) {
-                        return /^\d+$/.test(String(item && item.id || ''));
-                    });
-                    return candidate ? String(candidate.id) : null;
-                }).catch(function (error) {
-                    resolutionCache.delete(cacheKey);
-                    throw error;
-                })
-            );
-        }
-        return resolutionCache.get(cacheKey);
+        var cached = resolutionCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) { return cached.promise; }
+        var entry = { expiresAt: Date.now() + 3600000, promise: null };
+        entry.promise = integration.status().then(function (state) {
+            if (!state.available || !state.tmdb) {
+                resolutionCache.delete(cacheKey);
+                return null;
+            }
+            return integration.json('/JellyfinEnhanced/tmdb/find/' + encodeURIComponent(imdbId)
+                + '?external_source=imdb_id&language=ru-RU').then(function (data) {
+                var candidates = mediaType === 'tv' ? asArray(data && data.tv_results) : asArray(data && data.movie_results);
+                var valid = candidates.filter(function (item) { return /^\d+$/.test(String(item && item.id || '')); });
+                if (valid.length !== 1) { entry.expiresAt = Date.now() + 300000; return null; }
+                return String(valid[0].id);
+            });
+        }).catch(function (error) {
+            if (error.status === 404) { entry.expiresAt = Date.now() + 300000; }
+            else { resolutionCache.delete(cacheKey); }
+            return null;
+        });
+        resolutionCache.set(cacheKey, entry);
+        if (resolutionCache.size > 256) { resolutionCache.delete(resolutionCache.keys().next().value); }
+        return entry.promise;
     }
 
     function getVisiblePage() {
@@ -259,7 +265,7 @@
                     injectBridgeLink(section, itemId, itemType, tmdbId);
                 })
                 .catch(function (error) {
-                    console.warn('[КиноПоиск] Временный TMDB ID не разрешён.', error);
+                    // Состояние интеграции журналировалось общим ограничителем.
                 });
         });
     }

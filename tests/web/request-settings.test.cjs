@@ -38,7 +38,7 @@ function configRuntime(provider, enhanced, failure) {
     };
     window.fetch = async (url, options) => {
         requests.push({ url, options });
-        if (url === '/JellyfinEnhanced/version') return new Response(enhanced ? '12.6.0.0' : '', { status: enhanced ? 200 : 404 });
+        if (url === '/KinopoiskRequests/integrations') return Response.json({ enhanced: { available: enhanced, state: enhanced ? 'available' : 'missing' } });
         if (url === '/KinopoiskRequests/user-status') return Response.json({ provider,
             active: provider === 'seerr', userFound: provider === 'seerr', reason: provider === 'disabled' ? 'disabled' : undefined });
         if (url === '/KinopoiskRequests/connection-test') {
@@ -85,6 +85,7 @@ for (const [provider, enhanced, message] of [
             assert.equal(runtime.window.document.querySelector('#EnhancedDetectionStatus').textContent, enhanced ? 'обнаружен' : 'не установлен');
             assert.equal(runtime.window.document.querySelector('#SeerrApiKey').type, 'password');
             assert.equal(runtime.writes, 0);
+            if (!enhanced) { assert.equal(runtime.requests.some(request => request.url.startsWith('/JellyfinEnhanced/')), false); }
             assert.equal(runtime.window.JellyfinEnhanced, undefined);
             const preview = runtime.requests.filter(request => request.options.method === 'POST');
             assert.equal(preview.length, 1);

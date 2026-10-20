@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, '../..');
 const web = path.join(root, 'src/Jellyfin.Plugin.Kinopoisk/Web');
 const manifest = fs.readFileSync(path.join(root, 'src/Jellyfin.Plugin.Kinopoisk/Services/KinopoiskWebClientBundle.cs'), 'utf8');
 const scripts = [...manifest.matchAll(/"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([^"\s]+[.]js)"/g)].map(match => match[1]);
-assert.equal(scripts.length, 13);
+assert.equal(scripts.length, 14);
 const bundle = scripts.map(name => fs.readFileSync(path.join(web, name), 'utf8')).join('\n\n');
 const iconCss = fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'material-design-icons.css'), 'utf8').replace(/@font-face\s*\{[\s\S]*?\}/, '');
 const css = iconCss + ['card.scss', 'emby-button.scss', 'dialoghelper.scss', 'styles/librarybrowser.scss', 'styles/scrollstyles.scss', 'themes/_base/_theme.scss', 'elements/emby-scroller/emby-scroller.scss', 'elements/emby-scrollbuttons/emby-scrollbuttons.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
@@ -61,12 +61,13 @@ new MutationObserver(upgrade).observe(document.documentElement,{childList:true,s
     + '})();';
 new (require('node:vm').Script)(carouselFixture, { filename: 'native-carousel-fixture.js' });
 const poster = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><rect width="400" height="600" fill="#20394a"/><circle cx="200" cy="240" r="100" fill="#375970"/><text x="200" y="410" text-anchor="middle" font-size="36" font-family="sans-serif" fill="white">WATERWORLD</text><text x="200" y="455" text-anchor="middle" font-size="24" font-family="sans-serif" fill="white">1995</text></svg>';
-const items = [{ kinopoiskId: 8169, name: 'Водный мир', originalName: 'Waterworld', year: 1995, mediaType: 'movie',
+const items = [{ imdbId: 'tt0114898', kinopoiskId: 8169, name: 'Водный мир', originalName: 'Waterworld', year: 1995, mediaType: 'movie',
     overview: 'В будущем полярные льды растаяли и вода покрыла Землю. Рекомендация выбранного фильма с КиноПоиска.',
     ratingKinopoisk: 7.6, posterUrl: 'https://kinopoiskapiunofficial.tech/images/posters/kp/8169.jpg' }];
 let posts = [];
 let serviceConnected = true;
 let enhancedConnected = false;
+let enhancedInstalled = false;
 let serviceReads = 0;
 let mediaStatus = null;
 let libraryAvailable = false;
@@ -103,8 +104,11 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/native-shortcuts.js') { response.setHeader('content-type', 'text/javascript'); response.end(shortcutFixture); return; }
     if (url.pathname === '/bundle.js') { response.setHeader('content-type', 'text/javascript'); response.end(bundle); return; }
     if (url.pathname === '/poster.svg' || url.pathname === '/KinopoiskPresentation/image') { response.setHeader('content-type', 'image/svg+xml'); response.end(poster); return; }
-    if (url.pathname.startsWith('/item/')) { json(response, { Id: url.pathname.split('/').pop(), Type: 'Movie', ProviderIds: { Kinopoisk: '100' } }); return; }
+    if (url.pathname.startsWith('/item/')) { json(response, { Id: url.pathname.split('/').pop(), Type: 'Movie', Name: 'Водный мир', OriginalTitle: 'Waterworld', ProductionYear: 1995, ProviderIds: { Kinopoisk: '100', Imdb: 'tt0114898' } }); return; }
     if (url.pathname === '/KinopoiskPresentation/100/similars') { json(response, { items }); return; }
+    if (url.pathname === '/KinopoiskRequests/integrations') { json(response, { enhanced: { available: enhancedInstalled || enhancedConnected, state: enhancedInstalled || enhancedConnected ? 'available' : 'missing' } }); return; }
+    if (url.pathname === '/JellyfinEnhanced/public-config') { enhancedCalls.push({ path: url.pathname }); json(response, { TmdbEnabled: true }); return; }
+    if (url.pathname.startsWith('/JellyfinEnhanced/tmdb/')) { enhancedCalls.push({ path: url.pathname }); json(response, {}, 404); return; }
     if (url.pathname === '/KinopoiskRecommendations/state') {
         const keys = (url.searchParams.get('keys') || '').split(',');
         json(response, { items: keys.map(key => ({ key, itemId: libraryAvailable ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' : null,
@@ -268,7 +272,7 @@ const server = http.createServer(async (request, response) => {
     await enhancedDialog.getByRole('button', { name: 'Запросить', exact: true }).waitFor({ state: 'visible' });
     assert.equal(await enhancedPage.evaluate(() => typeof window.JellyfinEnhanced), 'undefined');
     assert.ok(enhancedCalls.some(call => call.path.endsWith('/user-status')));
-    assert.ok(enhancedCalls.every(call => call.user === 'fixture-user'));
+    assert.ok(enhancedCalls.filter(call => call.path.includes('/jellyseerr/')).every(call => call.user === 'fixture-user'));
     assert.equal(posts.length, 0);
     await enhancedPage.screenshot({ path: path.join(root, 'artifacts/recommendations-enhanced.png'), fullPage: true });
     await enhancedPage.close();
@@ -437,6 +441,23 @@ const server = http.createServer(async (request, response) => {
     assert.deepEqual(errors, []);
 
     await mobile.close();
+    // Полный bundle воспроизвёл инцидент: разные IMDb ID при отсутствующем Enhanced.
+    serviceConnected = true;
+    enhancedConnected = false;
+    enhancedInstalled = false;
+    enhancedCalls.length = 0;
+    const incidentPage = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    incidentPage.on('pageerror', error => errors.push(error.message));
+    await incidentPage.goto(origin + '/web/#/details?id=incident');
+    await incidentPage.locator('[data-kp-seerr-fallback-state="ready"]').first().waitFor();
+    const resolved = await incidentPage.evaluate(() => Promise.all(Array.from({ length: 40 }, (_, index) =>
+        window.KinopoiskTmdbResolver.resolve('tt' + (9000000 + index), index % 2 ? 'Series' : 'Movie'))));
+    assert.ok(resolved.every(id => id === null));
+    assert.equal(enhancedCalls.length, 0, 'Отсутствующий Enhanced получил запросы из полного bundle');
+    await incidentPage.locator('.kp-similar-card .cardImageContainer').first().click();
+    await incidentPage.getByRole('dialog').waitFor();
+    await incidentPage.close();
+    assert.deepEqual(errors, []);
     console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch, native playback handler, resume, favorites, persistent wishlist, stable information hover, native Favorites tab, standalone and optional Seerr/Enhanced actions.');
     console.log(JSON.stringify({ nativeHover, modules: scripts.length, errors }));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

@@ -43,7 +43,7 @@
         if (body !== undefined) {
             headers['Content-Type'] = 'application/json';
         }
-        return fetch(client.getUrl(base + path), {
+        function send() { return fetch(client.getUrl(base + path), {
             method: body === undefined ? 'GET' : 'POST',
             credentials: 'same-origin',
             headers: headers,
@@ -60,7 +60,17 @@
                 }
                 return data;
             });
-        }).finally(function () { clearTimeout(timer); });
+        }).finally(function () { clearTimeout(timer); }); }
+        if (base.indexOf('/JellyfinEnhanced') === 0) {
+            clearTimeout(timer);
+            var integration = window.KinopoiskEnhancedIntegration;
+            if (!integration) { return Promise.reject(new Error('Интеграция Enhanced не обнаружена.')); }
+            return integration.run(base + path, function () {
+                if (body === undefined) { timer = setTimeout(function () { controller.abort(); }, 20000); }
+                return send();
+            }, body === undefined);
+        }
+        return send();
     }
 
     function proxy(path, body) {
@@ -72,12 +82,19 @@
             if (getUserId() !== userId) { throw new Error('Учётная запись изменилась.'); }
             requestProvider = status.provider === 'enhanced' ? 'enhanced' : 'seerr';
             if (requestProvider !== 'enhanced') { return status; }
-            return proxyFetch('/JellyfinEnhanced/jellyseerr', path).then(function (legacyStatus) {
+            var integration = window.KinopoiskEnhancedIntegration;
+            return (integration ? integration.status() : Promise.resolve({ available: false })).then(function (state) {
+                if (!state.available) {
+                    return { provider: 'enhanced', enhancedDetected: false, active: false, userFound: false,
+                        reason: 'enhanced_missing' };
+                }
+                return proxyFetch('/JellyfinEnhanced/jellyseerr', path).then(function (legacyStatus) {
                 return Object.assign({}, legacyStatus, { provider: 'enhanced', enhancedDetected: true,
                     reason: legacyStatus.reason || (!legacyStatus.active ? 'disabled' : !legacyStatus.userFound ? 'unlinked' : 'linked') });
             }).catch(function (error) {
                 if (error.status !== 404) { throw error; }
                 return { provider: 'enhanced', enhancedDetected: false, active: false, userFound: false, reason: 'enhanced_missing' };
+            });
             });
         });
     }
@@ -98,7 +115,15 @@
         fetchSimilarMovies: function (id) { return proxy('/movie/' + id + '/similar'); },
         fetchRecommendedMovies: function (id) { return proxy('/movie/' + id + '/recommendations'); },
         fetchSimilarTvShows: function (id) { return proxy('/tv/' + id + '/similar'); },
-        fetchRecommendedTvShows: function (id) { return proxy('/tv/' + id + '/recommendations'); }
+        fetchRecommendedTvShows: function (id) { return proxy('/tv/' + id + '/recommendations'); },
+        resolveItemId: function (item) {
+            return resolveTmdbId(getIntegration(), {
+                tmdbId: getProviderId(item, 'tmdb'), imdbId: getProviderId(item, 'imdb'),
+                mediaType: String(pick(item, 'Type', 'type')) === 'Series' ? 'tv' : 'movie',
+                name: pick(item, 'Name', 'name'), originalName: pick(item, 'OriginalTitle', 'originalTitle'),
+                year: pick(item, 'ProductionYear', 'productionYear')
+            });
+        }
     };
 
     window.KinopoiskRecommendationRequests = proxyApi;
@@ -346,12 +371,10 @@
                 : Promise.resolve({ active: false, userFound: false });
             var pending = Promise.resolve(request).then(function (status) {
                 statusExpiresAt = Date.now() + 30000;
-                if ((!status || ((!status.active || !status.userFound) && !isStandalone(status))) && cache.get(key) === pending) {
-                    cache.delete(key);
-                }
+
                 return status;
             }, function (error) {
-                if (cache.get(key) === pending) { cache.delete(key); }
+                statusExpiresAt = Date.now() + 30000;
                 throw error;
             });
             statusExpiresAt = Date.now() + 30000;
