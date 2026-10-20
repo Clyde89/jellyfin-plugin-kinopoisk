@@ -667,7 +667,8 @@
                 ? fetchKinopoiskItems(kinopoiskId)
                 : fetchExtendedItems(item);
             request.then(function (result) {
-                loaded[source] = result;
+                if (result && result.reason) { delete loaded[source]; }
+                else { loaded[source] = result; }
                 if (activeSource !== source || getCurrentItemId() !== itemId || sequence !== sourceSequence
                     || String(getApiClient().getCurrentUserId() || '') !== sectionUserId) {
                     return;
