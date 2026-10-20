@@ -1005,3 +1005,34 @@ test('живые статусы возобновлены после возвра
         assert.equal(requestPosts(runtime).length, 0);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('дополнительная подборка дождалась статуса и восстановилась после подключения', async () => {
+    const runtime = await createRecommendationRuntime();
+    let complete;
+    let connected = false;
+    let resolutions = 0;
+    runtime.window.KinopoiskTmdbResolver = { resolve: () => { resolutions += 1; return Promise.resolve('1000'); } };
+    runtime.window.KinopoiskRecommendationRequests = {
+        checkUserStatus: () => connected ? Promise.resolve({ active: true, userFound: true })
+            : new Promise(resolve => { complete = resolve; }),
+        fetchSimilarMovies: () => Promise.resolve({ results: [{ id: 1001, title: 'Восстановленная подборка', mediaType: 'movie' }] }),
+        fetchRecommendedMovies: () => Promise.resolve({ results: [] })
+    };
+    try {
+        const tabs = runtime.window.document.querySelectorAll('.kp-recommendations-tab');
+        tabs[1].click();
+        await waitFor(() => complete, 'Проверка подключения не началась.');
+        assert.equal(resolutions, 0, 'Поиск начался до получения статуса подключения.');
+        complete({ active: false, userFound: false });
+        await waitFor(() => runtime.window.document.querySelector('.kp-recommendations-items').textContent.includes('подключите Seerr'),
+            'Не показано отсутствие подключения.');
+        assert.equal(resolutions, 0);
+        connected = true;
+        tabs[0].click();
+        tabs[1].click();
+        await waitFor(() => runtime.window.document.querySelector('.kp-recommendations-items').textContent.includes('Восстановленная подборка'),
+            'Недоступность осталась в кэше после подключения.');
+        assert.equal(resolutions, 1);
+    } finally { runtime.dom.window.close(); }
+});

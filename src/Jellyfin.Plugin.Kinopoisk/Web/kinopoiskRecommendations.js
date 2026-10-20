@@ -388,6 +388,9 @@
                     return { items: items, reason: '' };
                 });
                 });
+            }).then(function (result) {
+                if (result.reason) { dataCache.delete(key); }
+                return result;
             }).catch(function (error) {
                 dataCache.delete(key);
                 console.warn('[КиноПоиск] Подборка The Movie Database не загружена.', error);

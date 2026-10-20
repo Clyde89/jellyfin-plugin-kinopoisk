@@ -454,7 +454,7 @@ const server = http.createServer(async (request, response) => {
         window.KinopoiskTmdbResolver.resolve('tt' + (9000000 + index), index % 2 ? 'Series' : 'Movie'))));
     assert.ok(resolved.every(id => id === null));
     assert.equal(enhancedCalls.length, 0, 'Отсутствующий Enhanced получил запросы из полного bundle');
-    await incidentPage.locator('.kp-similar-card .cardImageContainer').first().click();
+    await incidentPage.locator('.kp-similar-card .cardOverlayFab-primary').first().click();
     await incidentPage.getByRole('dialog').waitFor();
     await incidentPage.close();
     assert.deepEqual(errors, []);
