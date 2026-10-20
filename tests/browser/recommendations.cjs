@@ -22,6 +22,7 @@ let posts = [];
 let serviceConnected = true;
 let enhancedConnected = false;
 let serviceReads = 0;
+let mediaStatus = null;
 const enhancedCalls = [];
 let browser;
 let origin;
@@ -62,13 +63,17 @@ const server = http.createServer(async (request, response) => {
             : { provider: 'disabled', active: false, userFound: false, reason: 'disabled' }); return; }
         serviceReads += 1;
         if (url.pathname.endsWith('/search')) { json(response, { results: [{ id: 9804, mediaType: 'movie', title: 'Водный мир', originalTitle: 'Waterworld', releaseDate: '1995-07-28' }] }); return; }
-        if (url.pathname.endsWith('/movie/9804')) { json(response, { id: 9804, mediaInfo: { status: posts.length ? 2 : 1 } }); return; }
+        if (url.pathname.endsWith('/movie/9804')) { json(response, { id: 9804, mediaInfo: {
+            status: mediaStatus || (posts.length ? 2 : 1), requests: posts.length ? [{ id: 77, status: 2 }] : []
+        } }); return; }
+        if (url.pathname.endsWith('/quota')) { json(response, { movie: { limit: 5, used: posts.length, remaining: 5 - posts.length, days: 7 }, tv: { limit: 0 } }); return; }
+        if (url.pathname.endsWith('/link')) { json(response, { mode: 'auto', url: 'https://seerr.example/subpath' }); return; }
         if (url.pathname.endsWith('/overrideRule')) { json(response, []); return; }
         if (url.pathname.endsWith('/request') && request.method === 'POST') {
             let body = '';
             for await (const chunk of request) { body += chunk; }
             posts.push(JSON.parse(body));
-            json(response, { id: 77 }); return;
+            json(response, { id: 77, status: 2, media: { status: 2 } }); return;
         }
     }
     json(response, {}, 404);
@@ -110,6 +115,8 @@ const server = http.createServer(async (request, response) => {
     await dialog.getByRole('button', { name: 'Запросить', exact: true }).waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('.kp-recommendation-dialog__submit').disabled);
     assert.equal(posts.length, 0);
+    await dialog.locator('.kp-recommendation-dialog__quota').filter({ hasText: 'осталось 5 из 5' }).waitFor();
+    assert.equal(await dialog.getByRole('link', { name: 'Открыть в Seerr', exact: true }).getAttribute('href'), 'https://seerr.example/subpath/movie/9804');
     const dialogBox = await dialog.boundingBox();
     assert.ok(Math.abs(dialogBox.x + dialogBox.width / 2 - 640) < 2, 'Native dialog styles displaced the recommendation dialog');
     assert.equal(await dialog.getByRole('button', { name: 'Закрыть', exact: true }).evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
@@ -124,7 +131,16 @@ const server = http.createServer(async (request, response) => {
     assert.equal(await card.locator('.cardOverlayContainer').evaluate(node => getComputedStyle(node).opacity), '0', 'Hover remained after pointer close');
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-after-close.png'), fullPage: true });
     await card.locator('.cardText-first button').click();
-    await dialog.getByRole('status').filter({ hasText: /^Запрошено$/ }).waitFor();
+    await dialog.getByRole('status').filter({ hasText: /^Одобрено$/ }).waitFor();
+    mediaStatus = 3;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await dialog.getByRole('status').filter({ hasText: /^Загружается$/ }).waitFor();
+    await card.locator('.kp-similar-card__request').filter({ hasText: /^Загружается$/ }).waitFor();
+    mediaStatus = 5;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await dialog.getByRole('status').filter({ hasText: /^Доступно$/ }).waitFor();
+    assert.equal(posts.length, 1, 'Status refresh repeated a POST');
+    await page.screenshot({ path: path.join(root, 'artifacts/recommendations-live-status.png'), fullPage: true });
     assert.equal(await dialog.locator('.kp-recommendation-dialog__submit').isDisabled(), true);
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
@@ -141,6 +157,7 @@ const server = http.createServer(async (request, response) => {
 
     // Auto mode discovers the server integration without any Enhanced JS global.
     enhancedConnected = true;
+    mediaStatus = null;
     posts = [];
     const enhancedPage = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     enhancedPage.on('pageerror', error => errors.push(error.message));
@@ -191,7 +208,7 @@ const server = http.createServer(async (request, response) => {
     assert.equal(serviceReads, previousReads, 'Standalone cards contacted the request service');
     await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-standalone.png'), fullPage: true });
     assert.deepEqual(errors, []);
-    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, status refresh, keyboard, touch.');
+    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch.');
     console.log(JSON.stringify({ nativeHover, modules: scripts.length, errors }));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
     if (browser) { await browser.close(); }

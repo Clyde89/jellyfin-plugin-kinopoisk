@@ -144,3 +144,30 @@ test('смена полей во время проверки не позволя
         assert.equal(runtime.writes, 0);
     } finally { runtime.dom.window.close(); }
 });
+
+
+test('адрес ссылки выбран независимо от адреса серверного подключения', async () => {
+    const runtime = configRuntime('seerr', false);
+    try {
+        await runtime.window.loadConfiguration();
+        const mode = runtime.window.document.querySelector('#SeerrLinkMode');
+        const url = runtime.window.document.querySelector('#SeerrWebUrl');
+        assert.equal(mode.value, 'auto');
+        assert.equal(url.disabled, true);
+        mode.value = 'custom';
+        mode.dispatchEvent(new runtime.window.Event('change'));
+        assert.equal(url.disabled, false);
+        assert.equal(url.required, true);
+        url.value = 'https://public.example/seerr';
+        url.dispatchEvent(new runtime.window.Event('input'));
+        assert.equal(url.checkValidity(), true);
+        const config = runtime.window.copyFormToConfiguration({});
+        assert.equal(config.SeerrLinkMode, 'custom');
+        assert.equal(config.SeerrWebUrl, 'https://public.example/seerr');
+        assert.equal(config.SeerrUrl, 'http://configured-seerr:5055');
+        url.value = 'https://u:password@public.example/seerr';
+        url.dispatchEvent(new runtime.window.Event('input'));
+        assert.equal(url.checkValidity(), false);
+        assert.equal(runtime.writes, 0);
+    } finally { runtime.dom.window.close(); }
+});

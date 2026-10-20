@@ -18,6 +18,10 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
 
         public string SeerrApiKey { get; set; } = string.Empty;
 
+        public string SeerrLinkMode { get; set; } = "auto";
+
+        public string SeerrWebUrl { get; set; } = string.Empty;
+
         public bool EnableMovieMetadata { get; set; } = true;
 
         public bool EnableSeriesMetadata { get; set; } = true;
@@ -154,6 +158,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Configuration
             ApiToken = ApiToken?.Trim() ?? string.Empty;
             SeerrUrl = SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
             SeerrApiKey = SeerrApiKey?.Trim() ?? string.Empty;
+            SeerrWebUrl = SeerrWebUrl?.Trim().TrimEnd('/') ?? string.Empty;
+            if (SeerrLinkMode is not ("auto" or "local" or "custom")) SeerrLinkMode = "auto";
             if (RecommendationRequestProvider is not ("auto" or "disabled" or "seerr" or "enhanced"))
                 RecommendationRequestProvider = "auto";
             FranchiseCollectionNameSuffix = string.IsNullOrWhiteSpace(FranchiseCollectionNameSuffix)

@@ -21,6 +21,9 @@
     var openDialog = null;
     var requestProvider = 'seerr';
     var statusExpiresAt = 0;
+    var liveTimer = null;
+    var liveRefreshRunning = false;
+    var liveFailures = 0;
 
     // Core cards do not require an external plugin. Both optional connectors
     // use authenticated server endpoints; service credentials stay on the server.
@@ -464,25 +467,106 @@
         return node;
     }
 
+    function mediaRequests(item) {
+        return asArray(item.mediaInfo && item.mediaInfo.requests).concat(asArray(item.requests))
+            .filter(function (request) { return request && !request.is4k; })
+            .sort(function (left, right) { return Number(right.id || 0) - Number(left.id || 0); });
+    }
+
+    function seasonBlocked(item, number) {
+        var known = asArray(item.mediaInfo && item.mediaInfo.seasons);
+        var state = known.find(function (value) { return Number(value.seasonNumber) === number; });
+        return (!!state && [2, 3, 4, 5, 6].indexOf(Number(state.status)) >= 0)
+            || mediaRequests(item).some(function (request) {
+                return [1, 2, 4].indexOf(Number(request.status)) >= 0
+                    && asArray(request.seasons).some(function (season) { return Number(season.seasonNumber) === number; });
+            });
+    }
+
     function availability(item) {
         var info = item.mediaInfo || {};
         var status = Number(info.status || 1);
+        var requests = mediaRequests(item);
+        var active = requests.find(function (request) { return [1, 2, 4].indexOf(Number(request.status)) >= 0; });
+        var requestStatus = Number((active || requests[0] || {}).status || 0);
+        var label = status === 5 ? 'Доступно' : status === 6 ? 'Заблокировано в Seerr'
+            : status === 4 ? 'Частично доступно' : requestStatus === 4 ? 'Ошибка заявки'
+            : status === 3 ? 'Загружается' : requestStatus === 1 ? 'Ожидает одобрения'
+            : requestStatus === 2 ? 'Одобрено' : status === 2 ? 'Запрошено'
+            : requestStatus === 3 ? 'Отклонено' : requestStatus === 5 ? 'Заявка завершена' : 'Запросить';
+        var canRequest = status !== 5 && status !== 6 && !active && status !== 2 && status !== 3;
+        if (item.mediaType === 'tv' && status !== 5 && status !== 6) {
+            canRequest = asArray(item.seasons).some(function (season) {
+                return Number.isInteger(season.seasonNumber) && season.seasonNumber >= 0
+                    && Number(season.episodeCount) > 0 && !seasonBlocked(item, season.seasonNumber);
+            });
+        }
         var libraryId = String(info.jellyfinMediaId || (item.mediaType === 'tv' && info.jellyfinSeriesId) || '');
-        return {
-            label: status === 5 ? 'Доступно' : status === 2 ? 'Запрошено'
-                : status === 3 ? 'Загружается' : status === 4 ? 'Частично доступно' : 'Запросить',
-            canRequest: status !== 2 && status !== 3 && status !== 5,
-            libraryId: /^[a-z0-9-]+$/i.test(libraryId) ? libraryId : ''
-        };
+        return { label: label, canRequest: canRequest,
+            libraryId: /^[a-z0-9-]+$/i.test(libraryId) ? libraryId : '' };
     }
 
     function bindCard(card, resolved) {
+        card.__kpSeerrResolved = resolved;
         card.dataset.kpSeerrFallbackState = 'ready';
         delete card.dataset.kpSeerrReason;
         card.dataset.tmdbId = String(resolved.item.id);
         var available = availability(resolved.item);
         var permitted = resolved.item.mediaType === 'tv' ? resolved.status.canRequestTv : resolved.status.canRequestMovie;
         setCardStatus(card, available.canRequest && permitted === false ? 'Подробнее' : available.label);
+        scheduleLiveRefresh();
+    }
+
+    function safeWebUrl(value) {
+        try {
+            if (!value || String(value).length > 2048 || /[\x00-\x1f\x7f]/.test(value)) { return ''; }
+            var url = new URL(value);
+            if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) { return ''; }
+            return url.href.replace(/\/+$/, '');
+        } catch (_) { return ''; }
+    }
+
+    function getSeerrLink(item) {
+        var key = 'seerr-link';
+        if (!cache.has(key)) {
+            var userId = getUserId();
+            var request = proxyFetch('/KinopoiskRequests', '/link').then(function (settings) {
+                if (getUserId() !== userId) { return ''; }
+                var url = safeWebUrl(settings.url);
+                if (url || settings.mode === 'custom' || requestProvider !== 'enhanced') { return url; }
+                return proxyFetch('/JellyfinEnhanced', '/public-config').then(function (config) {
+                    return safeWebUrl(config.JellyseerrBaseUrl);
+                });
+            }).catch(function () { cache.delete(key); return ''; });
+            cache.set(key, request);
+        }
+        return cache.get(key).then(function (url) {
+            return url ? url + '/' + (item.mediaType === 'tv' ? 'tv' : 'movie') + '/' + Number(item.id) : '';
+        });
+    }
+
+    function readQuota() {
+        return proxy('/quota').then(function (data) {
+            if (!data || typeof data !== 'object') { throw new Error('Квота не получена.'); }
+            return data;
+        });
+    }
+
+    function quotaState(data, type, count) {
+        var value = data && data[type];
+        if (!value || !Number.isFinite(Number(value.limit)) || Number(value.limit) < 0) {
+            return { text: 'Не удалось получить квоту. Лимит проверит Seerr при отправке.', blocked: false };
+        }
+        var limit = Number(value.limit);
+        if (limit === 0) { return { text: 'Квота: без ограничений.', blocked: false }; }
+        var remaining = Number(value.remaining);
+        if (!Number.isFinite(remaining)) { remaining = Math.max(0, limit - Number(value.used || 0)); }
+        var unit = type === 'tv' ? 'сезонов' : 'фильмов';
+        return { text: 'Квота: осталось ' + Math.max(0, remaining) + ' из ' + limit + ' ' + unit
+            + (Number(value.days) > 0 ? ' за ' + Number(value.days) + ' дн.' : ' за всё время') + '.'
+            + (type === 'tv' ? ' Выбрано: ' + count + '.' : '')
+            + (value.restricted || count > remaining ? ' Лимит запроса исчерпан или выбранных сезонов слишком много.' : ''),
+            blocked: !!value.restricted || count > remaining };
     }
 
     function requestDefaults(item, userStatus) {
@@ -551,7 +635,7 @@
             + '.kp-recommendation-dialog::backdrop{background:rgba(0,0,0,.65)}'
             + '.kp-recommendation-dialog h2{margin-top:0}.kp-recommendation-dialog p{line-height:1.5;white-space:pre-wrap}'
             + '.kp-recommendation-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:.6em;flex-wrap:wrap;margin-top:1.4em}'
-            + '.kp-recommendation-dialog__submit[hidden]{display:none}'
+            + '.kp-recommendation-dialog [hidden]{display:none}'
             + '.kp-recommendation-dialog__seasons{display:grid;gap:.7em;margin:1em 0}.kp-recommendation-dialog__seasons label{display:flex;gap:.7em;align-items:center}'
             + '.kp-recommendation-dialog__status{line-height:1.5;margin-top:1em}';
         document.head.appendChild(style);
@@ -628,10 +712,91 @@
         if (typeof dialog.showModal === 'function') { dialog.showModal(); }
         else { dialog.setAttribute('open', ''); }
         cancel.focus();
+        var quota = element('div', 'secondaryText kp-recommendation-dialog__quota', 'Проверка квоты…');
+        status.after(quota);
+        var seerrLink = element('a', 'emby-button kp-recommendation-seerr-link', 'Открыть в Seerr');
+        seerrLink.target = '_blank';
+        seerrLink.rel = 'noopener noreferrer';
+        seerrLink.hidden = true;
+        actions.insertBefore(seerrLink, cancel);
         var resolved;
         var inFlight = false;
+        var uncertain = false;
+        var submissionNotice = false;
+        var quotaData = null;
+        var quotaLoading = true;
+        var quotaSequence = 0;
+        function selectedSeasons() {
+            return Array.prototype.filter.call(seasons.querySelectorAll('input:checked'), function (input) { return !input.disabled; })
+                .map(function (input) { return Number(input.value); });
+        }
+        function renderActions() {
+            if (!resolved || !isCurrent() || inFlight || uncertain) { return; }
+            var item = resolved.item;
+            var available = availability(item);
+            var permitted = item.mediaType === 'tv' ? resolved.status.canRequestTv : resolved.status.canRequestMovie;
+            var canRequest = available.canRequest && permitted !== false;
+            var choices = item.mediaType === 'tv' && canRequest ? asArray(item.seasons).filter(function (season) {
+                return Number.isInteger(season.seasonNumber) && season.seasonNumber >= 0 && Number(season.episodeCount) > 0;
+            }) : [];
+            var config = requestProvider === 'enhanced' && window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
+            var wanted = choices.map(function (choice) { return String(choice.seasonNumber); });
+            Array.prototype.forEach.call(seasons.querySelectorAll('label'), function (label) {
+                if (wanted.indexOf(label.querySelector('input').value) < 0) { label.remove(); }
+            });
+            choices.forEach(function (season) {
+                var input = seasons.querySelector('input[value="' + season.seasonNumber + '"]');
+                if (!input) {
+                    var label = element('label');
+                    input = element('input');
+                    input.type = config && config.JellyseerrSingleSeasonRequestOnly ? 'radio' : 'checkbox';
+                    input.name = 'kinopoisk-request-season';
+                    input.value = String(season.seasonNumber);
+                    label.append(input, element('span'));
+                    seasons.appendChild(label);
+                }
+                input.disabled = seasonBlocked(item, season.seasonNumber);
+                if (input.disabled) { input.checked = false; }
+                input.nextElementSibling.textContent = (season.seasonNumber === 0 ? 'Спецвыпуски' : 'Сезон ' + season.seasonNumber)
+                    + (input.disabled ? ' — уже запрошен или доступен' : '');
+            });
+            var count = item.mediaType === 'tv' ? selectedSeasons().length : 1;
+            var limit = quotaState(quotaData, item.mediaType, count);
+            quota.textContent = quotaLoading ? 'Проверка квоты…' : limit.text;
+            submit.hidden = false;
+            status.textContent = permitted === false ? 'Нет права запроса в Seerr'
+                : canRequest ? (available.label === 'Запросить' ? '' : available.label + '. ')
+                    + (item.mediaType === 'tv' ? 'Выберите сезоны и подтвердите запрос в Seerr.' : 'Подтвердите запрос в Seerr.') : available.label;
+            if (submissionNotice) { status.textContent = 'Запрос отправлен в Seerr. ' + status.textContent; }
+            submit.textContent = canRequest ? 'Запросить' : available.libraryId ? 'Открыть в Jellyfin' : available.label;
+            submit.disabled = canRequest ? quotaLoading || limit.blocked : !available.libraryId;
+            if (available.libraryId && !actions.querySelector('.kp-recommendation-library')) {
+                var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
+                library.href = '#/details?id=' + encodeURIComponent(available.libraryId);
+                actions.insertBefore(library, cancel);
+                library.addEventListener('click', close);
+            }
+        }
+        function refreshQuota() {
+            var sequence = ++quotaSequence;
+            return readQuota().catch(function () { return null; }).then(function (data) {
+                if (isCurrent() && sequence === quotaSequence) {
+                    quotaData = data;
+                    quotaLoading = false;
+                    renderActions();
+                }
+            });
+        }
+        seasons.addEventListener('change', renderActions);
+        openDialog.refresh = function (result) {
+            if (!isCurrent() || inFlight || uncertain) { return; }
+            resolved = result;
+            submissionNotice = false;
+            renderActions();
+            refreshQuota();
+        };
         submit.addEventListener('click', function () {
-            if (!resolved || inFlight || !isCurrent()) { return; }
+            if (!resolved || inFlight || uncertain || !isCurrent()) { return; }
             var item = resolved.item;
             var available = availability(item);
             if (available.libraryId && !available.canRequest) {
@@ -640,7 +805,8 @@
                     + encodeURIComponent(available.libraryId);
                 return;
             }
-            if (!available.canRequest) { return; }
+            if (!available.canRequest || quotaLoading || quotaState(quotaData, item.mediaType,
+                item.mediaType === 'tv' ? selectedSeasons().length : 1).blocked) { return; }
             if ((item.mediaType === 'tv' ? resolved.status.canRequestTv : resolved.status.canRequestMovie) === false) { return; }
             var enhanced = window.JellyfinEnhanced;
             var nativeUi = enhanced && enhanced.jellyseerrUI;
@@ -660,39 +826,62 @@
                         : nativeUi.showMovieRequestModal(item.id, item.title, item);
                 }).catch(function () {
                     card.__kpAdvancedUnavailable = true;
-                    if (card.isConnected && getCurrentItemId() === ownerId && getUserId() === userId) {
-                        showDetails(card, keyboard);
-                    }
+                    if (card.isConnected && getCurrentItemId() === ownerId && getUserId() === userId) { showDetails(card, keyboard); }
                 });
                 return;
             }
-            var selected = Array.prototype.map.call(seasons.querySelectorAll('input:checked'), function (input) { return Number(input.value); });
-            if (item.mediaType === 'tv' && !selected.length) {
+            if (item.mediaType === 'tv' && !selectedSeasons().length) {
                 status.textContent = 'Выберите хотя бы один сезон.';
                 return;
             }
             inFlight = true;
             submit.disabled = true;
             submit.textContent = 'Отправка…';
-            status.textContent = 'Отправка запроса в Seerr…';
-            Promise.resolve().then(function () {
+            status.textContent = 'Проверка квоты перед отправкой…';
+            var posted = false;
+            refreshQuota().then(function () {
+                if (!isCurrent()) { throw new Error('Страница или учётная запись изменились.'); }
+                var selected = selectedSeasons();
+                var limit = quotaState(quotaData, item.mediaType, item.mediaType === 'tv' ? selected.length : 1);
+                if (limit.blocked || (item.mediaType === 'tv' && !selected.length)) {
+                    inFlight = false;
+                    renderActions();
+                    status.textContent = limit.blocked ? limit.text : 'Выберите хотя бы один сезон.';
+                    return null;
+                }
+                status.textContent = 'Отправка запроса в Seerr…';
+                posted = true;
                 return submitRequest(item, selected, resolved.status, isCurrent);
-            }).then(function () {
+            }).then(function (response) {
+                if (!posted) { return; }
                 cache.clear();
-                item.mediaInfo = Object.assign({}, item.mediaInfo, { status: 2 });
+                if (!isCurrent()) { return; }
+                var info = Object.assign({}, item.mediaInfo, response && response.media || {});
+                // A successful response without media details confirms submission,
+                // but does not tell us whether approval was automatic.
+                if (!response || !response.media) { info.status = info.status === 4 ? 4 : 2; }
+                if (response && Number(response.status) > 0) {
+                    info.requests = [response].concat(mediaRequests(item));
+                }
+                if (item.mediaType === 'tv') {
+                    var submitted = selectedSeasons();
+                    info.seasons = asArray(info.seasons).filter(function (season) { return submitted.indexOf(Number(season.seasonNumber)) < 0; })
+                        .concat(submitted.map(function (number) { return { seasonNumber: number, status: 2 }; }));
+                }
+                item.mediaInfo = info;
+                submissionNotice = true;
                 bindCard(card, resolved);
+                inFlight = false;
+                renderActions();
+                status.textContent = 'Запрос отправлен в Seerr. ' + availability(item).label;
+                refreshQuota();
                 document.dispatchEvent(new CustomEvent('jellyseerr-media-requested', {
                     detail: { tmdbId: item.id, mediaType: item.mediaType }
                 }));
-                if (isCurrent()) {
-                    submit.textContent = 'Запрошено';
-                    status.textContent = 'Запрос отправлен в Seerr.';
-                    Array.prototype.forEach.call(seasons.querySelectorAll('input'), function (input) { input.disabled = true; });
-                }
             }).catch(function (error) {
                 if (isCurrent()) {
-                    // Never repeat a POST automatically: even a network failure
-                    // can mean the request reached Seerr. Reopen to check status.
+                    inFlight = false;
+                    uncertain = posted;
                     submit.textContent = 'Проверьте состояние';
                     status.textContent = String(error.message || 'Не удалось подтвердить запрос.')
                         + ' Закройте окно и откройте карточку снова для проверки состояния.';
@@ -707,6 +896,7 @@
             if (!isCurrent()) { return; }
             if (result && result.standalone) {
                 bindStandaloneCard(card);
+                quota.textContent = '';
                 status.textContent = result.connection.reason === 'enhanced_missing'
                     ? 'Для запросов подключите Seerr в настройках КиноПоиска. Jellyfin Enhanced не установлен.'
                     : result.connection.enhancedDetected
@@ -716,48 +906,15 @@
             if (!result) { throw new Error('Однозначное совпадение в Seerr не найдено. Запрос недоступен.'); }
             resolved = result;
             bindCard(card, result);
-            var item = result.item;
-            var available = availability(item);
-            var permitted = item.mediaType === 'tv' ? result.status.canRequestTv : result.status.canRequestMovie;
-            if (permitted === false) { available.canRequest = false; available.label = 'Нет права запроса в Seerr'; }
-            submit.hidden = false;
-            status.textContent = available.canRequest ? 'Подтвердите запрос в Seerr.' : available.label;
-            submit.textContent = available.canRequest ? 'Запросить' : available.libraryId ? 'Открыть в Jellyfin' : available.label;
-            submit.disabled = !available.libraryId && !available.canRequest;
-            if (available.libraryId && available.canRequest && !actions.querySelector('.kp-recommendation-library')) {
-                var library = element('a', 'emby-button kp-recommendation-library', 'Открыть в Jellyfin');
-                library.href = '#/details?id=' + encodeURIComponent(available.libraryId);
-                actions.insertBefore(library, cancel);
-                library.addEventListener('click', close);
-            }
-            if (item.mediaType === 'tv' && available.canRequest) {
-                var known = asArray(item.mediaInfo && item.mediaInfo.seasons);
-                var config = requestProvider === 'enhanced' && window.JellyfinEnhanced && window.JellyfinEnhanced.pluginConfig;
-                var choices = asArray(item.seasons).filter(function (season) {
-                    return Number.isInteger(season.seasonNumber) && season.seasonNumber >= 0 && Number(season.episodeCount) > 0;
-                });
-                choices.forEach(function (season) {
-                    var state = known.find(function (value) { return value.seasonNumber === season.seasonNumber; });
-                    var label = element('label');
-                    var input = element('input');
-                    input.type = config && config.JellyseerrSingleSeasonRequestOnly ? 'radio' : 'checkbox';
-                    input.name = 'kinopoisk-request-season';
-                    input.value = String(season.seasonNumber);
-                    input.disabled = !!state && [2, 3, 5].indexOf(Number(state.status)) >= 0;
-                    label.append(input, element('span', '', (season.seasonNumber === 0 ? 'Спецвыпуски' : 'Сезон ' + season.seasonNumber)
-                        + (input.disabled ? ' — уже запрошен или доступен' : '')));
-                    seasons.appendChild(label);
-                });
-                if (!seasons.querySelector('input:not(:disabled)')) {
-                    submit.disabled = true;
-                    status.textContent = 'Нет доступных для запроса сезонов.';
-                } else {
-                    status.textContent = 'Выберите сезоны и подтвердите запрос в Seerr.';
-                }
-            }
+            renderActions();
+            refreshQuota();
+            getSeerrLink(result.item).then(function (url) {
+                if (isCurrent() && url) { seerrLink.href = url; seerrLink.hidden = false; }
+            });
         }).catch(function (error) {
             if (isCurrent()) {
                 status.textContent = String(error.message || 'Seerr сейчас недоступен.');
+                quota.textContent = '';
                 submit.textContent = 'Запрос недоступен';
                 submit.hidden = false;
                 submit.disabled = true;
@@ -844,6 +1001,7 @@
     }
 
     function bindStandaloneCard(card) {
+        card.__kpSeerrResolved = null;
         card.dataset.kpSeerrFallbackState = 'standalone';
         delete card.dataset.kpSeerrReason;
         setCardStatus(card, 'Подробнее');
@@ -853,6 +1011,7 @@
 
     function processFallbackCards() {
         var itemId = getCurrentItemId();
+        if (document.hidden) { return; }
         if (openDialog && (openDialog.ownerId !== itemId || openDialog.userId !== getUserId()
             || !openDialog.card.isConnected)) {
             openDialog.close();
@@ -878,6 +1037,7 @@
             bindingGeneration += 1;
             cache.clear();
             Array.prototype.forEach.call(cards, function (card) {
+                card.__kpSeerrResolved = null;
                 delete card.dataset.kpSeerrFallbackState;
                 delete card.dataset.kpSeerrRetryAfter;
             });
@@ -951,6 +1111,77 @@
         }).catch(function () { scheduleRetry(); });
     }
 
+    function scheduleLiveRefresh(delay) {
+        if (liveTimer || liveRefreshRunning || document.hidden || !getUserId() || !getCurrentItemId()) { return; }
+        liveTimer = setTimeout(function () {
+            liveTimer = null;
+            refreshVisibleCards();
+        }, delay === undefined ? Math.min(120000, 30000 * Math.pow(2, liveFailures)) : delay);
+    }
+
+    function refreshVisibleCards() {
+        if (liveRefreshRunning || document.hidden) { return; }
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var userId = getUserId();
+        var itemId = getCurrentItemId();
+        var generation = bindingGeneration;
+        if (!page || !userId || !itemId) { return; }
+        var cards = Array.prototype.filter.call(page.querySelectorAll('.kp-similar-card--fallback'), function (card) {
+            if (!card.__kpSeerrResolved || card.dataset.kpSeerrFallbackState !== 'ready') { return false; }
+            if (openDialog && openDialog.card === card) { return true; }
+            var rect = card.getBoundingClientRect();
+            return rect.width === 0 || (rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth);
+        }).slice(0, 24);
+        if (!cards.length) { return; }
+        function current(card) {
+            return !document.hidden && userId === getUserId() && itemId === getCurrentItemId()
+                && generation === bindingGeneration && card.isConnected && page.contains(card)
+                && (!lifecycle || lifecycle.getActivePage() === page);
+        }
+        liveRefreshRunning = true;
+        cache.delete('seerr-status');
+        getSeerrStatus(getIntegration()).then(function (status) {
+            if (!cards.some(current)) { return; }
+            if (!status.active || !status.userFound) {
+                cards.forEach(function (card) {
+                    if (!current(card)) { return; }
+                    card.__kpSeerrResolved = null;
+                    delete card.dataset.kpSeerrFallbackState;
+                    setCardStatus(card, 'Подробнее');
+                });
+                if (openDialog && openDialog.userId === userId) { openDialog.close(); }
+                cache.clear();
+                scheduleProcessing();
+                return;
+            }
+            var tasks = cards.map(function (card) {
+                return new Promise(function (done) {
+                    pendingCards.push(function () {
+                        if (!current(card)) { done(); return; }
+                        var previous = card.__kpSeerrResolved;
+                        return fetchDetails(getIntegration(), previous.item.id, previous.item.mediaType).then(function (details) {
+                            if (!current(card)) { return; }
+                            if (!details || Number(details.id) !== Number(previous.item.id)) { throw new Error('Состояние Seerr не получено.'); }
+                            var resolved = { item: buildCardData(card.__kinopoiskRecommendationItem, details, previous.item.id),
+                                status: status, active: true, userFound: true };
+                            bindCard(card, resolved);
+                            var source = card.__kinopoiskRecommendationItem;
+                            cache.set('match:' + (card.dataset.kinopoiskId || source.mediaType + ':' + source.tmdbId), Promise.resolve(resolved));
+                            if (openDialog && openDialog.card === card && openDialog.refresh) { openDialog.refresh(resolved); }
+                        }).catch(function () { liveFailures = Math.min(2, liveFailures + 1); }).finally(done);
+                    });
+                });
+            });
+            liveFailures = 0;
+            drainCards();
+            return Promise.all(tasks);
+        }).catch(function () { liveFailures = Math.min(2, liveFailures + 1); }).finally(function () {
+            liveRefreshRunning = false;
+            if (cards.some(current)) { scheduleLiveRefresh(); }
+        });
+    }
+
     function scheduleProcessing() {
         if (!renderTimer) {
             renderTimer = setTimeout(function () {
@@ -964,7 +1195,18 @@
     document.addEventListener('kinopoisk:recommendation-open', function (event) {
         showDetails(event.detail && event.detail.card, event.detail && event.detail.keyboard);
     });
-    document.addEventListener('jellyseerr-media-requested', function () { cache.clear(); });
+    document.addEventListener('jellyseerr-media-requested', function () {
+        cache.clear();
+        clearTimeout(liveTimer);
+        liveTimer = null;
+        scheduleLiveRefresh(1500);
+    });
+    document.addEventListener('visibilitychange', function () {
+        clearTimeout(liveTimer);
+        liveTimer = null;
+        if (!document.hidden) { scheduleProcessing(); scheduleLiveRefresh(100); }
+    });
+    window.addEventListener('pagehide', function () { clearTimeout(liveTimer); liveTimer = null; });
     document.addEventListener('focusin', function (event) {
         if (event.target.closest && event.target.closest('.kp-similar-card--fallback')) {
             retryAttempt = 0;

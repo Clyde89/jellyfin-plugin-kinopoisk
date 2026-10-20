@@ -29,6 +29,12 @@ public sealed class KinopoiskRequestsController : ControllerBase
     [HttpGet("user-status")]
     public Task<IActionResult> Status(CancellationToken token) => Execute(() => _seerr.Status(UserId, token), token);
 
+    [HttpGet("quota")]
+    public Task<IActionResult> Quota(CancellationToken token) => Execute(() => _seerr.Quota(UserId, token), token);
+
+    [HttpGet("link")]
+    public Task<IActionResult> Link(CancellationToken token) => Execute(() => _seerr.Link(UserId, token), token);
+
     [HttpPost("connection-test")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [RequestSizeLimit(16384)]

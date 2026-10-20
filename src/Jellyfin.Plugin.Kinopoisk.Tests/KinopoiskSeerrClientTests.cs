@@ -239,7 +239,12 @@ public sealed class KinopoiskSeerrClientTests
             Assert.Contains("\"provider\":\"seerr\"", await status.Content.ReadAsStringAsync());
             Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/movie/501")).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/tv/501/recommendations")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/quota")).StatusCode);
+            Assert.Equal("28", fixture.Http.Calls.Last().User);
+            Assert.EndsWith("/user/28/quota", fixture.Http.Calls.Last().Path);
+            Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/KinopoiskRequests/link")).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/KinopoiskRequests/settings/main")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/KinopoiskRequests/user/17/quota")).StatusCode);
             using var forbiddenBody = new StringContent("{\"mediaId\":501,\"mediaType\":\"movie\",\"requestedBy\":1}", Encoding.UTF8, "application/json");
             Assert.Equal(HttpStatusCode.BadRequest, (await http.PostAsync("/KinopoiskRequests/request", forbiddenBody)).StatusCode);
             Assert.DoesNotContain(fixture.Http.Calls, c => c.Method == "POST");
@@ -248,6 +253,67 @@ public sealed class KinopoiskSeerrClientTests
             Assert.Equal("28", Assert.Single(fixture.Http.Calls.Where(c => c.Method == "POST")).User);
         }
         finally { await app.StopAsync(); }
+    }
+
+    [Fact]
+    public async Task QuotaUsesLinkedUsersIdentityAndCannotSelectAnotherUser()
+    {
+        using var fixture = new Fixture();
+        var quota = await fixture.Client.Quota(Second, CancellationToken.None);
+        Assert.Equal(2, quota.GetProperty("tv").GetProperty("remaining").GetInt32());
+        var call = fixture.Http.Calls.Last();
+        Assert.EndsWith("/user/28/quota", call.Path);
+        Assert.Equal("28", call.User);
+        fixture.Http.Linked = false;
+        await Assert.ThrowsAsync<KinopoiskSeerrException>(() => fixture.Client.Quota(First, CancellationToken.None));
+        Assert.Single(fixture.Http.Calls.Where(c => c.Path.EndsWith("/quota")));
+    }
+
+    [Theory]
+    [InlineData("auto", "https://public.example/seerr/", "https://public.example/seerr", true)]
+    [InlineData("auto", "", "http://seerr:5055", true)]
+    [InlineData("auto", "javascript:alert(1)", "http://seerr:5055", true)]
+    [InlineData("auto", "https://name:secret@public.example/", "http://seerr:5055", true)]
+    [InlineData("auto", "https://public.example/?key=secret", "http://seerr:5055", true)]
+    [InlineData("local", "https://public.example/seerr", "http://seerr:5055", false)]
+    [InlineData("custom", "https://public.example/seerr", "https://chosen.example/subpath", false)]
+    public async Task ChoosesOnlyValidatedBrowserAddressWithoutExposingSettings(string mode, string applicationUrl, string expected, bool publicRead)
+    {
+        using var fixture = new Fixture();
+        fixture.Config.SeerrLinkMode = mode;
+        fixture.Config.SeerrWebUrl = " https://chosen.example/subpath/ ";
+        fixture.Http.ApplicationUrl = applicationUrl;
+        var result = await fixture.Client.Link(First, CancellationToken.None);
+        Assert.Equal(expected, result.GetProperty("url").GetString());
+        Assert.Equal(publicRead, fixture.Http.Calls.Any(c => c.Path.EndsWith("/settings/public")));
+        Assert.DoesNotContain("private-setting", result.GetRawText());
+        Assert.DoesNotContain("fixture-service-key", result.GetRawText());
+        Assert.All(fixture.Http.Calls.Where(c => c.Path.EndsWith("/settings/public")), c => Assert.Equal("17", c.User));
+    }
+
+    [Fact]
+    public async Task MissingPublicSettingsFallsBackToLocalAddress()
+    {
+        using var fixture = new Fixture();
+        fixture.Http.PublicStatus = HttpStatusCode.NotFound;
+        var result = await fixture.Client.Link(First, CancellationToken.None);
+        Assert.Equal("http://seerr:5055", result.GetProperty("url").GetString());
+    }
+
+    [Theory]
+    [InlineData("https://user:password@example.com/seerr")]
+    [InlineData("https://example.com/seerr?token=secret")]
+    [InlineData("https://example.com/seerr#fragment")]
+    [InlineData("file:///tmp/seerr")]
+    [InlineData("https://example.com/\nseerr")]
+    public async Task InvalidCustomAddressDoesNotBecomeClickable(string url)
+    {
+        using var fixture = new Fixture();
+        fixture.Config.SeerrLinkMode = "custom";
+        fixture.Config.SeerrWebUrl = url;
+        var result = await fixture.Client.Link(First, CancellationToken.None);
+        Assert.Equal("", result.GetProperty("url").GetString());
+        Assert.Empty(fixture.Http.Calls);
     }
 
     private sealed class FixtureAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
@@ -277,6 +343,8 @@ public sealed class KinopoiskSeerrClientTests
     private sealed class Transport : HttpMessageHandler
     {
         public readonly List<(string Method, string Path, string Key, string User, string Body)> Calls = new();
+        public string ApplicationUrl = "https://public.example/seerr";
+        public HttpStatusCode PublicStatus = HttpStatusCode.OK;
         public bool Linked = true;
         public bool Paginate;
         public bool Duplicate;
@@ -303,7 +371,12 @@ public sealed class KinopoiskSeerrClientTests
                 body = new { results = users };
             }
             if (uri.AbsolutePath.EndsWith("/auth/me")) body = new { permissions = 32 };
-            return new HttpResponseMessage(request.Method == HttpMethod.Post ? PostStatus : ReadStatus)
+            if (uri.AbsolutePath.EndsWith("/quota")) body = new {
+                movie = new { limit = 0, days = 7, used = 0, restricted = false },
+                tv = new { limit = 3, days = 7, used = 1, remaining = 2, restricted = false }
+            };
+            if (uri.AbsolutePath.EndsWith("/settings/public")) body = new { applicationUrl = ApplicationUrl, apiKey = "private-setting" };
+            return new HttpResponseMessage(uri.AbsolutePath.EndsWith("/settings/public") ? PublicStatus : request.Method == HttpMethod.Post ? PostStatus : ReadStatus)
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };

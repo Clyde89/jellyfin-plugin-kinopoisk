@@ -89,6 +89,55 @@ public sealed class KinopoiskSeerrClient
         return await Send(config, path, user, null, token).ConfigureAwait(false);
     }
 
+    public async Task<JsonElement> Quota(Guid userId, CancellationToken token)
+    {
+        var config = Connection();
+        var user = await FindUser(config, userId, false, token).ConfigureAwait(false)
+            ?? throw new KinopoiskSeerrException(403, "Учётная запись Jellyfin не связана с Seerr.");
+        return await Send(config, "user/" + user + "/quota", user, null, token).ConfigureAwait(false);
+    }
+
+    public async Task<JsonElement> Link(Guid userId, CancellationToken token)
+    {
+        var settings = _configuration();
+        var mode = settings.SeerrLinkMode is "local" or "custom" ? settings.SeerrLinkMode : "auto";
+        if (SelectProvider(settings) == "disabled") return JsonSerializer.SerializeToElement(new { mode, url = "" });
+        if (mode == "custom")
+            return JsonSerializer.SerializeToElement(new { mode, url = WebUrl(settings.SeerrWebUrl) });
+        if (SelectProvider(settings) != "seerr")
+            return JsonSerializer.SerializeToElement(new { mode, url = "" });
+        var config = Connection(settings);
+        var user = await FindUser(config, userId, false, token).ConfigureAwait(false)
+            ?? throw new KinopoiskSeerrException(403, "Учётная запись Jellyfin не связана с Seerr.");
+        var url = WebUrl(settings.SeerrUrl);
+        if (mode == "auto")
+        {
+            try
+            {
+                // Only the application URL leaves this service, never settings or credentials.
+                var data = await Send(config, "settings/public", user, null, token).ConfigureAwait(false);
+                if (data.TryGetProperty("applicationUrl", out var field) && field.ValueKind == JsonValueKind.String)
+                {
+                    var applicationUrl = WebUrl(field.GetString());
+                    if (applicationUrl.Length > 0) url = applicationUrl;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception error) when (error is KinopoiskSeerrException or HttpRequestException or JsonException or OperationCanceledException)
+            { /* A missing public URL must not prevent opening the configured local address. */ }
+        }
+        return JsonSerializer.SerializeToElement(new { mode, url });
+    }
+
+    private static string WebUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 2048 || value.Any(char.IsControl)
+            || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)) return string.Empty;
+        return uri.AbsoluteUri.TrimEnd('/');
+    }
+
     public async Task<JsonElement> Request(Guid userId, JsonElement body, CancellationToken token)
     {
         if (body.ValueKind != JsonValueKind.Object

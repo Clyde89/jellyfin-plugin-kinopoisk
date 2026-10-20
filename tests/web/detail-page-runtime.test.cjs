@@ -392,10 +392,25 @@ async function createProxyRecommendation(itemOverrides = {}, options = {}) {
                 id: 501, mediaInfo: { status: 1 }, seasons: [{ seasonNumber: 1, episodeCount: 6 }]
             });
         }
+        if (url.endsWith('/quota')) { return options.quota ? options.quota() : jsonResponse({ movie: { limit: 0 }, tv: { limit: 0 } }); }
+        if (url.endsWith('/link')) { return jsonResponse(options.link || { mode: 'auto', url: 'https://seerr.example/subpath' }); }
+        if (url === '/JellyfinEnhanced/public-config') { return jsonResponse({ JellyseerrBaseUrl: 'http://legacy-seerr:5055/base' }); }
         if (url.endsWith('/overrideRule')) { return jsonResponse(options.rules || []); }
         if (url.endsWith('/request')) { return options.request ? options.request() : jsonResponse({ id: 77 }); }
         throw new Error('Unexpected proxy request: ' + url);
     });
+    if (options.manualRefresh) {
+        const originalTimeout = runtime.window.setTimeout.bind(runtime.window);
+        const ticks = [];
+        runtime.window.setTimeout = (callback, delay, ...args) => {
+            if ([30000, 60000, 120000].includes(delay)) {
+                ticks.push(callback);
+                return originalTimeout(() => {}, 1000000);
+            }
+            return originalTimeout(callback, delay, ...args);
+        };
+        runtime.nextRefresh = () => { assert.ok(ticks.length, 'Обновление не запланировано.'); ticks.shift()(); };
+    }
     runtime.window.eval(readScript('kinopoiskRecommendationSeerrFallback.js'));
     return runtime;
 }
@@ -742,5 +757,161 @@ test('дополнительная подборка использует сам�
         dialog.querySelector('.kp-recommendation-dialog__submit').click();
         await waitFor(() => requestPosts(runtime).length === 1, 'Запрос не отправлен.');
         assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body), { mediaType: 'movie', mediaId: 501 });
+    } finally { runtime.dom.window.close(); }
+});
+
+
+for (const [requestStatus, caption, blocked] of [[1, 'Ожидает одобрения', true], [2, 'Одобрено', true],
+    [3, 'Отклонено', false], [4, 'Ошибка заявки', true], [5, 'Заявка завершена', false]]) {
+    test('статус заявки показан отдельно от доступности: ' + caption, async () => {
+        const runtime = await createProxyRecommendation({}, { details: () => jsonResponse({
+            id: 501, mediaInfo: { status: 1, requests: [{ id: 12, status: requestStatus, is4k: false }] }
+        }) });
+        try {
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__quota').textContent.includes('без ограничений'), 'Квота не получена.');
+            assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, caption);
+            assert.match(dialog.querySelector('[role="status"]').textContent, new RegExp(caption));
+            assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, blocked);
+            assert.equal(requestPosts(runtime).length, 0);
+        } finally { runtime.dom.window.close(); }
+    });
+}
+
+test('квота фильма блокирует отправку при исчерпанном лимите', async () => {
+    const runtime = await createProxyRecommendation({}, { quota: () => jsonResponse({ movie: { limit: 2, days: 7, remaining: 0, restricted: true } }) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__quota').textContent.includes('осталось 0'), 'Квота не показана.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        assert.equal(requestPosts(runtime).length, 0);
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('квота сериала учитывает число выбранных сезонов', async () => {
+    const runtime = await createProxyRecommendation({ mediaType: 'tv' }, {
+        quota: () => jsonResponse({ tv: { limit: 3, days: 7, used: 2, remaining: 1 } }),
+        details: () => jsonResponse({ id: 501, mediaInfo: { status: 1 }, seasons: [1, 2].map(seasonNumber => ({ seasonNumber, episodeCount: 6 })) })
+    });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__quota').textContent.includes('осталось 1'), 'Квота не получена.');
+        const inputs = dialog.querySelectorAll('input');
+        inputs.forEach(input => { input.checked = true; });
+        inputs[0].dispatchEvent(new runtime.window.Event('change', { bubbles: true }));
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+        assert.match(dialog.querySelector('.kp-recommendation-dialog__quota').textContent, /Выбрано: 2/);
+        inputs[1].checked = false;
+        inputs[1].dispatchEvent(new runtime.window.Event('change', { bubbles: true }));
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, false);
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => requestPosts(runtime).length === 1, 'Разрешённый сезон не запрошен.');
+        assert.deepEqual(JSON.parse(requestPosts(runtime)[0].options.body).seasons, [1]);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('квота повторно проверяется перед отправкой и не создаёт лишнюю заявку', async () => {
+    let reads = 0;
+    const runtime = await createProxyRecommendation({}, { quota: () => jsonResponse({ movie: { limit: 1, remaining: reads++ ? 0 : 1 } }) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Кнопка не готова.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => dialog.querySelector('[role="status"]').textContent.includes('Лимит'), 'Изменившаяся квота не учтена.');
+        assert.equal(requestPosts(runtime).length, 0);
+        assert.equal(reads, 2);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('недоступная квота обозначена явно и оставлена на проверку Seerr', async () => {
+    const runtime = await createProxyRecommendation({}, { quota: () => jsonResponse({}, 404) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__quota').textContent.includes('Лимит проверит Seerr'), 'Ошибка квоты скрыта.');
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, false);
+        assert.doesNotMatch(dialog.textContent, /без ограничений/);
+    } finally { runtime.dom.window.close(); }
+});
+
+for (const url of ['https://seerr.example/subpath', 'http://192.168.1.1:5055', 'javascript:alert(1)', 'https://u:secret@seerr.example', 'https://seerr.example/?token=secret']) {
+    test('кнопка Seerr использует только безопасный адрес: ' + url.split('?')[0], async () => {
+        const runtime = await createProxyRecommendation({}, { link: { mode: 'custom', url } });
+        try {
+            const dialog = await openRecommendation(runtime);
+            await waitFor(() => dialog.querySelector('.kp-recommendation-dialog__quota').textContent.includes('без ограничений'), 'Действия не подготовлены.');
+            const link = dialog.querySelector('.kp-recommendation-seerr-link');
+            const safe = /^https?:/.test(url) && !url.includes('@') && !url.includes('?');
+            assert.equal(link.hidden, !safe);
+            if (safe) { assert.equal(link.href, url + '/movie/501'); assert.equal(link.rel, 'noopener noreferrer'); }
+            assert.equal(requestPosts(runtime).length, 0);
+        } finally { runtime.dom.window.close(); }
+    });
+}
+
+test('Enhanced предоставляет адрес ссылки и квоту без клиентских модулей', async () => {
+    const runtime = await createProxyRecommendation({ mediaType: 'tv' }, {
+        status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' }
+            : { active: true, userFound: true, jellyseerrUserId: '17' }), link: { mode: 'auto', url: '' }
+    });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-seerr-link').hidden, 'Ссылка Enhanced не найдена.');
+        assert.equal(dialog.querySelector('.kp-recommendation-seerr-link').href, 'http://legacy-seerr:5055/base/tv/501');
+        assert.ok(runtime.requests.some(r => r.url === '/JellyfinEnhanced/jellyseerr/quota'));
+        assert.equal(runtime.window.JellyfinEnhanced, undefined);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('живое обновление сохраняет выбранный сезон и фокус открытого окна', async () => {
+    let state = 1;
+    const runtime = await createProxyRecommendation({ mediaType: 'tv' }, { manualRefresh: true, details: () => jsonResponse({
+        id: 501, mediaInfo: { status: state }, seasons: [1, 2].map(seasonNumber => ({ seasonNumber, episodeCount: 6 }))
+    }) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Окно не готово.');
+        const input = dialog.querySelector('input[value="2"]');
+        input.checked = true;
+        input.focus();
+        const searches = runtime.requests.filter(r => r.url.includes('/search?')).length;
+        state = 4;
+        runtime.nextRefresh();
+        await waitFor(() => runtime.window.document.querySelector('.kp-similar-card__request').textContent === 'Частично доступно', 'Состояние карточки не обновлено.');
+        assert.equal(dialog.isConnected, true);
+        assert.equal(input.checked, true);
+        assert.equal(runtime.window.document.activeElement, input);
+        assert.equal(runtime.requests.filter(r => r.url.includes('/search?')).length, searches, 'Обновление повторило поиск вместо чтения известного TMDB ID.');
+        state = 5;
+        runtime.nextRefresh();
+        await waitFor(() => dialog.querySelector('[role="status"]').textContent === 'Доступно', 'Открытое окно не обновлено.');
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+        assert.equal(requestPosts(runtime).length, 0);
+    } finally { runtime.dom.window.close(); }
+});
+
+test('скрытая страница не запрашивает живые статусы', async () => {
+    const runtime = await createProxyRecommendation({}, { manualRefresh: true });
+    try {
+        await waitFor(() => runtime.window.document.querySelector('[data-kp-seerr-fallback-state="ready"]'), 'Карточка не готова.');
+        const reads = runtime.requests.length;
+        Object.defineProperty(runtime.window.document, 'hidden', { configurable: true, value: true });
+        runtime.nextRefresh();
+        await new Promise(resolve => setTimeout(resolve, 60));
+        assert.equal(runtime.requests.length, reads);
+    } finally { runtime.dom.window.close(); }
+});
+
+
+test('автоматическое одобрение из ответа Seerr сразу отражено в карточке', async () => {
+    const runtime = await createProxyRecommendation({}, { request: () => jsonResponse({ id: 77, status: 2, media: { status: 2 } }) });
+    try {
+        const dialog = await openRecommendation(runtime);
+        await waitFor(() => !dialog.querySelector('.kp-recommendation-dialog__submit').disabled, 'Кнопка не готова.');
+        dialog.querySelector('.kp-recommendation-dialog__submit').click();
+        await waitFor(() => dialog.textContent.includes('Запрос отправлен'), 'Ответ Seerr не получен.');
+        assert.equal(runtime.window.document.querySelector('.kp-similar-card__request').textContent, 'Одобрено');
+        assert.equal(dialog.querySelector('.kp-recommendation-dialog__submit').disabled, true);
+        assert.equal(requestPosts(runtime).length, 1);
     } finally { runtime.dom.window.close(); }
 });

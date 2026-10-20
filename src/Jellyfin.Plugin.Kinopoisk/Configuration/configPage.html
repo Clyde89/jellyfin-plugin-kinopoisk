@@ -126,6 +126,20 @@
                         <input id="SeerrApiKey" type="password" autocomplete="new-password" is="emby-input" />
                         <div class="fieldDescription">Для прямого подключения. Пользователь должен войти в Seerr через Jellyfin. Запросы используют его права и квоту. Изменения применяются после сохранения.</div>
                     </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="SeerrLinkMode">Адрес кнопки «Открыть в Seerr»</label>
+                        <select id="SeerrLinkMode" is="emby-select">
+                            <option value="auto">Автоматически: адрес приложения Seerr, иначе локальный</option>
+                            <option value="local">Локальный адрес подключения</option>
+                            <option value="custom">Указать адрес вручную</option>
+                        </select>
+                        <div class="fieldDescription">Автоматический режим использует адрес приложения из общих настроек Seerr. При подключении через Enhanced используется адрес из его настроек. Этот выбор меняет только ссылку для открытия в браузере.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="SeerrWebUrl">Адрес Seerr для браузера</label>
+                        <input id="SeerrWebUrl" type="url" is="emby-input" placeholder="https://seerr.example.com" />
+                        <div class="fieldDescription">Для режима «Указать адрес вручную». Можно использовать внешний или локальный адрес, включая подпапку.</div>
+                    </div>
                     <div class="kinopoiskStatusCard">
                         <div><strong>Jellyfin Enhanced:</strong> <span id="EnhancedDetectionStatus">ещё не проверялся</span></div>
                         <div id="SeerrConnectionStatus" role="status" aria-live="polite">Подключение ещё не проверялось.</div>
@@ -536,6 +550,9 @@
             setValue('#RecommendationRequestProvider', config.RecommendationRequestProvider, 'auto');
             setValue('#SeerrUrl', config.SeerrUrl, '');
             setValue('#SeerrApiKey', config.SeerrApiKey, '');
+            setValue('#SeerrLinkMode', config.SeerrLinkMode, 'auto');
+            setValue('#SeerrWebUrl', config.SeerrWebUrl, '');
+            updateSeerrLinkFields();
             setCheckbox('#EnableMovieMetadata', config.EnableMovieMetadata, true);
             setCheckbox('#EnableSeriesMetadata', config.EnableSeriesMetadata, true);
             setCheckbox('#EnableSeasonEpisodeMetadata', config.EnableSeasonEpisodeMetadata, true);
@@ -636,6 +653,8 @@
             config.RecommendationRequestProvider = $('#RecommendationRequestProvider').val();
             config.SeerrUrl = $('#SeerrUrl').val();
             config.SeerrApiKey = $('#SeerrApiKey').val();
+            config.SeerrLinkMode = $('#SeerrLinkMode').val();
+            config.SeerrWebUrl = $('#SeerrWebUrl').val();
             config.EnableMovieMetadata = $('#EnableMovieMetadata').prop('checked');
             config.EnableSeriesMetadata = $('#EnableSeriesMetadata').prop('checked');
             config.EnableSeasonEpisodeMetadata = $('#EnableSeasonEpisodeMetadata').prop('checked');
@@ -727,6 +746,21 @@
             $('#CheckSeerrConnection').prop('disabled', false);
             $('#SeerrConnectionStatus').text('Параметры изменены. Нажмите «Проверить подключение» для проверки без сохранения.');
         }
+        function updateSeerrLinkFields() {
+            var input = document.getElementById('SeerrWebUrl');
+            var custom = $('#SeerrLinkMode').val() === 'custom';
+            input.disabled = !custom;
+            input.required = custom;
+            var valid = !custom || !input.value;
+            try {
+                var url = new URL(input.value);
+                valid = /^https?:$/.test(url.protocol) && !url.username && !url.password && !url.search && !url.hash
+                    && !/[\x00-\x1f\x7f]/.test(input.value) && input.value.length <= 2048;
+            } catch (_) { }
+            input.setCustomValidity(valid ? '' : 'Укажите адрес HTTP или HTTPS без имени пользователя, пароля и параметров запроса.');
+        }
+        $('#SeerrLinkMode').on('change', updateSeerrLinkFields);
+        $('#SeerrWebUrl').on('input', updateSeerrLinkFields);
         $('#RecommendationRequestProvider, #SeerrUrl, #SeerrApiKey')
             .on('input', requestConnectionEdited).on('change', requestConnectionEdited);
 
