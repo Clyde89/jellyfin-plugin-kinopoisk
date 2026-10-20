@@ -22,7 +22,7 @@ function runtime(options = {}) {
     const timeout = window.setTimeout.bind(window);
     window.setTimeout = (callback, delay, ...args) => delay < 1000
         ? timeout(() => { now += delay; callback(...args); }, 0) : timeout(callback, delay, ...args);
-    window.console.info = message => logs.push(message);
+    window.console.info = message => { if (message.includes('Интеграция Enhanced:')) logs.push(message); };
     window.AbortController = AbortController;
     window.ApiClient = { getUrl: value => '/jellyfin' + value, getCurrentUserId: () => user, accessToken: () => token,
         getItem: () => Promise.resolve(null) };
@@ -225,5 +225,22 @@ test('некорректный ответ реестра не разрешил �
     try {
         await Promise.all(Array.from({ length: 25 }, (_, i) => r.resolve('tt' + (7000000 + i))));
         assert.equal(r.calls.length, 1);
+    } finally { r.dom.window.close(); }
+});
+
+
+test('повторные сбои увеличили паузу с 30 до 60 секунд', async () => {
+    const r = runtime({ available: true, media: () => response({}, 503) });
+    try {
+        await r.resolve('tt8100000');
+        r.tick(30001);
+        await r.resolve('tt8100001');
+        assert.equal(r.calls.filter(call => call.path.includes('/tmdb/find/')).length, 2);
+        r.tick(30001);
+        await r.resolve('tt8100002');
+        assert.equal(r.calls.filter(call => call.path.includes('/tmdb/find/')).length, 2);
+        r.tick(30001);
+        await r.resolve('tt8100003');
+        assert.equal(r.calls.filter(call => call.path.includes('/tmdb/find/')).length, 3);
     } finally { r.dom.window.close(); }
 });

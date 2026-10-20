@@ -614,7 +614,7 @@ for (const status of [403, 409, 429, 503]) {
 }
 
 test('правило Seerr применено только к подходящему фильму и пользователю', async () => {
-    const runtime = await createProxyRecommendation({}, { status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' } : { active: true, userFound: true, jellyseerrUserId: '17' }), rules: [
+    const runtime = await createProxyRecommendation({}, { enhanced: true, status: url => jsonResponse(url.startsWith('/KinopoiskRequests/') ? { provider: 'enhanced' } : { active: true, userFound: true, jellyseerrUserId: '17' }), rules: [
         { id: 1, radarrServiceId: 9, users: '99', profileId: 1 },
         { id: 2, radarrServiceId: 2, users: '17', profileId: 3, rootFolder: '/movies', tags: '4|5' }
     ] });

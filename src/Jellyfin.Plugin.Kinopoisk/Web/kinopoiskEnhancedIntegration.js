@@ -99,7 +99,6 @@
                 snapshot = { available: true, tmdb: config.TmdbEnabled, state: 'available', config: config };
                 expiresAt = Date.now() + 60000;
                 blockedUntil = 0;
-                failures = 0;
                 changed('доступна');
                 return snapshot;
             });
@@ -139,6 +138,7 @@
             nextStart = Date.now() + 350;
             return Promise.resolve().then(action).then(function (value) {
                 if (context() !== expected) { throw unavailable('session_changed'); }
+                failures = 0;
                 return value;
             }).catch(function (error) {
                 if (context() !== expected) { throw unavailable('session_changed'); }

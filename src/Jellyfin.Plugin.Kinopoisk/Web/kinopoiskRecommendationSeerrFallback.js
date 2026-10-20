@@ -92,8 +92,9 @@
                 return Object.assign({}, legacyStatus, { provider: 'enhanced', enhancedDetected: true,
                     reason: legacyStatus.reason || (!legacyStatus.active ? 'disabled' : !legacyStatus.userFound ? 'unlinked' : 'linked') });
             }).catch(function (error) {
-                if (error.status !== 404) { throw error; }
-                return { provider: 'enhanced', enhancedDetected: false, active: false, userFound: false, reason: 'enhanced_missing' };
+                if (error.status !== 404 && !error.reason) { throw error; }
+                return { provider: 'enhanced', enhancedDetected: error.status !== 404, active: false, userFound: false,
+                    reason: error.status === 404 ? 'enhanced_missing' : 'enhanced_unavailable' };
             });
             });
         });
@@ -384,7 +385,7 @@
     }
 
     function isStandalone(status) {
-        return status && !status.active && (status.reason === 'disabled' || status.reason === 'enhanced_missing');
+        return status && !status.active && (status.reason === 'disabled' || status.reason === 'enhanced_missing' || status.reason === 'enhanced_unavailable');
     }
 
     function fetchDetails(enhanced, tmdbId, mediaType) {
@@ -1152,7 +1153,7 @@
                             setCardStatus(fallback, 'Seerr недоступен');
                             fallback.dataset.kpSeerrReason = String(error.message || 'Seerr недоступен');
                             scheduleRetry();
-                            console.debug('[КиноПоиск] Карточка Seerr будет обработана повторно.', error);
+                            // Повторы не создавали отдельные записи журнала для каждой карточки.
                         }
                     });
                 });
