@@ -42,10 +42,106 @@ function fixture(options = {}) {
         if (String(url).startsWith('/UserFavoriteItems/')) { favorite = request.method === 'POST'; return Response.json({ IsFavorite: favorite }); }
         throw new Error('Unexpected route: ' + url);
     };
-    for (const name of ['kinopoiskRecommendationActions.js', 'kinopoiskRecommendations.js']) window.eval(fs.readFileSync(path.join(root, name), 'utf8'));
+    const names = options.lifecycle ? ['kinopoiskDetailPageLifecycle.js', 'kinopoiskRecommendationActions.js', 'kinopoiskRecommendations.js'] : ['kinopoiskRecommendationActions.js', 'kinopoiskRecommendations.js'];
+    for (const name of names) window.eval(fs.readFileSync(path.join(root, name), 'utf8'));
     return { dom, window, calls, lists, switchUser(value) { currentUser = value; window.KinopoiskRecommendationActions.refresh(); },
+        favorites(active = true) {
+            window.document.querySelector('.itemDetailPage').hidden = true;
+            let home = window.document.querySelector('#indexPage');
+            if (!home) {
+                home = window.document.createElement('div');
+                home.id = 'indexPage';
+                home.innerHTML = '<div id="homeTab" class="tabContent"><div class="sections">Главная</div></div><div id="favoritesTab" class="tabContent"><div class="sections"><section id="native-favorites">Штатное избранное</section></div></div>';
+                window.document.body.appendChild(home);
+            }
+            window.location.hash = '#/home?tab=' + (active ? 1 : 0);
+            home.querySelector('#favoritesTab').classList.toggle('is-active', active);
+        },
         get favorite() { return favorite; }, get heart() { return window.document.querySelector('.kp-similar-card__heart'); } };
 }
+
+for (const library of [false, true]) {
+    test('повторное обновление не перемещает значок и не перезапускает наведение, медиатека=' + library, async () => {
+        const app = fixture({ library, lifecycle: true });
+        try {
+            await wait(() => app.heart && !app.heart.disabled, 'Действия не готовы.');
+            // Observe the real lifecycle: moving the icon used to cause a new
+            // render, moving it again indefinitely even without pointer input.
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const card = app.window.document.querySelector('.kp-similar-card');
+            const mutations = [];
+            const observer = new app.window.MutationObserver(entries => mutations.push(...entries));
+            observer.observe(card, { childList: true, subtree: true, attributes: true });
+            for (let i = 0; i < 4; i++) {
+                app.window.KinopoiskRecommendationActions.refresh();
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            observer.disconnect();
+            assert.equal(mutations.length, 0, 'Неизменённая карточка продолжает перерисовываться.');
+        } finally { app.dom.window.close(); }
+    });
+}
+
+test('желаемое открыто в штатном избранном, удалено из обоих представлений и очищено при уходе', async () => {
+    const app = fixture({ lifecycle: true });
+    try {
+        await wait(() => app.heart && !app.heart.disabled, 'Действия не готовы.');
+        app.heart.click();
+        await wait(() => app.heart.getAttribute('aria-pressed') === 'true', 'Фильм не сохранён.');
+        app.favorites();
+        const section = () => app.window.document.querySelector('#kinopoiskFavoritesWishlist');
+        await wait(() => section()?.querySelector('.kp-similar-card__title')?.textContent === 'Сохранённый фильм', 'Желаемое отсутствует в штатном избранном.');
+        assert.ok(app.window.document.querySelector('#native-favorites'), 'Штатные разделы удалены.');
+        await wait(() => section()?.querySelector('.kp-similar-card__heart')?.disabled === false, 'Действия в избранном не готовы.');
+        assert.equal(section().querySelector('.kp-similar-card__heart').getAttribute('aria-pressed'), 'true');
+        section().querySelector('.kp-similar-card__heart').click();
+        await wait(() => section()?.textContent.includes('В желаемом пока ничего нет'), 'Удаление не обновило избранное.');
+        assert.equal(app.lists.get('first').length, 0);
+        assert.equal(app.calls.some(call => /Seerr|jellyseerr|KinopoiskRequests/.test(call.url)), false);
+        app.favorites(false);
+        await wait(() => !section(), 'Желаемое осталось на главной вкладке.');
+    } finally { app.dom.window.close(); }
+});
+
+test('штатное избранное не показывает желаемое прежнего пользователя или запоздавший ответ', async () => {
+    const app = fixture({ lifecycle: true });
+    try {
+        app.lists.set('first', [{ kinopoiskId: 101, name: 'Первый пользователь', mediaType: 'movie' }]);
+        app.favorites();
+        const section = () => app.window.document.querySelector('#kinopoiskFavoritesWishlist');
+        await wait(() => section()?.textContent.includes('Первый пользователь'), 'Первый список не открыт.');
+        const original = app.window.fetch;
+        let release;
+        app.window.fetch = (url, options) => url === '/KinopoiskRecommendations/wishlist'
+            ? new Promise(resolve => { release = () => resolve(Response.json({ items: [{ kinopoiskId: 102, name: 'Запоздавший ответ' }] })); })
+            : original(url, options);
+        app.window.document.dispatchEvent(new app.window.CustomEvent('kinopoisk:wishlist-changed', { detail: { userId: 'first' } }));
+        await wait(() => release, 'Запрос списка не начат.');
+        app.window.fetch = original;
+        app.switchUser('second');
+        await wait(() => section()?.dataset.userId === 'second' && section().textContent.includes('В желаемом пока ничего нет'), 'Список нового пользователя не открыт.');
+        release();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        assert.equal(section().textContent.includes('Первый пользователь'), false);
+        assert.equal(section().textContent.includes('Запоздавший ответ'), false);
+    } finally { app.dom.window.close(); }
+});
+
+test('желаемое в избранном перелистывается и восстанавливается после штатного пересоздания разделов', async () => {
+    const app = fixture();
+    try {
+        app.lists.set('first', Array.from({ length: 23 }, (_, index) => ({ kinopoiskId: 101 + index, name: 'Фильм ' + (index + 1), mediaType: 'movie' })));
+        app.favorites();
+        const section = () => app.window.document.querySelector('#kinopoiskFavoritesWishlist');
+        await wait(() => section()?.querySelectorAll('.kp-similar-card').length === 20, 'Первая страница не ограничена.');
+        [...section().querySelectorAll('button')].find(button => button.textContent === 'Далее').click();
+        await wait(() => section()?.querySelectorAll('.kp-similar-card').length === 3, 'Вторая страница не открыта.');
+        assert.ok(section().textContent.includes('Фильм 23'));
+        app.window.document.querySelector('#favoritesTab .sections').innerHTML = '<section id="native-favorites">Обновлённое избранное</section>';
+        await wait(() => section()?.querySelectorAll('.kp-similar-card').length === 20, 'Штатная инициализация удалила желаемое.');
+        assert.ok(app.window.document.querySelector('#native-favorites'));
+    } finally { app.dom.window.close(); }
+});
 
 test('личное желаемое сохранено и открыто без Seerr и Enhanced', async () => {
     const app = fixture();

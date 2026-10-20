@@ -12,10 +12,28 @@
     function user() {
         return window.ApiClient && window.ApiClient.getCurrentUserId ? String(window.ApiClient.getCurrentUserId() || '') : '';
     }
-    function owner() {
+    function context() {
+        var route = location.hash.replace(/^#\/?/, '').split('?')[0];
+        var favorites = /^(home|home\.html)$/.test(route) && document.querySelector('#indexPage #favoritesTab.is-active');
+        if (favorites && !favorites.closest('.hide,[hidden]')) {
+            var visible = true;
+            for (var parent = favorites; parent && parent !== document; parent = parent.parentElement) {
+                var style = getComputedStyle(parent);
+                if (style.display === 'none' || style.visibility === 'hidden') { visible = false; break; }
+            }
+            if (visible) { return { id: 'kinopoisk:favorites', page: favorites, kind: 'favorites' }; }
+        }
         var lifecycle = window.KinopoiskDetailPageLifecycle;
-        if (lifecycle) { return lifecycle.getCurrentItemId(); }
-        return new URLSearchParams((location.hash.split('?')[1] || location.search)).get('id');
+        var id = lifecycle ? lifecycle.getCurrentItemId() : new URLSearchParams((location.hash.split('?')[1] || location.search)).get('id');
+        return { id: id, page: lifecycle ? lifecycle.getActivePage() : document, kind: 'details' };
+    }
+    function owner() { return context().id; }
+    function attribute(element, name, value) {
+        if (value === null) { if (element.hasAttribute(name)) { element.removeAttribute(name); } }
+        else if (element.getAttribute(name) !== String(value)) { element.setAttribute(name, String(value)); }
+    }
+    function flag(element, name, enabled) {
+        if (element.classList.contains(name) !== enabled) { element.classList.toggle(name, enabled); }
     }
     function key(item) {
         var kp = Number(item.kinopoiskId || item.KinopoiskId || 0);
@@ -59,7 +77,8 @@
         status.classList.toggle('is-error', error === true);
     }
     function current(card, expectedUser, expectedOwner, version) {
-        return card.isConnected && user() === expectedUser && owner() === expectedOwner && generation === version;
+        var surface = context();
+        return card.isConnected && surface.page && surface.page.contains(card) && user() === expectedUser && surface.id === expectedOwner && generation === version;
     }
     function reset(card) {
         card.__kpPersonalState = null;
@@ -83,41 +102,39 @@
         var info = card.querySelector('.kp-similar-card__info');
         var actions = card.querySelector('.kp-similar-card__native-actions');
         var canPlay = !!state.itemId && state.canPlay === true && !!serverId;
-        play.hidden = !canPlay;
-        play.disabled = !canPlay;
-        card.classList.toggle('kp-library-ready', canPlay);
-        if (state.itemId) {
-            card.dataset.id = state.itemId;
-            card.dataset.serverid = serverId;
-            card.dataset.type = type;
-            card.dataset.mediatype = 'Video';
-            card.dataset.isfolder = String(type === 'Series');
-            card.dataset.positionticks = String(Math.max(0, Number(state.playbackPositionTicks || 0)));
-        }
+        attribute(play, 'hidden', canPlay ? null : '');
+        attribute(play, 'disabled', canPlay ? null : '');
+        flag(card, 'kp-library-ready', canPlay);
+        var playback = { id: state.itemId, serverid: serverId, type: type, mediatype: 'Video',
+            isfolder: String(type === 'Series'), positionticks: String(Math.max(0, Number(state.playbackPositionTicks || 0))) };
+        Object.keys(playback).forEach(function (name) { attribute(card, 'data-' + name, state.itemId ? playback[name] : null); });
+        // Re-inserting an unchanged node restarts native hover transitions and
+        // triggers another lifecycle render through its MutationObserver.
         if (canPlay) {
-            info.classList.remove('cardOverlayFab-primary');
-            actions.insertBefore(info, actions.firstChild);
+            flag(info, 'cardOverlayFab-primary', false);
+            if (info.parentNode !== actions) { actions.insertBefore(info, actions.firstChild); }
         } else {
-            info.classList.add('cardOverlayFab-primary');
-            card.querySelector('.cardOverlayContainer').insertBefore(info, play);
+            flag(info, 'cardOverlayFab-primary', true);
+            var overlay = card.querySelector('.cardOverlayContainer');
+            if (info.parentNode !== overlay) { overlay.insertBefore(info, play); }
         }
         var playLabel = Number(state.playbackPositionTicks) > 0 ? 'Продолжить просмотр' : 'Воспроизвести';
-        play.title = playLabel;
-        play.setAttribute('aria-label', playLabel);
+        attribute(play, 'title', playLabel);
+        attribute(play, 'aria-label', playLabel);
         var heart = card.querySelector('.kp-similar-card__heart');
         var selected = !!(state.favorite || state.wished);
         var label = state.wished ? 'Удалить из желаемого' : state.itemId
             ? selected ? 'Удалить из избранного Jellyfin' : 'Добавить в избранное Jellyfin'
             : 'Добавить в желаемое';
-        heart.title = label;
-        heart.setAttribute('aria-label', label);
-        heart.setAttribute('aria-pressed', String(selected));
-        heart.classList.toggle('ratingbutton-withrating', selected);
+        attribute(heart, 'title', label);
+        attribute(heart, 'aria-label', label);
+        attribute(heart, 'aria-pressed', selected);
+        flag(heart, 'ratingbutton-withrating', selected);
         var glyph = heart.querySelector('span');
-        glyph.classList.toggle('favorite', selected);
-        glyph.classList.toggle('favorite_border', !selected);
-        glyph.classList.toggle('ratingbutton-icon-withrating', selected);
-        heart.disabled = pending.has(user() + ':' + key(item));
+        flag(glyph, 'favorite', selected);
+        flag(glyph, 'favorite_border', !selected);
+        flag(glyph, 'ratingbutton-icon-withrating', selected);
+        attribute(heart, 'disabled', pending.has(user() + ':' + key(item)) ? '' : null);
     }
     function metadata(card) {
         var item = card.__kinopoiskRecommendationItem;
@@ -212,8 +229,7 @@
             document.dispatchEvent(new CustomEvent('kinopoisk:personal-user-changed'));
         }
         if (document.hidden || refreshing) { return; }
-        var lifecycle = window.KinopoiskDetailPageLifecycle;
-        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var page = context().page;
         if (!page || !selectedUser || !owner()) { return; }
         var expectedOwner = owner();
         var version = generation;
@@ -245,7 +261,7 @@
                     heart.disabled = true;
                 }
             });
-        }).finally(function () { refreshing = false; if (user() !== selectedUser || owner() !== expectedOwner) { schedule(); } });
+        }).finally(function () { refreshing = false; if (user() !== selectedUser || owner() !== expectedOwner || cards.some(function (card) { return !card.isConnected; })) { schedule(); } });
     }
     function tick() {
         clearTimeout(refreshTimer);
@@ -255,9 +271,10 @@
             refreshTimer = setTimeout(tick, 30000);
         }
     }
-    window.KinopoiskRecommendationActions = { decorate: decorate, key: key, list: function () { return request('/KinopoiskRecommendations/wishlist'); }, refresh: schedule };
+    window.KinopoiskRecommendationActions = { decorate: decorate, key: key, context: context, list: function () { return request('/KinopoiskRecommendations/wishlist'); }, refresh: schedule };
     document.addEventListener('kinopoisk:recommendations-rendered', function () { schedule(); if (!refreshTimer) { tick(); } });
     document.addEventListener('kinopoisk:wishlist-changed', function () { states.clear(); schedule(); });
+    document.addEventListener('kinopoisk:recommendation-surface-changed', schedule);
     document.addEventListener('focusin', function (event) { if (event.target.closest && event.target.closest('.kp-similar-card')) { schedule(); } });
     document.addEventListener('visibilitychange', tick);
     window.addEventListener('pagehide', function () { clearTimeout(refreshTimer); refreshTimer = null; });

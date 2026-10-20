@@ -124,7 +124,16 @@
         return Array.isArray(value) ? value : [];
     }
 
+    function getActivePage() {
+        var actions = window.KinopoiskRecommendationActions;
+        if (actions) { return actions.context().page; }
+        var lifecycle = window.KinopoiskDetailPageLifecycle;
+        return lifecycle ? lifecycle.getActivePage() : document;
+    }
+
     function getCurrentItemId() {
+        var actions = window.KinopoiskRecommendationActions;
+        if (actions) { return actions.context().id; }
         var lifecycle = window.KinopoiskDetailPageLifecycle;
         if (lifecycle) {
             return lifecycle.getCurrentItemId();
@@ -659,7 +668,7 @@
     }
 
     function showDetails(card, keyboard) {
-        if (!card || !card.isConnected) { return; }
+        if (!card || !card.isConnected || !getCurrentItemId() || !getActivePage() || !getActivePage().contains(card)) { return; }
         if (openDialog) { openDialog.close(); }
         var source = card.__kinopoiskRecommendationItem;
         if (!source) { return; }
@@ -945,12 +954,12 @@
         var itemId = getCurrentItemId();
         var apiClient = window.ApiClient;
         var lifecycle = window.KinopoiskDetailPageLifecycle;
-        var page = lifecycle ? lifecycle.getActivePage() : document;
-        var container = page && page.querySelector('#kinopoiskRecommendationsSection .kp-recommendations-items');
+        var page = getActivePage();
+        var container = page && page.querySelector('#kinopoiskRecommendationsSection .kp-recommendations-items, #kinopoiskFavoritesWishlist .kp-recommendations-items');
         if (container && Array.isArray(container.__kinopoiskRecommendationItems)) {
             return Promise.resolve(container.__kinopoiskRecommendationItems);
         }
-        if (!itemId || !apiClient || typeof apiClient.getItem !== 'function') {
+        if (itemId === 'kinopoisk:favorites' || !itemId || !apiClient || typeof apiClient.getItem !== 'function') {
             return Promise.resolve([]);
         }
 
@@ -1041,8 +1050,7 @@
             clearTimeout(retryTimer);
             retryTimer = null;
         }
-        var lifecycle = window.KinopoiskDetailPageLifecycle;
-        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var page = getActivePage();
         var cards = page && page.querySelectorAll('.kp-similar-card--fallback[data-kinopoisk-id]');
         if (!itemId || !cards || !cards.length) {
             return;
@@ -1066,7 +1074,7 @@
             return bindingGeneration === expectedGeneration
                 && getCurrentItemId() === itemId
                 && getUserId() === userId
-                && (!lifecycle || lifecycle.getActivePage() === page)
+                && getActivePage() === page
                 && card.isConnected && page.contains(card);
         }
         fetchRecommendationItems().then(function (items) {
@@ -1140,8 +1148,7 @@
 
     function refreshVisibleCards() {
         if (liveRefreshRunning || document.hidden) { return; }
-        var lifecycle = window.KinopoiskDetailPageLifecycle;
-        var page = lifecycle ? lifecycle.getActivePage() : document;
+        var page = getActivePage();
         var userId = getUserId();
         var itemId = getCurrentItemId();
         var generation = bindingGeneration;
@@ -1156,7 +1163,7 @@
         function current(card) {
             return !document.hidden && userId === getUserId() && itemId === getCurrentItemId()
                 && generation === bindingGeneration && card.isConnected && page.contains(card)
-                && (!lifecycle || lifecycle.getActivePage() === page);
+                && getActivePage() === page;
         }
         liveRefreshRunning = true;
         cache.delete('seerr-status');
@@ -1211,6 +1218,9 @@
     }
 
     document.addEventListener('kinopoisk:recommendations-rendered', scheduleProcessing);
+    document.addEventListener('kinopoisk:recommendation-surface-changed', scheduleProcessing);
+    window.addEventListener('hashchange', scheduleProcessing);
+    window.addEventListener('popstate', scheduleProcessing);
     document.addEventListener('kinopoisk:recommendation-open', function (event) {
         showDetails(event.detail && event.detail.card, event.detail && event.detail.keyboard);
     });

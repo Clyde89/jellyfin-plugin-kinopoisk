@@ -551,6 +551,37 @@
         renderKinopoisk(container, normalized);
     }
 
+    function renderWishlist(content, result, pageIndex, onPage, navigationHost) {
+        var saved = asArray(result && (result.items || result.Items)).map(function (entry) {
+            return { kinopoiskId: pick(entry, 'kinopoiskId', 'KinopoiskId'), tmdbId: pick(entry, 'tmdbId', 'TmdbId'),
+                mediaType: pick(entry, 'mediaType', 'MediaType'), name: pick(entry, 'name', 'Name'),
+                originalName: pick(entry, 'originalName', 'OriginalName'), overview: pick(entry, 'overview', 'Overview'),
+                posterUrl: pick(entry, 'posterUrl', 'PosterUrl'), year: pick(entry, 'year', 'Year'),
+                ratingKinopoisk: pick(entry, 'ratingKinopoisk', 'RatingKinopoisk') };
+        });
+        if (!saved.length) {
+            content.appendChild(createElement('div', 'kp-recommendations-status', 'В желаемом пока ничего нет. Нажмите сердечко у фильма, который хотите сохранить на потом.'));
+            return 0;
+        }
+        pageIndex = Math.max(0, Math.min(pageIndex, Math.ceil(saved.length / 20) - 1));
+        renderKinopoisk(content, saved.slice(pageIndex * 20, pageIndex * 20 + 20));
+        if (saved.length > 20) {
+            var navigation = createElement('div', 'kp-wishlist-pagination');
+            function pageButton(text, offset, disabled) {
+                var button = createElement('button', 'emby-button raised', text);
+                button.type = 'button';
+                button.disabled = disabled;
+                button.addEventListener('click', function () { onPage(offset); });
+                return button;
+            }
+            navigation.append(pageButton('Назад', -1, pageIndex === 0),
+                createElement('span', '', 'Страница ' + (pageIndex + 1) + ' из ' + Math.ceil(saved.length / 20)),
+                pageButton('Далее', 1, (pageIndex + 1) * 20 >= saved.length));
+            (navigationHost || content).appendChild(navigation);
+        }
+        return pageIndex;
+    }
+
     function createSection(itemId, item, kinopoiskId) {
         var section = createElement(
             'section',
@@ -585,33 +616,10 @@
         function renderSource(source, result) {
             if (source === 'kinopoisk') { renderKinopoisk(content, result); return; }
             if (source !== 'wishlist') { renderExtended(content, result); return; }
-            var saved = asArray(result && (result.items || result.Items)).map(function (entry) {
-                return { kinopoiskId: pick(entry, 'kinopoiskId', 'KinopoiskId'), tmdbId: pick(entry, 'tmdbId', 'TmdbId'),
-                    mediaType: pick(entry, 'mediaType', 'MediaType'), name: pick(entry, 'name', 'Name'),
-                    originalName: pick(entry, 'originalName', 'OriginalName'), overview: pick(entry, 'overview', 'Overview'),
-                    posterUrl: pick(entry, 'posterUrl', 'PosterUrl'), year: pick(entry, 'year', 'Year'),
-                    ratingKinopoisk: pick(entry, 'ratingKinopoisk', 'RatingKinopoisk') };
+            wishlistPage = renderWishlist(content, result, wishlistPage, function (offset) {
+                wishlistPage += offset;
+                setActive('wishlist');
             });
-            if (!saved.length) {
-                content.appendChild(createElement('div', 'kp-recommendations-status', 'В желаемом пока ничего нет. Нажмите сердечко у фильма, который хотите сохранить на потом.'));
-                return;
-            }
-            wishlistPage = Math.min(wishlistPage, Math.ceil(saved.length / 20) - 1);
-            renderKinopoisk(content, saved.slice(wishlistPage * 20, wishlistPage * 20 + 20));
-            if (saved.length > 20) {
-                var navigation = createElement('div', 'kp-wishlist-pagination');
-                function pageButton(text, offset, disabled) {
-                    var button = createElement('button', 'emby-button raised', text);
-                    button.type = 'button';
-                    button.disabled = disabled;
-                    button.addEventListener('click', function () { wishlistPage += offset; setActive('wishlist'); });
-                    return button;
-                }
-                navigation.append(pageButton('Назад', -1, wishlistPage === 0),
-                    createElement('span', '', 'Страница ' + (wishlistPage + 1) + ' из ' + Math.ceil(saved.length / 20)),
-                    pageButton('Далее', 1, (wishlistPage + 1) * 20 >= saved.length));
-                content.appendChild(navigation);
-            }
         }
 
         function setActive(source) {
@@ -694,6 +702,95 @@
     var section = page && page.querySelector('#kinopoiskRecommendationsSection');
     return Boolean(section && section.isConnected && section.dataset.itemId === itemId && section.dataset.userId === String(getApiClient().getCurrentUserId() || ''));
 }
+
+// External titles have no native library item yet. Show the same personal
+// wishlist inside Jellyfin's Favorites tab without inventing playable items.
+var favoritesSession = null;
+var favoritesTimer = null;
+function scheduleFavorites() {
+    if (!favoritesTimer) { favoritesTimer = setTimeout(function () { favoritesTimer = null; renderFavorites(); }, 80); }
+}
+function renderFavorites() {
+    var actions = window.KinopoiskRecommendationActions;
+    var surface = actions && actions.context();
+    var client = getApiClient();
+    var userId = client && client.getCurrentUserId && String(client.getCurrentUserId() || '');
+    var page = surface && surface.kind === 'favorites' && surface.page;
+    if (favoritesSession && (!page || favoritesSession.page !== page || favoritesSession.userId !== userId || !favoritesSession.section.isConnected)) {
+        favoritesSession.section.remove();
+        favoritesSession = null;
+        document.dispatchEvent(new CustomEvent('kinopoisk:recommendation-surface-changed'));
+    }
+    if (!page || !userId) { return; }
+    if (favoritesSession) { applyNativeCardWidth(page, favoritesSession.section); return; }
+    var host = page.querySelector('.sections');
+    if (!host) { return; }
+    ensureStyles();
+    var section = createElement('section', 'verticalSection verticalSection-extrabottompadding kp-favorites-wishlist-section');
+    section.id = 'kinopoiskFavoritesWishlist';
+    section.dataset.userId = userId;
+    var header = createElement('div', 'sectionTitleContainer sectionTitleContainer-cards padded-left padded-right');
+    header.appendChild(createElement('h2', 'sectionTitle sectionTitle-cards', 'Желаемое'));
+    var scroller = createNativeScroller();
+    scroller.scroller.classList.remove('no-padding');
+    scroller.items.classList.add('padded-left', 'padded-right');
+    var navigation = createElement('div', 'padded-left padded-right');
+    section.append(header, scroller.scroller, navigation);
+    host.appendChild(section);
+    if (window.CustomElements && window.CustomElements.upgradeSubtree) { window.CustomElements.upgradeSubtree(section); }
+    applyNativeCardWidth(page, section);
+    var session = { page: page, section: section, userId: userId, pageIndex: 0, sequence: 0 };
+    favoritesSession = session;
+    function current() {
+        var active = actions.context();
+        return favoritesSession === session && section.isConnected && active.kind === 'favorites' && active.page === page
+            && String(getApiClient().getCurrentUserId() || '') === userId;
+    }
+    function show(result) {
+        scroller.items.textContent = '';
+        navigation.textContent = '';
+        session.pageIndex = renderWishlist(scroller.items, result, session.pageIndex, function (offset) {
+            if (!current()) { return; }
+            session.pageIndex += offset;
+            show(result);
+            resetNativeScroller(scroller.scroller);
+        }, navigation);
+    }
+    session.load = function () {
+        var sequence = ++session.sequence;
+        actions.list().then(function (result) {
+            if (current() && session.sequence === sequence) { show(result); }
+        }).catch(function () {
+            if (!current() || session.sequence !== sequence) { return; }
+            scroller.items.textContent = '';
+            navigation.textContent = '';
+            scroller.items.appendChild(createElement('div', 'kp-recommendations-status', 'Не удалось загрузить желаемое.'));
+            var retry = createElement('button', 'emby-button raised', 'Повторить');
+            retry.type = 'button';
+            retry.addEventListener('click', function () { if (current()) { session.load(); } });
+            navigation.appendChild(retry);
+        });
+    };
+    scroller.items.appendChild(createElement('div', 'kp-recommendations-status', 'Загрузка…'));
+    session.load();
+    document.dispatchEvent(new CustomEvent('kinopoisk:recommendation-surface-changed'));
+}
+var favoritesObserver = new MutationObserver(function (changes) {
+    if (changes.some(function (change) {
+        return change.type === 'childList' || (change.target.matches && change.target.matches('#indexPage,#favoritesTab'));
+    })) { scheduleFavorites(); }
+});
+favoritesObserver.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+document.addEventListener('kinopoisk:wishlist-changed', function (event) {
+    if (favoritesSession && (!event.detail || event.detail.userId === favoritesSession.userId)) { favoritesSession.load(); }
+});
+document.addEventListener('kinopoisk:personal-user-changed', scheduleFavorites);
+document.addEventListener('viewshow', scheduleFavorites, true);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { scheduleFavorites(); } });
+window.addEventListener('hashchange', scheduleFavorites);
+window.addEventListener('popstate', scheduleFavorites);
+window.addEventListener('resize', scheduleFavorites);
+scheduleFavorites();
 
 function clearRetryTimers() {
     retryTimers.forEach(function (timer) {

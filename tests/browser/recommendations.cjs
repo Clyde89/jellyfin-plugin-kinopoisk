@@ -57,8 +57,11 @@ const server = http.createServer(async (request, response) => {
         response.end(`<!doctype html><html lang="ru" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}
         @font-face{font-family:'Material Icons';font-style:normal;font-weight:400;src:url('/material-icons.woff2') format('woff2')}
         .material-icons{font-family:'Material Icons';font-weight:normal;font-style:normal;display:inline-block;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;word-wrap:normal;direction:ltr;font-feature-settings:'liga'}
-        body{margin:0;padding:24px;background:#101010;color:#eee;font:16px Arial,sans-serif}h2{font-size:24px}.card{width:220px}.dialog{background:#202020}.textActionButton{border:0;background:transparent;padding:0;color:inherit}.raised{background:#303030}.button-submit{background:#00a4dc;color:white}button:disabled{opacity:.6}.material-icons{font-size:22px}.itemsContainer{overflow-x:auto}.cardText{overflow:hidden}.cardText-secondary{color:#bbb}.verticalSection{margin-bottom:30px}
-        </style></head><body><div class="itemDetailPage" id="active"><div class="detailPagePrimaryContent"></div><section id="similarCollapsible"><h2>Штатная карточка Jellyfin</h2><div class="itemsContainer"><div class="card overflowPortraitCard card-hoverable" id="native-card"><div class="cardBox cardBox-bottompadded"><div class="cardScalable"><div class="cardPadder cardPadder-overflowPortrait"></div><button class="cardContent cardImageContainer coveredImage" style="background-image:url('/poster.svg')" aria-label="Штатный постер"></button><div class="cardOverlayContainer"><button class="cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light" aria-label="Воспроизвести">▶</button></div></div><div class="cardText cardTextCentered cardText-first">Водный мир</div><div class="cardText cardTextCentered cardText-secondary">1995</div></div></div></div></section></div><script>
+        .hide,[hidden]{display:none!important}#indexPage .tabContent:not(.is-active){display:none}body{margin:0;padding:24px;background:#101010;color:#eee;font:16px Arial,sans-serif}h2{font-size:24px}.card{width:220px}.dialog{background:#202020}.textActionButton{border:0;background:transparent;padding:0;color:inherit}.raised{background:#303030}.button-submit{background:#00a4dc;color:white}button:disabled{opacity:.6}.material-icons{font-size:22px}.itemsContainer{overflow-x:auto}.cardText{overflow:hidden}.cardText-secondary{color:#bbb}.verticalSection{margin-bottom:30px}
+        </style></head><body><div class="itemDetailPage" id="active"><div class="detailPagePrimaryContent"></div><section id="similarCollapsible"><h2>Штатная карточка Jellyfin</h2><div class="itemsContainer"><div class="card overflowPortraitCard card-hoverable" id="native-card"><div class="cardBox cardBox-bottompadded"><div class="cardScalable"><div class="cardPadder cardPadder-overflowPortrait"></div><button class="cardContent cardImageContainer coveredImage" style="background-image:url('/poster.svg')" aria-label="Штатный постер"></button><div class="cardOverlayContainer"><button class="cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light" aria-label="Воспроизвести">▶</button></div></div><div class="cardText cardTextCentered cardText-first">Водный мир</div><div class="cardText cardTextCentered cardText-secondary">1995</div></div></div></div></section></div><div id="indexPage" class="page homePage" hidden><div id="homeTab" class="tabContent pageTabContent"><div class="sections"></div></div><div id="favoritesTab" class="tabContent pageTabContent"><div class="sections"><section class="verticalSection" id="native-favorites"><h2>Фильмы</h2><div class="itemsContainer" id="native-favorite-items"></div></section></div></div></div><script>
+        const nativeFavorite=document.querySelector('#native-card').cloneNode(true);nativeFavorite.id='native-favorite-card';document.querySelector('#native-favorite-items').appendChild(nativeFavorite);
+        window.fixtureFavorites=active=>{document.querySelector('#active').hidden=true;document.querySelector('#indexPage').hidden=false;document.querySelector('#favoritesTab').classList.toggle('is-active',active);document.querySelector('#homeTab').classList.toggle('is-active',!active);location.hash='#/home?tab='+(active?1:0);};
+        if(location.hash.startsWith('#/home'))window.fixtureFavorites(location.hash.includes('tab=1'));
         window.ApiClient={accessToken:()=> 'fixture-token',getCurrentUserId:()=> 'fixture-user',serverInfo:()=>({Id:'fixture-server'}),getUrl:p=>new URL(p,location.origin).href,getItem:(_u,id)=>fetch('/item/'+id).then(r=>r.json())};
         </script><script src="/native-shortcuts.js"></script><script src="/bundle.js"></script></body></html>`);
         return;
@@ -145,6 +148,26 @@ const server = http.createServer(async (request, response) => {
     assert.equal((await style('.kp-similar-card .cardScalable')).transform, 'none');
     assert.equal(await card.locator('.cardOverlayContainer').evaluate(node => getComputedStyle(node).opacity), '1');
     assert.equal(await card.boundingBox().then(box => box.width), await page.locator('#native-card').boundingBox().then(box => box.width));
+    // Keep hovering long enough for the former observer/reinsert loop to fire.
+    await page.waitForFunction(() => !document.querySelector('.kp-similar-card__heart').disabled);
+    await card.locator('.kp-similar-card__info').hover();
+    await page.waitForTimeout(350);
+    const hoverStability = await card.evaluate(async node => {
+        let moves = 0;
+        const info = node.querySelector('.kp-similar-card__info');
+        const observer = new MutationObserver(changes => { moves += changes.filter(change => [...change.addedNodes, ...change.removedNodes].includes(info)).length; });
+        observer.observe(node, { childList: true, subtree: true });
+        const transforms = [];
+        for (let index = 0; index < 8; index++) {
+            transforms.push(getComputedStyle(info).transform);
+            await new Promise(resolve => setTimeout(resolve, 150));
+        }
+        observer.disconnect();
+        return { moves, transforms };
+    });
+    assert.equal(hoverStability.moves, 0, 'Information hover kept moving its button');
+    assert.equal(new Set(hoverStability.transforms).size, 1, 'Information hover kept pulsing');
+    assert.match(hoverStability.transforms[0], /^matrix\(1[.]4/);
     fs.mkdirSync(path.join(root, 'artifacts'), { recursive: true });
     await page.screenshot({ path: path.join(root, 'artifacts/recommendations-hover.png'), fullPage: true });
     await card.locator('.kp-similar-card__request').click();
@@ -259,6 +282,43 @@ const server = http.createServer(async (request, response) => {
     await standalonePage.reload();
     await standalonePage.getByRole('tab', { name: 'Желаемое', exact: true }).click();
     await standalonePage.locator('.kp-similar-card__title').filter({ hasText: 'Водный мир' }).waitFor();
+    // The native Favorites tab displays the same server-backed wishlist.
+    await standalonePage.evaluate(() => window.fixtureFavorites(true));
+    const favorites = standalonePage.locator('#kinopoiskFavoritesWishlist');
+    await favorites.locator('.kp-similar-card__title').filter({ hasText: 'Водный мир' }).waitFor();
+    await standalonePage.locator('#native-favorites').waitFor();
+    assert.equal(await favorites.locator('[is="emby-itemscontainer"]').count(), 1);
+    await favorites.locator('.kp-similar-card__info').click();
+    await standaloneDialog.getByRole('link', { name: 'Открыть в Jellyfin' }).waitFor();
+    assert.equal(await standaloneDialog.locator('.kp-recommendation-dialog__submit').isVisible(), false);
+    await standalonePage.keyboard.press('Escape');
+    await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-favorites.png'), fullPage: true });
+    assert.equal(serviceReads, previousReads, 'Favorites introduced a request-service dependency');
+    await standalonePage.reload();
+    await favorites.locator('.kp-similar-card__title').waitFor();
+    assert.equal(posts.length, 0);
+    // Direct Seerr and auto-discovered Enhanced work on Favorites too.
+    serviceConnected = true;
+    for (const useEnhanced of [false, true]) {
+        enhancedConnected = useEnhanced;
+        await standalonePage.reload();
+        const saved = favorites.locator('.kp-similar-card');
+        await saved.locator('.kp-similar-card__request').filter({ hasText: /^Запросить$/ }).waitFor();
+        await saved.locator('.kp-similar-card__info').click();
+        await standaloneDialog.getByRole('button', { name: 'Запросить', exact: true }).waitFor();
+        await standalonePage.waitForFunction(() => !document.querySelector('.kp-recommendation-dialog__submit').disabled);
+        assert.equal(posts.length, 0, 'Opening a saved title sent a request');
+        await standalonePage.keyboard.press('Escape');
+    }
+    enhancedConnected = false;
+    serviceConnected = false;
+    await standalonePage.reload();
+    await favorites.locator('.kp-similar-card__heart:not([disabled])').waitFor();
+    await favorites.locator('.kp-similar-card__heart').click();
+    await favorites.getByText('В желаемом пока ничего нет.', { exact: false }).waitFor();
+    assert.equal(wishes.length, 0);
+    await standalonePage.evaluate(() => window.fixtureFavorites(false));
+    await favorites.waitFor({ state: 'detached' });
     await standalonePage.close();
     wishes = [];
     libraryAvailable = true;
@@ -285,7 +345,7 @@ const server = http.createServer(async (request, response) => {
     assert.equal(await localPage.evaluate(() => window.playbackRequests.length), 1, 'Information click started playback');
     await localPage.close();
     assert.deepEqual(errors, []);
-    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch, native playback handler, resume, favorites, persistent wishlist.');
+    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch, native playback handler, resume, favorites, persistent wishlist, stable information hover, native Favorites tab, standalone and optional Seerr/Enhanced actions.');
     console.log(JSON.stringify({ nativeHover, modules: scripts.length, errors }));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
     if (browser) { await browser.close(); }
