@@ -95,6 +95,7 @@ test('ошибка сохранения не показана как запол�
         app.heart.click();
         await wait(() => app.window.document.querySelector('.kp-card-action-status').textContent.includes('Ошибка сохранения'), 'Ошибка не показана.');
         assert.equal(app.heart.getAttribute('aria-pressed'), 'false');
+        assert.equal(app.window.document.querySelector('.kp-card-action-status').classList.contains('is-error'), true);
         assert.equal(app.lists.size, 0);
         assert.equal(app.calls.filter(call => call.method === 'PUT').length, 1);
     } finally { app.dom.window.close(); }

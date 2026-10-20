@@ -53,9 +53,10 @@
         button.appendChild(glyph);
         return button;
     }
-    function notice(card, message) {
+    function notice(card, message, error) {
         var status = card.querySelector('.kp-card-action-status');
         status.textContent = message;
+        status.classList.toggle('is-error', error === true);
     }
     function current(card, expectedUser, expectedOwner, version) {
         return card.isConnected && user() === expectedUser && owner() === expectedOwner && generation === version;
@@ -135,6 +136,7 @@
         var lock = expectedUser + ':' + itemKey;
         if (!state || card.__kpPersonalUser !== expectedUser || card.__kpPersonalOwner !== expectedOwner || !current(card, expectedUser, expectedOwner, version) || pending.has(lock)) { return; }
         var saved = !(state.favorite || state.wished);
+        notice(card, '');
         pending.set(lock, true);
         card.querySelector('.kp-similar-card__heart').disabled = true;
         var mutated = false;
@@ -166,7 +168,7 @@
             document.dispatchEvent(new CustomEvent('kinopoisk:wishlist-changed', { detail: { userId: expectedUser } }));
         }).catch(function (error) {
             states.delete(itemKey);
-            if (current(card, expectedUser, expectedOwner, version)) { notice(card, String(error.message || 'Не удалось сохранить действие.')); }
+            if (current(card, expectedUser, expectedOwner, version)) { notice(card, String(error.message || 'Не удалось сохранить действие.'), true); }
         }).finally(function () {
             pending.delete(lock);
             if (current(card, expectedUser, expectedOwner, version)) { card.querySelector('.kp-similar-card__heart').disabled = false; schedule(); }
@@ -238,7 +240,7 @@
         }).catch(function () {
             cards.forEach(function (card) {
                 if (current(card, selectedUser, expectedOwner, version)) {
-                    notice(card, 'Действия Jellyfin временно недоступны.');
+                    notice(card, 'Действия Jellyfin временно недоступны.', true);
                     var heart = card.querySelector('.kp-similar-card__heart');
                     heart.disabled = true;
                 }

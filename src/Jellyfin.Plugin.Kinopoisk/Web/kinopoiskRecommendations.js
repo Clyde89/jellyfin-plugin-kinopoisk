@@ -193,6 +193,7 @@
             '.kp-library-ready .kp-similar-card__actions{display:none}',
             '.kp-similar-card:not(.kp-library-ready) .kp-similar-card__actions{right:3.5em;justify-content:flex-start}',
             '.kp-card-action-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}',
+            '.kp-card-action-status.is-error{position:static;display:block;width:auto;height:auto;margin:.3em 0;clip:auto;white-space:normal;color:var(--jf-palette-error-main,#f44336);font-size:.85em}',
             '.kp-wishlist-pagination{display:flex;gap:.8em;align-items:center;margin:1em 0}',
             '.kp-similar-card__request{max-width:100%;white-space:normal;font-size:.85em}',
             '.kp-similar-card__title{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;font:inherit}',
