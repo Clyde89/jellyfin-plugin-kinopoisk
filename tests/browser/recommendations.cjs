@@ -11,9 +11,23 @@ const root = path.resolve(__dirname, '../..');
 const web = path.join(root, 'src/Jellyfin.Plugin.Kinopoisk/Web');
 const manifest = fs.readFileSync(path.join(root, 'src/Jellyfin.Plugin.Kinopoisk/Services/KinopoiskWebClientBundle.cs'), 'utf8');
 const scripts = [...manifest.matchAll(/"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([^"\s]+[.]js)"/g)].map(match => match[1]);
-assert.equal(scripts.length, 12);
+assert.equal(scripts.length, 13);
 const bundle = scripts.map(name => fs.readFileSync(path.join(web, name), 'utf8')).join('\n\n');
 const css = ['card.scss', 'emby-button.scss', 'dialoghelper.scss'].map(name => sass.compile(path.join(process.env.JELLYFIN_STYLE_DIR, name)).css).join('\n');
+// The actual Jellyfin click handler is exercised with a playback recorder.
+// Imports are substituted only in this fixture; the production bundle delegates
+// to the normal emby-itemscontainer handler already loaded by Jellyfin Web.
+const shortcutSource = fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'shortcuts.js'), 'utf8')
+    .replace(/^import[ \t][\s\S]*?;[ \t]*$/gm, '').replace(/export function /g, 'function ').replace('export default', 'const shortcutExports =');
+const nativeActions = Object.fromEntries([...fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'itemAction.ts'), 'utf8')
+    .matchAll(/(\w+) = '([^']+)'/g)].map(match => [match[1], match[2]]));
+assert.equal(nativeActions.Resume, 'resume');
+const shortcutFixture = '(function(){const ItemAction=' + JSON.stringify(nativeActions) + `;
+window.playbackRequests=[];
+const playbackManager={canPlay:()=>true,play:options=>{window.playbackRequests.push(options);return Promise.resolve();}};
+const dom={parentWithClass:(node,name)=>node.closest('.'+name),parentWithAttribute:(node,name)=>node.closest('['+name+']')};
+const userSettings={getSortValuesLegacy:()=>({sortBy:'SortName',sortOrder:'Ascending'})};
+` + shortcutSource + ';document.addEventListener("click",onClick);})();';
 const poster = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><rect width="400" height="600" fill="#20394a"/><circle cx="200" cy="240" r="100" fill="#375970"/><text x="200" y="410" text-anchor="middle" font-size="36" font-family="sans-serif" fill="white">WATERWORLD</text><text x="200" y="455" text-anchor="middle" font-size="24" font-family="sans-serif" fill="white">1995</text></svg>';
 const items = [{ kinopoiskId: 8169, name: 'Водный мир', originalName: 'Waterworld', year: 1995, mediaType: 'movie',
     overview: 'В будущем полярные льды растаяли и вода покрыла Землю. Рекомендация выбранного фильма с КиноПоиска.',
@@ -23,6 +37,9 @@ let serviceConnected = true;
 let enhancedConnected = false;
 let serviceReads = 0;
 let mediaStatus = null;
+let libraryAvailable = false;
+let favorite = false;
+let wishes = [];
 const enhancedCalls = [];
 let browser;
 let origin;
@@ -37,16 +54,35 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/web/') {
         response.setHeader('content-type', 'text/html; charset=utf-8');
         response.end(`<!doctype html><html lang="ru" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}
+        @font-face{font-family:'Material Icons';font-style:normal;font-weight:400;src:url('/material-icons.woff2') format('woff2')}
+        .material-icons{font-family:'Material Icons';font-weight:normal;font-style:normal;display:inline-block;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;word-wrap:normal;direction:ltr;font-feature-settings:'liga'}
         body{margin:0;padding:24px;background:#101010;color:#eee;font:16px Arial,sans-serif}h2{font-size:24px}.card{width:220px}.dialog{background:#202020}.textActionButton{border:0;background:transparent;padding:0;color:inherit}.raised{background:#303030}.button-submit{background:#00a4dc;color:white}button:disabled{opacity:.6}.material-icons{font-size:22px}.itemsContainer{overflow-x:auto}.cardText{overflow:hidden}.cardText-secondary{color:#bbb}.verticalSection{margin-bottom:30px}
         </style></head><body><div class="itemDetailPage" id="active"><div class="detailPagePrimaryContent"></div><section id="similarCollapsible"><h2>Штатная карточка Jellyfin</h2><div class="itemsContainer"><div class="card overflowPortraitCard card-hoverable" id="native-card"><div class="cardBox cardBox-bottompadded"><div class="cardScalable"><div class="cardPadder cardPadder-overflowPortrait"></div><button class="cardContent cardImageContainer coveredImage" style="background-image:url('/poster.svg')" aria-label="Штатный постер"></button><div class="cardOverlayContainer"><button class="cardOverlayButton cardOverlayButton-hover cardOverlayFab-primary paper-icon-button-light" aria-label="Воспроизвести">▶</button></div></div><div class="cardText cardTextCentered cardText-first">Водный мир</div><div class="cardText cardTextCentered cardText-secondary">1995</div></div></div></div></section></div><script>
-        window.ApiClient={accessToken:()=> 'fixture-token',getCurrentUserId:()=> 'fixture-user',getUrl:p=>new URL(p,location.origin).href,getItem:(_u,id)=>fetch('/item/'+id).then(r=>r.json())};
-        </script><script src="/bundle.js"></script></body></html>`);
+        window.ApiClient={accessToken:()=> 'fixture-token',getCurrentUserId:()=> 'fixture-user',serverInfo:()=>({Id:'fixture-server'}),getUrl:p=>new URL(p,location.origin).href,getItem:(_u,id)=>fetch('/item/'+id).then(r=>r.json())};
+        </script><script src="/native-shortcuts.js"></script><script src="/bundle.js"></script></body></html>`);
         return;
     }
+    if (url.pathname === '/material-icons.woff2') { response.setHeader('content-type', 'font/woff2'); response.end(fs.readFileSync(path.join(process.env.JELLYFIN_STYLE_DIR, 'MaterialIcons-Regular.woff2'))); return; }
+    if (url.pathname === '/native-shortcuts.js') { response.setHeader('content-type', 'text/javascript'); response.end(shortcutFixture); return; }
     if (url.pathname === '/bundle.js') { response.setHeader('content-type', 'text/javascript'); response.end(bundle); return; }
     if (url.pathname === '/poster.svg' || url.pathname === '/KinopoiskPresentation/image') { response.setHeader('content-type', 'image/svg+xml'); response.end(poster); return; }
     if (url.pathname.startsWith('/item/')) { json(response, { Id: url.pathname.split('/').pop(), Type: 'Movie', ProviderIds: { Kinopoisk: '100' } }); return; }
     if (url.pathname === '/KinopoiskPresentation/100/similars') { json(response, { items }); return; }
+    if (url.pathname === '/KinopoiskRecommendations/state') {
+        const keys = (url.searchParams.get('keys') || '').split(',');
+        json(response, { items: keys.map(key => ({ key, itemId: libraryAvailable ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' : null,
+            canPlay: libraryAvailable, favorite, playbackPositionTicks: libraryAvailable ? 12345678 : 0,
+            wished: wishes.some(item => key === item.mediaType + ':kp:' + item.kinopoiskId) })) }); return;
+    }
+    if (url.pathname === '/KinopoiskRecommendations/wishlist') {
+        if (request.method === 'PUT') {
+            let body = ''; for await (const chunk of request) body += chunk;
+            wishes = [JSON.parse(body)]; json(response, { saved: true }); return;
+        }
+        json(response, { items: wishes }); return;
+    }
+    if (url.pathname.startsWith('/KinopoiskRecommendations/wishlist/')) { wishes = []; json(response, { saved: false }); return; }
+    if (url.pathname.startsWith('/UserFavoriteItems/')) { favorite = request.method === 'POST'; json(response, { IsFavorite: favorite }); return; }
     if (url.pathname.startsWith('/KinopoiskRecommendations/library/')) { json(response, { itemId: serviceConnected ? null : 'library-8169' }); return; }
     if (url.pathname.startsWith('/KinopoiskPresentation/')) { json(response, { ratings: {}, releaseDates: [], relations: [], professions: [], items: [] }); return; }
     if (url.pathname.startsWith('/KinopoiskRequests/') || url.pathname.startsWith('/JellyfinEnhanced/jellyseerr/')) {
@@ -208,7 +244,47 @@ const server = http.createServer(async (request, response) => {
     assert.equal(serviceReads, previousReads, 'Standalone cards contacted the request service');
     await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-standalone.png'), fullPage: true });
     assert.deepEqual(errors, []);
-    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch.');
+    await standaloneDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    const heart = standalonePage.locator('.kp-similar-card__heart');
+    await standalonePage.waitForFunction(() => !document.querySelector('.kp-similar-card__heart').disabled);
+    await heart.click();
+    await standalonePage.waitForFunction(() => document.querySelector('.kp-similar-card__heart').getAttribute('aria-pressed') === 'true');
+    assert.equal(wishes.length, 1);
+    assert.equal(posts.length, 0, 'Heart created an unsolicited Seerr request');
+    await standalonePage.getByRole('tab', { name: 'Желаемое', exact: true }).click();
+    await standalonePage.locator('.kp-similar-card__title').filter({ hasText: 'Водный мир' }).waitFor();
+    await standalonePage.screenshot({ path: path.join(root, 'artifacts/recommendations-wishlist.png'), fullPage: true });
+    // A new browser page reads the list saved on the server.
+    await standalonePage.reload();
+    await standalonePage.getByRole('tab', { name: 'Желаемое', exact: true }).click();
+    await standalonePage.locator('.kp-similar-card__title').filter({ hasText: 'Водный мир' }).waitFor();
+    await standalonePage.close();
+    wishes = [];
+    libraryAvailable = true;
+    const localPage = await standalone.newPage();
+    localPage.on('pageerror', error => errors.push(error.message));
+    await localPage.goto(origin + '/web/#/details?id=item-1');
+    const localCard = localPage.locator('.kp-similar-card');
+    await localCard.locator('.kp-similar-card__play:not([hidden])').waitFor();
+    await localCard.hover();
+    await localCard.getByRole('button', { name: 'Продолжить просмотр', exact: true }).click();
+    assert.deepEqual(await localPage.evaluate(() => window.playbackRequests), [{
+        ids: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], startPositionTicks: 12345678, serverId: 'fixture-server',
+        queryOptions: { SortBy: 'SortName', SortOrder: 'Ascending' }
+    }]);
+    assert.equal(await localPage.getByRole('dialog').count(), 0, 'Play opened the details dialog');
+    await localCard.locator('.kp-similar-card__heart').click();
+    await localPage.waitForFunction(() => document.querySelector('.kp-similar-card__heart').getAttribute('aria-pressed') === 'true');
+    assert.equal(favorite, true);
+    assert.equal(posts.length, 0);
+    assert.equal(await localCard.locator('.kp-similar-card__request').isVisible(), false);
+    await localPage.screenshot({ path: path.join(root, 'artifacts/recommendations-native-play.png'), fullPage: true });
+    await localCard.locator('.kp-similar-card__info').click();
+    await localPage.getByRole('dialog').waitFor();
+    assert.equal(await localPage.evaluate(() => window.playbackRequests.length), 1, 'Information click started playback');
+    await localPage.close();
+    assert.deepEqual(errors, []);
+    console.log('Browser checks passed: complete bundle, authenticated proxy, native hover parity, click, confirmation, single POST, live status refresh, per-user quota, Seerr links, keyboard, touch, native playback handler, resume, favorites, persistent wishlist.');
     console.log(JSON.stringify({ nativeHover, modules: scripts.length, errors }));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
     if (browser) { await browser.close(); }

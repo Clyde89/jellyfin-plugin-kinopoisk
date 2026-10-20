@@ -66,6 +66,8 @@ namespace Jellyfin.Plugin.Kinopoisk
                 sp.GetRequiredService<CachedKinopoiskRelationsApiClient>());
 
             serviceCollection.AddSingleton<KinopoiskPresentationService>();
+            serviceCollection.AddSingleton(_ => new KinopoiskWishlistStore(
+                Path.Combine(Plugin.Instance.DataFolderPath, "wishlist")));
             serviceCollection.AddHttpClient(KinopoiskSeerrClient.HttpClientName,
                 client => client.Timeout = TimeSpan.FromSeconds(15))
                 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler

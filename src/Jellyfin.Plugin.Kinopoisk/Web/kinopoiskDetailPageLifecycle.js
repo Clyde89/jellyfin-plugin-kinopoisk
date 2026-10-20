@@ -89,12 +89,13 @@
         if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
             return Promise.resolve(null);
         }
-        if (!itemCache.has(itemId)) {
+        var cacheKey = String(apiClient.getCurrentUserId() || '') + ':' + itemId;
+        if (!itemCache.has(cacheKey)) {
             itemCache.set(
-                itemId,
+                cacheKey,
                 apiClient.getItem(apiClient.getCurrentUserId(), itemId)
                     .catch(function (error) {
-                        itemCache.delete(itemId);
+                        itemCache.delete(cacheKey);
                         console.warn('[КиноПоиск] Активная карточка Jellyfin не загружена.', error);
                         return null;
                     })
@@ -103,7 +104,7 @@
                 itemCache.delete(itemCache.keys().next().value);
             }
         }
-        return itemCache.get(itemId);
+        return itemCache.get(cacheKey);
     }
 
     function normalizeImageUrl(value) {
@@ -263,6 +264,8 @@
         renderTimer = null;
         var itemId = getCurrentItemId();
         var page = getActivePage();
+        var apiClient = getApiClient();
+        var userId = apiClient && apiClient.getCurrentUserId ? String(apiClient.getCurrentUserId() || '') : '';
         if (!itemId || !page) {
             if (activeContext && activeContext.abortController) {
                 activeContext.abortController.abort();
@@ -274,13 +277,15 @@
 
         var changed = !activeContext
             || activeContext.itemId !== itemId
-            || activeContext.page !== page;
+            || activeContext.page !== page || activeContext.userId !== userId;
         if (changed) {
             if (activeContext && activeContext.abortController) {
                 activeContext.abortController.abort();
             }
             generation += 1;
+            var contextGeneration = generation;
             activeContext = {
+                userId: userId,
                 itemId: itemId,
                 page: page,
                 generation: generation,
@@ -291,7 +296,8 @@
                 return activeContext
                     && activeContext.itemId === itemId
                     && activeContext.page === page
-                    && activeContext.generation === generation
+                    && activeContext.userId === userId
+                    && activeContext.generation === contextGeneration
                     && !activeContext.signal.aborted;
             };
             removeInactiveRuntimeElements(page);

@@ -113,20 +113,21 @@
     if (!apiClient || !itemId || typeof apiClient.getItem !== 'function') {
         return Promise.resolve(null);
     }
-    if (!currentItemCache.has(itemId)) {
+    var cacheKey = String(apiClient.getCurrentUserId() || '') + ':' + itemId;
+    if (!currentItemCache.has(cacheKey)) {
         var request = apiClient
             .getItem(apiClient.getCurrentUserId(), itemId)
             .catch(function (error) {
-                currentItemCache.delete(itemId);
+                currentItemCache.delete(cacheKey);
                 console.warn('[КиноПоиск] Карточка для рекомендаций не загружена.', error);
                 return null;
             });
-        currentItemCache.set(itemId, request);
+        currentItemCache.set(cacheKey, request);
         if (currentItemCache.size > 50) {
             currentItemCache.delete(currentItemCache.keys().next().value);
         }
     }
-    return currentItemCache.get(itemId);
+    return currentItemCache.get(cacheKey);
 }
 
     function createElement(tagName, className, text) {
@@ -188,6 +189,11 @@
             '.kp-similar-card__star{color:#ffd700;font-size:1.15em;line-height:1}',
             '.kp-similar-card__badge{position:absolute;top:.6em;left:.6em;padding:.22em .45em;border-radius:.25em;background:rgba(0,0,0,.7);color:#fff;font-size:.7em;font-weight:600;line-height:1.3;pointer-events:none}',
             '.kp-similar-card__actions{position:absolute;bottom:.5em;left:.5em;right:.5em;display:flex;justify-content:center}',
+            '.kp-similar-card [hidden]{display:none!important}',
+            '.kp-library-ready .kp-similar-card__actions{display:none}',
+            '.kp-similar-card:not(.kp-library-ready) .kp-similar-card__actions{right:3.5em;justify-content:flex-start}',
+            '.kp-card-action-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}',
+            '.kp-wishlist-pagination{display:flex;gap:.8em;align-items:center;margin:1em 0}',
             '.kp-similar-card__request{max-width:100%;white-space:normal;font-size:.85em}',
             '.kp-similar-card__title{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;font:inherit}',
             '.kp-similar-card .jellyseerr-meta{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.45em;line-height:1.5}',
@@ -314,7 +320,7 @@
         var enhanced = { jellyseerrAPI: api };
 
         var itemId = String(pick(item, 'Id', 'id') || '');
-        var key = 'extended:' + itemId;
+        var key = 'extended:' + String(getApiClient().getCurrentUserId() || '') + ':' + itemId;
         if (!dataCache.has(key)) {
             dataCache.set(key, Promise.all([
                 enhanced.jellyseerrAPI.checkUserStatus(),
@@ -378,7 +384,7 @@
 
     function appendKinopoiskMeta(container, item) {
         container.textContent = '';
-        var source = createElement('span', 'kp-similar-card__source', item.tmdbId ? 'TMDB' : 'КиноПоиск');
+        var source = createElement('span', 'kp-similar-card__source', item.tmdbId && !Number(item.kinopoiskId || item.KinopoiskId) ? 'TMDB' : 'КиноПоиск');
         var year = Number(pick(item, 'year', 'Year') || 0);
         var rating = Number(pick(item, 'ratingKinopoisk', 'RatingKinopoisk') || 0);
         container.appendChild(source);
@@ -490,6 +496,7 @@
         appendKinopoiskMeta(meta, item);
         box.appendChild(meta);
         card.appendChild(box);
+        if (window.KinopoiskRecommendationActions) { window.KinopoiskRecommendationActions.decorate(card); }
         return card;
     }
 
@@ -550,6 +557,8 @@
         );
         section.id = 'kinopoiskRecommendationsSection';
         section.dataset.itemId = itemId;
+        var sectionUserId = String(getApiClient().getCurrentUserId() || '');
+        section.dataset.userId = sectionUserId;
 
         var header = createElement('div', 'kp-recommendations-header');
         header.appendChild(createElement(
@@ -566,10 +575,46 @@
 
         var sources = [
             { key: 'kinopoisk', label: 'КиноПоиск' },
-            { key: 'extended', label: 'The Movie Database' }
+            { key: 'extended', label: 'The Movie Database' },
+            { key: 'wishlist', label: 'Желаемое' }
         ];
 
+        var wishlistPage = 0;
+        var sourceSequence = 0;
+        function renderSource(source, result) {
+            if (source === 'kinopoisk') { renderKinopoisk(content, result); return; }
+            if (source !== 'wishlist') { renderExtended(content, result); return; }
+            var saved = asArray(result && (result.items || result.Items)).map(function (entry) {
+                return { kinopoiskId: pick(entry, 'kinopoiskId', 'KinopoiskId'), tmdbId: pick(entry, 'tmdbId', 'TmdbId'),
+                    mediaType: pick(entry, 'mediaType', 'MediaType'), name: pick(entry, 'name', 'Name'),
+                    originalName: pick(entry, 'originalName', 'OriginalName'), overview: pick(entry, 'overview', 'Overview'),
+                    posterUrl: pick(entry, 'posterUrl', 'PosterUrl'), year: pick(entry, 'year', 'Year'),
+                    ratingKinopoisk: pick(entry, 'ratingKinopoisk', 'RatingKinopoisk') };
+            });
+            if (!saved.length) {
+                content.appendChild(createElement('div', 'kp-recommendations-status', 'В желаемом пока ничего нет. Нажмите сердечко у фильма, который хотите сохранить на потом.'));
+                return;
+            }
+            wishlistPage = Math.min(wishlistPage, Math.ceil(saved.length / 20) - 1);
+            renderKinopoisk(content, saved.slice(wishlistPage * 20, wishlistPage * 20 + 20));
+            if (saved.length > 20) {
+                var navigation = createElement('div', 'kp-wishlist-pagination');
+                function pageButton(text, offset, disabled) {
+                    var button = createElement('button', 'emby-button raised', text);
+                    button.type = 'button';
+                    button.disabled = disabled;
+                    button.addEventListener('click', function () { wishlistPage += offset; setActive('wishlist'); });
+                    return button;
+                }
+                navigation.append(pageButton('Назад', -1, wishlistPage === 0),
+                    createElement('span', '', 'Страница ' + (wishlistPage + 1) + ' из ' + Math.ceil(saved.length / 20)),
+                    pageButton('Далее', 1, (wishlistPage + 1) * 20 >= saved.length));
+                content.appendChild(navigation);
+            }
+        }
+
         function setActive(source) {
+            var sequence = ++sourceSequence;
             activeSource = source;
             Array.prototype.forEach.call(
                 tabs.querySelectorAll('.kp-recommendations-tab'),
@@ -585,33 +630,28 @@
 
             if (loaded[source]) {
                 content.textContent = '';
-                if (source === 'kinopoisk') {
-                    renderKinopoisk(content, loaded[source]);
-                } else {
-                    renderExtended(content, loaded[source]);
-                }
+                renderSource(source, loaded[source]);
                 resetNativeScroller(nativeScroller.scroller);
                 return;
             }
 
-            var request = source === 'kinopoisk'
+            var request = source === 'wishlist'
+                ? (window.KinopoiskRecommendationActions ? window.KinopoiskRecommendationActions.list() : Promise.reject(new Error('Желаемое временно недоступно.')))
+                : source === 'kinopoisk'
                 ? fetchKinopoiskItems(kinopoiskId)
                 : fetchExtendedItems(item);
             request.then(function (result) {
                 loaded[source] = result;
-                if (activeSource !== source || getCurrentItemId() !== itemId) {
+                if (activeSource !== source || getCurrentItemId() !== itemId || sequence !== sourceSequence
+                    || String(getApiClient().getCurrentUserId() || '') !== sectionUserId) {
                     return;
                 }
                 content.textContent = '';
-                if (source === 'kinopoisk') {
-                    renderKinopoisk(content, result);
-                } else {
-                    renderExtended(content, result);
-                }
+                renderSource(source, result);
                 resetNativeScroller(nativeScroller.scroller);
             }).catch(function (error) {
                 console.warn('[КиноПоиск] Источник рекомендаций не загружен.', error);
-                if (activeSource === source) {
+                if (activeSource === source && sequence === sourceSequence && String(getApiClient().getCurrentUserId() || '') === sectionUserId) {
                     content.textContent = '';
                     content.appendChild(createElement(
                         'div',
@@ -637,6 +677,12 @@
             tabs.appendChild(button);
         });
 
+        document.addEventListener('kinopoisk:wishlist-changed', function changed(event) {
+            if (!section.isConnected) { document.removeEventListener('kinopoisk:wishlist-changed', changed); return; }
+            if (event.detail && event.detail.userId !== sectionUserId) { return; }
+            delete loaded.wishlist;
+            if (activeSource === 'wishlist') { setActive('wishlist'); }
+        });
         header.appendChild(tabs);
         section.append(header, nativeScroller.scroller);
         setActive('kinopoisk');
@@ -645,7 +691,7 @@
 
     function sectionMatches(page, itemId) {
     var section = page && page.querySelector('#kinopoiskRecommendationsSection');
-    return Boolean(section && section.isConnected && section.dataset.itemId === itemId);
+    return Boolean(section && section.isConnected && section.dataset.itemId === itemId && section.dataset.userId === String(getApiClient().getCurrentUserId() || ''));
 }
 
 function clearRetryTimers() {
@@ -680,7 +726,7 @@ function renderCurrentItem(itemId, expectedGeneration) {
         }
 
         var existing = page.querySelector('#kinopoiskRecommendationsSection');
-        if (existing && existing.dataset.itemId === itemId) {
+        if (existing && existing.dataset.itemId === itemId && existing.dataset.userId === String(getApiClient().getCurrentUserId() || '')) {
             applyNativeCardWidth(page, existing);
             clearRetryTimers();
             return;
@@ -778,5 +824,6 @@ if (lifecycle) {
     startRenderCycle();
 }
 window.addEventListener('resize', scheduleImmediateRender);
+document.addEventListener('kinopoisk:personal-user-changed', scheduleImmediateRender);
 console.info('[КиноПоиск] Объединённый блок рекомендаций зарегистрирован.');
 }());

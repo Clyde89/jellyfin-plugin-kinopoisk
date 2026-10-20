@@ -26,7 +26,7 @@ output = PROJECT / 'bin/Release/net10.0'
 files = {name: (output / name).read_bytes() for name in names}
 manifest_source = (PROJECT / 'Services/KinopoiskWebClientBundle.cs').read_text()
 scripts = re.findall(r'"Jellyfin[.]Plugin[.]Kinopoisk[.]Web[.]([^"\s]+[.]js)"', manifest_source)
-if len(scripts) != 12:
+if len(scripts) != 13:
     raise RuntimeError('Состав клиентского bundle изменился')
 bundle = '\n\n'.join((PROJECT / 'Web' / name).read_bytes().decode('utf-8-sig') for name in scripts).encode()
 sha = lambda value: hashlib.sha256(value).hexdigest()

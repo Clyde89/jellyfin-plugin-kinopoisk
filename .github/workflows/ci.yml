@@ -210,6 +210,16 @@ jobs:
           curl --fail --show-error --silent --location "$upstream/src/components/cardbuilder/card.scss" --output "$style_dir/card.scss"
           curl --fail --show-error --silent --location "$upstream/src/elements/emby-button/emby-button.scss" --output "$style_dir/emby-button.scss"
           curl --fail --show-error --silent --location "$upstream/src/components/dialogHelper/dialoghelper.scss" --output "$style_dir/dialoghelper.scss"
+          curl --fail --show-error --silent --location "$upstream/src/components/shortcuts.js" --output "$style_dir/shortcuts.js"
+          curl --fail --show-error --silent --location "$upstream/src/constants/itemAction.ts" --output "$style_dir/itemAction.ts"
+          icon_archive="${style_dir}/icons.tgz"
+          curl --fail --show-error --silent --location https://registry.npmjs.org/material-design-icons-iconfont/-/material-design-icons-iconfont-6.7.0.tgz --output "$icon_archive"
+          python3 - "$icon_archive" <<'PY'
+          import base64, hashlib, pathlib, sys
+          expected = 'lSj71DgVv20kO0kGbs42icDzbRot61gEDBLQACzkUuznRQBUYmbxzEkGU6dNBb5fRWHMaScYlAXX96HQ4/cJWA=='
+          assert hashlib.sha512(pathlib.Path(sys.argv[1]).read_bytes()).digest() == base64.b64decode(expected)
+          PY
+          tar -xOf "$icon_archive" package/dist/fonts/MaterialIcons-Regular.woff2 > "${style_dir}/MaterialIcons-Regular.woff2"
           echo "JELLYFIN_STYLE_DIR=${style_dir}" >> "$GITHUB_ENV"
 
       - name: Подготовлены библиотеки браузера без изменения системы
@@ -313,7 +323,7 @@ jobs:
         if: contains(github.ref_name, 'runtime-review')
         uses: ./kinopoisk-upload-action
         with:
-          name: kinopoisk-12.1.0.6-review.4-systemd
+          name: kinopoisk-12.1.0.6-review.5-systemd
           path: ${{ runner.temp }}/kinopoisk-source/artifacts/kinopoisk-*-systemd.zip
           if-no-files-found: error
           retention-days: 7

@@ -683,9 +683,10 @@
         dialog.appendChild(seasons);
         var actions = element('div', 'kp-recommendation-dialog__actions');
         var kpLink = element('a', 'emby-button', 'КиноПоиск');
-        kpLink.href = source.tmdbId ? 'https://www.themoviedb.org/' + (source.mediaType === 'tv' ? 'tv/' : 'movie/') + encodeURIComponent(source.tmdbId)
+        var tmdbSource = source.tmdbId && !Number(source.kinopoiskId || source.KinopoiskId);
+        kpLink.href = tmdbSource ? 'https://www.themoviedb.org/' + (source.mediaType === 'tv' ? 'tv/' : 'movie/') + encodeURIComponent(source.tmdbId)
             : 'https://www.kinopoisk.ru/film/' + encodeURIComponent(card.dataset.kinopoiskId) + '/';
-        if (source.tmdbId) { kpLink.textContent = 'TMDB'; }
+        if (tmdbSource) { kpLink.textContent = 'TMDB'; }
         kpLink.target = '_blank';
         kpLink.rel = 'noopener noreferrer';
         var cancel = element('button', 'emby-button button-flat', 'Закрыть');
